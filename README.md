@@ -32,6 +32,9 @@ Incus, with PostgreSQL on a private network and the server supervised by
 systemd. OCI images remain an optional interoperability format for Apple
 `container` on macOS and other runtimes; Docker is not required.
 
+See [`deploy/incus/README.md`](deploy/incus/README.md) for the first-run host
+setup.
+
 The first release deliberately keeps uploads and federation out of the public
 API while their privacy, moderation, migration, and onion behavior are being
 specified.
