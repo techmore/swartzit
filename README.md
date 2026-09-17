@@ -16,6 +16,8 @@ export DATABASE_URL=postgres://localhost/swartzit
 cargo run -p swartzit-server -- --seed-demo
 cargo run -p swartzit-server
 curl http://127.0.0.1:8080/api/posts
+# Subscribe without an account or JavaScript
+curl http://127.0.0.1:8080/feed.xml
 # Export public data for migration or backup
 curl http://127.0.0.1:8080/api/export > swartzit-export.json
 ```

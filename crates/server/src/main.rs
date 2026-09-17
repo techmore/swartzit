@@ -184,6 +184,33 @@ async fn export(
         comments,
     }))
 }
+async fn feed(State(db): State<PgPool>) -> Result<axum::response::Response, ApiError> {
+    let posts: Vec<Post> = sqlx::query_as(&format!(
+        "{POST_SELECT} ORDER BY p.created_at DESC, p.id DESC LIMIT 50"
+    ))
+    .fetch_all(&db)
+    .await?;
+    fn xml(value: &str) -> String {
+        value
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&apos;")
+    }
+    let items = posts.into_iter().map(|p| format!("<item><title>{}</title><link>/post/{}</link><guid>/post/{}</guid><description>{}</description><author>u/{}</author><category>c/{}</category><pubDate>{}</pubDate></item>", xml(&p.title), p.id, p.id, xml(&p.body), xml(&p.author), xml(&p.community), p.created_at.to_rfc2822())).collect::<String>();
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\"><channel><title>Swartzit</title><description>Public discussions for communities that belong to their members.</description><link>/</link>{items}</channel></rss>"
+    );
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/rss+xml; charset=utf-8",
+        )],
+        body,
+    )
+        .into_response())
+}
 async fn shutdown() {
     let _ = tokio::signal::ctrl_c().await;
 }
@@ -216,6 +243,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/posts", get(posts))
         .route("/api/posts/{id}", get(post))
         .route("/api/export", get(export))
+        .route("/feed.xml", get(feed))
         .layer(cors)
         .with_state(db);
     let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
