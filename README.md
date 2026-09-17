@@ -28,6 +28,11 @@ curl -X POST http://127.0.0.1:8080/api/accounts \
 curl -X POST http://127.0.0.1:8080/api/sessions \
   -H 'content-type: application/json' \
   -d '{"handle":"river","password":"a long passphrase"}'
+
+# Use the returned token to publish
+curl -X POST http://127.0.0.1:8080/api/posts \
+  -H 'authorization: Bearer TOKEN' -H 'content-type: application/json' \
+  -d '{"community":"commons","title":"A new thought","body":"Hello, commons."}'
 # Export public data for migration or backup
 curl http://127.0.0.1:8080/api/export > swartzit-export.json
 ```

@@ -6,7 +6,7 @@ use argon2::{
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post as post_method},
 };
@@ -127,6 +127,18 @@ struct LoginResponse {
     token: String,
     expires_at: DateTime<Utc>,
 }
+#[derive(Deserialize)]
+struct CreatePostRequest {
+    community: String,
+    title: String,
+    body: String,
+}
+#[derive(Serialize, FromRow)]
+struct CreatedPost {
+    id: i64,
+    title: String,
+    community: String,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -204,6 +216,46 @@ async fn login(
         .execute(&db)
         .await?;
     Ok(Json(LoginResponse { token, expires_at }))
+}
+async fn authenticated_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, ApiError> {
+    let value = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let Some(token) = value.strip_prefix("Bearer ") else {
+        return Err(ApiError::Invalid("Authentication required"));
+    };
+    if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ApiError::Invalid("Authentication required"));
+    }
+    let token_hash = Sha256::digest(token.as_bytes()).to_vec();
+    sqlx::query("DELETE FROM sessions WHERE expires_at <= now()")
+        .execute(db)
+        .await?;
+    sqlx::query_scalar(
+        "SELECT author_id FROM sessions WHERE token_hash = $1 AND expires_at > now()",
+    )
+    .bind(token_hash)
+    .fetch_optional(db)
+    .await?
+    .ok_or(ApiError::Invalid("Authentication required"))
+}
+async fn create_post(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<CreatePostRequest>,
+) -> Result<(StatusCode, Json<CreatedPost>), ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let title = input.title.trim();
+    let body = input.body.trim();
+    let community = input.community.trim().to_ascii_lowercase();
+    if title.is_empty() || title.len() > 300 || body.len() > 50000 {
+        return Err(ApiError::Invalid(
+            "Title or body is outside the allowed length",
+        ));
+    }
+    let result = sqlx::query_as::<_, CreatedPost>("INSERT INTO posts (community_id, author_id, title, body) SELECT id, $1, $2, $3 FROM communities WHERE slug = $4 RETURNING id, title, $4::text AS community").bind(author_id).bind(title).bind(body).bind(&community).fetch_optional(&db).await?;
+    Ok((StatusCode::CREATED, Json(result.ok_or(ApiError::Missing)?)))
 }
 async fn communities(State(db): State<PgPool>) -> Result<Json<Vec<Community>>, ApiError> {
     Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id) AS post_count FROM communities c ORDER BY c.name").fetch_all(&db).await?))
@@ -327,9 +379,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health))
         .route("/api/accounts", post_method(signup))
         .route("/api/sessions", post_method(login))
+        .route("/api/posts", post_method(create_post).get(posts))
         .route("/api/communities", get(communities))
         .route("/api/communities/{slug}", get(community))
-        .route("/api/posts", get(posts))
         .route("/api/posts/{id}", get(post))
         .route("/api/export", get(export))
         .route("/feed.xml", get(feed))
