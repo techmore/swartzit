@@ -29,3 +29,7 @@ Participation endpoints use `Authorization: Bearer <token>`:
 Tokens are returned once at login and stored only as SHA-256 hashes server-side.
 Clients should keep them in a protected credential store and send them only to
 the same Swartzit origin.
+
+Media storage is intentionally separate from posts. Migration `0007_media_assets`
+stores content hashes, media types, sizes, and optional magnet URIs in a
+provider-neutral manifest for future HTTP, IPFS, and WebTorrent delivery.
