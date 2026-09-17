@@ -139,6 +139,19 @@ struct CreatedPost {
     title: String,
     community: String,
 }
+#[derive(Deserialize)]
+struct CreateCommentRequest {
+    body: String,
+    parent_id: Option<i64>,
+}
+#[derive(Serialize, FromRow)]
+struct CreatedComment {
+    id: i64,
+    post_id: i64,
+    parent_id: Option<i64>,
+    body: String,
+    author: String,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -256,6 +269,25 @@ async fn create_post(
     }
     let result = sqlx::query_as::<_, CreatedPost>("INSERT INTO posts (community_id, author_id, title, body) SELECT id, $1, $2, $3 FROM communities WHERE slug = $4 RETURNING id, title, $4::text AS community").bind(author_id).bind(title).bind(body).bind(&community).fetch_optional(&db).await?;
     Ok((StatusCode::CREATED, Json(result.ok_or(ApiError::Missing)?)))
+}
+async fn create_comment(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(post_id): Path<i64>,
+    Json(input): Json<CreateCommentRequest>,
+) -> Result<(StatusCode, Json<CreatedComment>), ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let body = input.body.trim();
+    if body.is_empty() || body.len() > 10000 {
+        return Err(ApiError::Invalid(
+            "Comment must be between 1 and 10000 characters",
+        ));
+    }
+    let result = sqlx::query_as::<_, CreatedComment>("INSERT INTO comments (post_id, author_id, parent_id, body) SELECT $1, $2, $3, $4 WHERE EXISTS (SELECT 1 FROM posts WHERE id = $1) AND ($3::bigint IS NULL OR EXISTS (SELECT 1 FROM comments WHERE id = $3 AND post_id = $1)) RETURNING id, post_id, parent_id, body, (SELECT handle FROM authors WHERE id = $2) AS author").bind(post_id).bind(author_id).bind(input.parent_id).bind(body).fetch_optional(&db).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(result.ok_or(ApiError::Invalid("Post or parent comment was not found"))?),
+    ))
 }
 async fn communities(State(db): State<PgPool>) -> Result<Json<Vec<Community>>, ApiError> {
     Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id) AS post_count FROM communities c ORDER BY c.name").fetch_all(&db).await?))
@@ -383,6 +415,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/communities", get(communities))
         .route("/api/communities/{slug}", get(community))
         .route("/api/posts/{id}", get(post))
+        .route("/api/posts/{id}/comments", post_method(create_comment))
         .route("/api/export", get(export))
         .route("/feed.xml", get(feed))
         .layer(cors)

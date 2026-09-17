@@ -33,6 +33,11 @@ curl -X POST http://127.0.0.1:8080/api/sessions \
 curl -X POST http://127.0.0.1:8080/api/posts \
   -H 'authorization: Bearer TOKEN' -H 'content-type: application/json' \
   -d '{"community":"commons","title":"A new thought","body":"Hello, commons."}'
+
+# Reply to a post (parent_id is optional for a top-level comment)
+curl -X POST http://127.0.0.1:8080/api/posts/1/comments \
+  -H 'authorization: Bearer TOKEN' -H 'content-type: application/json' \
+  -d '{"body":"A thoughtful reply.","parent_id":null}'
 # Export public data for migration or backup
 curl http://127.0.0.1:8080/api/export > swartzit-export.json
 ```
