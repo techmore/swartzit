@@ -477,6 +477,28 @@ async fn posts(
         serde_json::json!({"posts": posts, "has_more": has_more}),
     ))
 }
+async fn home_feed(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Query(query): Query<FeedQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let offset = query.validate()?;
+    let sql = format!(
+        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY p.created_at DESC, p.id DESC LIMIT 21 OFFSET $3"
+    );
+    let mut posts: Vec<Post> = sqlx::query_as(&sql)
+        .bind(author_id)
+        .bind(query.q.as_deref().unwrap_or("").trim())
+        .bind(offset)
+        .fetch_all(&db)
+        .await?;
+    let has_more = posts.len() > 20;
+    posts.truncate(20);
+    Ok(Json(
+        serde_json::json!({"posts": posts, "has_more": has_more}),
+    ))
+}
 async fn post(
     State(db): State<PgPool>,
     Path(id): Path<i64>,
@@ -581,6 +603,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(subscribe).delete(unsubscribe),
         )
         .route("/api/posts/{id}", get(post))
+        .route("/api/home", get(home_feed))
         .route("/api/posts/{id}/comments", post_method(create_comment))
         .route("/api/posts/{id}/vote", post_method(vote))
         .route("/api/export", get(export))

@@ -7,6 +7,7 @@ endpoints require no account:
 - `GET /api/communities/:slug`
 - `GET /api/posts` (`community`, `q`, and bounded `page` query parameters)
 - `GET /api/posts/:id`
+- `GET /api/home` — recent posts from followed communities (authentication required)
 - `GET /api/export` (`community` optional)
 - `GET /feed.xml`
 
