@@ -163,6 +163,10 @@ struct VoteResponse {
     score: i64,
     your_vote: Option<i16>,
 }
+#[derive(Serialize, FromRow)]
+struct CurrentUser {
+    handle: String,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -263,6 +267,15 @@ async fn authenticated_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, A
     .fetch_optional(db)
     .await?
     .ok_or(ApiError::Invalid("Authentication required"))
+}
+async fn me(State(db): State<PgPool>, headers: HeaderMap) -> Result<Json<CurrentUser>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let user = sqlx::query_as::<_, CurrentUser>("SELECT handle FROM authors WHERE id = $1")
+        .bind(author_id)
+        .fetch_optional(&db)
+        .await?
+        .ok_or(ApiError::Invalid("Authentication required"))?;
+    Ok(Json(user))
 }
 async fn create_post(
     State(db): State<PgPool>,
@@ -462,6 +475,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health))
         .route("/api/accounts", post_method(signup))
         .route("/api/sessions", post_method(login))
+        .route("/api/me", get(me))
         .route("/api/posts", post_method(create_post).get(posts))
         .route("/api/communities", get(communities))
         .route("/api/communities/{slug}", get(community))
