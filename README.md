@@ -38,6 +38,11 @@ curl -X POST http://127.0.0.1:8080/api/posts \
 curl -X POST http://127.0.0.1:8080/api/posts/1/comments \
   -H 'authorization: Bearer TOKEN' -H 'content-type: application/json' \
   -d '{"body":"A thoughtful reply.","parent_id":null}'
+
+# Upvote (+1), downvote (-1), or clear a vote (0)
+curl -X POST http://127.0.0.1:8080/api/posts/1/vote \
+  -H 'authorization: Bearer TOKEN' -H 'content-type: application/json' \
+  -d '{"value":1}'
 # Export public data for migration or backup
 curl http://127.0.0.1:8080/api/export > swartzit-export.json
 ```

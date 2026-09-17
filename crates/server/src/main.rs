@@ -61,6 +61,7 @@ struct Post {
     community: String,
     community_name: String,
     comment_count: i64,
+    score: i64,
 }
 #[derive(Serialize, FromRow)]
 struct Comment {
@@ -152,6 +153,16 @@ struct CreatedComment {
     body: String,
     author: String,
 }
+#[derive(Deserialize)]
+struct VoteRequest {
+    value: i16,
+}
+#[derive(Serialize)]
+struct VoteResponse {
+    post_id: i64,
+    score: i64,
+    your_vote: Option<i16>,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -164,7 +175,7 @@ impl FeedQuery {
         Ok((page - 1) * 20)
     }
 }
-const POST_SELECT: &str = "SELECT p.id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
+const POST_SELECT: &str = "SELECT p.id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count, (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
 async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&db).await?;
     Ok(Json(serde_json::json!({"status":"ok"})))
@@ -288,6 +299,46 @@ async fn create_comment(
         StatusCode::CREATED,
         Json(result.ok_or(ApiError::Invalid("Post or parent comment was not found"))?),
     ))
+}
+async fn vote(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(post_id): Path<i64>,
+    Json(input): Json<VoteRequest>,
+) -> Result<Json<VoteResponse>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    if ![-1, 0, 1].contains(&input.value) {
+        return Err(ApiError::Invalid("Vote must be -1, 0, or 1"));
+    }
+    let mut tx = db.begin().await?;
+    if input.value == 0 {
+        sqlx::query("DELETE FROM post_votes WHERE post_id = $1 AND author_id = $2")
+            .bind(post_id)
+            .bind(author_id)
+            .execute(&mut *tx)
+            .await?;
+    } else {
+        sqlx::query("INSERT INTO post_votes (post_id, author_id, value) VALUES ($1, $2, $3) ON CONFLICT (post_id, author_id) DO UPDATE SET value = EXCLUDED.value").bind(post_id).bind(author_id).bind(input.value).execute(&mut *tx).await?;
+    }
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM posts WHERE id = $1)")
+        .bind(post_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if !exists {
+        return Err(ApiError::Missing);
+    }
+    let score: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(value), 0)::bigint FROM post_votes WHERE post_id = $1",
+    )
+    .bind(post_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(VoteResponse {
+        post_id,
+        score,
+        your_vote: (input.value != 0).then_some(input.value),
+    }))
 }
 async fn communities(State(db): State<PgPool>) -> Result<Json<Vec<Community>>, ApiError> {
     Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id) AS post_count FROM communities c ORDER BY c.name").fetch_all(&db).await?))
@@ -416,6 +467,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/communities/{slug}", get(community))
         .route("/api/posts/{id}", get(post))
         .route("/api/posts/{id}/comments", post_method(create_comment))
+        .route("/api/posts/{id}/vote", post_method(vote))
         .route("/api/export", get(export))
         .route("/feed.xml", get(feed))
         .layer(cors)
