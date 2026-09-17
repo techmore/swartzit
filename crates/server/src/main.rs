@@ -371,6 +371,27 @@ async fn unsubscribe(
         subscribed: false,
     }))
 }
+async fn subscription_status(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+) -> Result<Json<SubscriptionResponse>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let community = slug.trim().to_ascii_lowercase();
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM communities WHERE slug = $1)")
+            .bind(&community)
+            .fetch_one(&db)
+            .await?;
+    if !exists {
+        return Err(ApiError::Missing);
+    }
+    let subscribed: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM community_subscriptions s JOIN communities c ON c.id = s.community_id WHERE s.author_id = $1 AND c.slug = $2)").bind(author_id).bind(&community).fetch_one(&db).await?;
+    Ok(Json(SubscriptionResponse {
+        community,
+        subscribed,
+    }))
+}
 async fn create_post(
     State(db): State<PgPool>,
     headers: HeaderMap,
@@ -600,7 +621,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/communities/{slug}", get(community))
         .route(
             "/api/communities/{slug}/subscription",
-            post_method(subscribe).delete(unsubscribe),
+            post_method(subscribe)
+                .delete(unsubscribe)
+                .get(subscription_status),
         )
         .route("/api/posts/{id}", get(post))
         .route("/api/home", get(home_feed))

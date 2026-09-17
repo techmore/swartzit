@@ -20,6 +20,7 @@ Participation endpoints use `Authorization: Bearer <token>`:
 - `POST /api/communities` — create a community
 - `POST /api/communities/:slug/subscription` — follow a community
 - `DELETE /api/communities/:slug/subscription` — unfollow a community
+- `GET /api/communities/:slug/subscription` — inspect follow status
 - `POST /api/posts` — create a text post
 - `POST /api/posts/:id/comments` — create a top-level or child comment
 - `POST /api/posts/:id/vote` — set `value` to `-1`, `0`, or `1`
