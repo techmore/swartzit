@@ -43,6 +43,10 @@ curl -X POST http://127.0.0.1:8080/api/posts/1/comments \
 curl -X POST http://127.0.0.1:8080/api/posts/1/vote \
   -H 'authorization: Bearer TOKEN' -H 'content-type: application/json' \
   -d '{"value":1}'
+
+# Inspect or revoke the current session
+curl http://127.0.0.1:8080/api/me -H 'authorization: Bearer TOKEN'
+curl -X DELETE http://127.0.0.1:8080/api/sessions -H 'authorization: Bearer TOKEN'
 # Export public data for migration or backup
 curl http://127.0.0.1:8080/api/export > swartzit-export.json
 ```
