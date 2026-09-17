@@ -173,6 +173,11 @@ struct CreateCommunityRequest {
     name: String,
     description: Option<String>,
 }
+#[derive(Serialize)]
+struct SubscriptionResponse {
+    community: String,
+    subscribed: bool,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -329,6 +334,42 @@ async fn create_community(
         StatusCode::CREATED,
         Json(community.ok_or(ApiError::Invalid("Could not create community"))?),
     ))
+}
+async fn subscribe(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+) -> Result<Json<SubscriptionResponse>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let community = slug.trim().to_ascii_lowercase();
+    let inserted = sqlx::query("INSERT INTO community_subscriptions (community_id, author_id) SELECT id, $1 FROM communities WHERE slug = $2 ON CONFLICT DO NOTHING").bind(author_id).bind(&community).execute(&db).await?;
+    if inserted.rows_affected() == 0 {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM communities WHERE slug = $1)")
+                .bind(&community)
+                .fetch_one(&db)
+                .await?;
+        if !exists {
+            return Err(ApiError::Missing);
+        }
+    }
+    Ok(Json(SubscriptionResponse {
+        community,
+        subscribed: true,
+    }))
+}
+async fn unsubscribe(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+) -> Result<Json<SubscriptionResponse>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let community = slug.trim().to_ascii_lowercase();
+    sqlx::query("DELETE FROM community_subscriptions WHERE author_id = $1 AND community_id = (SELECT id FROM communities WHERE slug = $2)").bind(author_id).bind(&community).execute(&db).await?;
+    Ok(Json(SubscriptionResponse {
+        community,
+        subscribed: false,
+    }))
 }
 async fn create_post(
     State(db): State<PgPool>,
@@ -535,6 +576,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(create_community).get(communities),
         )
         .route("/api/communities/{slug}", get(community))
+        .route(
+            "/api/communities/{slug}/subscription",
+            post_method(subscribe).delete(unsubscribe),
+        )
         .route("/api/posts/{id}", get(post))
         .route("/api/posts/{id}/comments", post_method(create_comment))
         .route("/api/posts/{id}/vote", post_method(vote))
