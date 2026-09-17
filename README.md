@@ -23,6 +23,11 @@ curl http://127.0.0.1:8080/feed.xml
 curl -X POST http://127.0.0.1:8080/api/accounts \
   -H 'content-type: application/json' \
   -d '{"handle":"river","password":"a long passphrase"}'
+
+# Start a 30-day session
+curl -X POST http://127.0.0.1:8080/api/sessions \
+  -H 'content-type: application/json' \
+  -d '{"handle":"river","password":"a long passphrase"}'
 # Export public data for migration or backup
 curl http://127.0.0.1:8080/api/export > swartzit-export.json
 ```

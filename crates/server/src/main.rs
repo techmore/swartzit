@@ -1,3 +1,4 @@
+use argon2::PasswordVerifier;
 use argon2::{
     Argon2, PasswordHasher,
     password_hash::{SaltString, rand_core::OsRng},
@@ -10,7 +11,9 @@ use axum::{
     routing::{get, post as post_method},
 };
 use chrono::{DateTime, Utc};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 use tower_http::cors::{Any, CorsLayer};
 
@@ -114,6 +117,16 @@ struct SignupRequest {
 struct SignupResponse {
     handle: String,
 }
+#[derive(Deserialize)]
+struct LoginRequest {
+    handle: String,
+    password: String,
+}
+#[derive(Serialize)]
+struct LoginResponse {
+    token: String,
+    expires_at: DateTime<Utc>,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -160,6 +173,37 @@ async fn signup(
         return Err(ApiError::Invalid("That handle is already in use"));
     }
     Ok((StatusCode::CREATED, Json(SignupResponse { handle })))
+}
+async fn login(
+    State(db): State<PgPool>,
+    Json(input): Json<LoginRequest>,
+) -> Result<Json<LoginResponse>, ApiError> {
+    let handle = input.handle.trim().to_ascii_lowercase();
+    let hash: Option<(i64, String)> =
+        sqlx::query_as("SELECT id, password_hash FROM authors WHERE handle = $1")
+            .bind(&handle)
+            .fetch_optional(&db)
+            .await?;
+    let Some((author_id, password_hash)) = hash else {
+        return Err(ApiError::Invalid("Invalid handle or password"));
+    };
+    let parsed = argon2::PasswordHash::new(&password_hash)
+        .map_err(|_| ApiError::Invalid("Invalid handle or password"))?;
+    Argon2::default()
+        .verify_password(input.password.as_bytes(), &parsed)
+        .map_err(|_| ApiError::Invalid("Invalid handle or password"))?;
+    let mut token_bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut token_bytes);
+    let token = hex::encode(token_bytes);
+    let token_hash = Sha256::digest(token.as_bytes()).to_vec();
+    let expires_at = Utc::now() + chrono::Duration::days(30);
+    sqlx::query("INSERT INTO sessions (token_hash, author_id, expires_at) VALUES ($1, $2, $3)")
+        .bind(token_hash)
+        .bind(author_id)
+        .bind(expires_at)
+        .execute(&db)
+        .await?;
+    Ok(Json(LoginResponse { token, expires_at }))
 }
 async fn communities(State(db): State<PgPool>) -> Result<Json<Vec<Community>>, ApiError> {
     Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id) AS post_count FROM communities c ORDER BY c.name").fetch_all(&db).await?))
@@ -282,6 +326,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/accounts", post_method(signup))
+        .route("/api/sessions", post_method(login))
         .route("/api/communities", get(communities))
         .route("/api/communities/{slug}", get(community))
         .route("/api/posts", get(posts))
