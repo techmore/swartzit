@@ -27,3 +27,7 @@ forward to the loopback API without a public address or DNS name.
 
 Keep `/srv/swartzit` backed up. It is the natural home for restored exports,
 media manifests, and future signing keys.
+
+For a conventional HTTPS host, point the proxy device at Caddy instead of the
+application and use `deploy/caddy/Caddyfile`. Caddy should be the only service
+bound to the public interface; the Swartzit API remains on loopback.

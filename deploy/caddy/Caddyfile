@@ -1,0 +1,6 @@
+# Replace the hostname with the operator’s domain. Onion-only hosts do not use
+# this file; Tor forwards directly to 127.0.0.1:8080 instead.
+example.org {
+    encode gzip zstd
+    reverse_proxy 127.0.0.1:8080
+}
