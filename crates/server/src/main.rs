@@ -167,6 +167,12 @@ struct VoteResponse {
 struct CurrentUser {
     handle: String,
 }
+#[derive(Deserialize)]
+struct CreateCommunityRequest {
+    slug: String,
+    name: String,
+    description: Option<String>,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -294,6 +300,35 @@ async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCo
         .execute(&db)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+async fn create_community(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<CreateCommunityRequest>,
+) -> Result<(StatusCode, Json<Community>), ApiError> {
+    let _author_id = authenticated_author(&headers, &db).await?;
+    let slug = input.slug.trim().to_ascii_lowercase();
+    let name = input.name.trim();
+    let description = input.description.as_deref().unwrap_or("").trim();
+    if !(1..=40).contains(&slug.len())
+        || !slug
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    {
+        return Err(ApiError::Invalid(
+            "Slug must be 1-40 lowercase letters, numbers, or underscores",
+        ));
+    }
+    if name.is_empty() || name.len() > 100 || description.len() > 1000 {
+        return Err(ApiError::Invalid(
+            "Community name or description is outside the allowed length",
+        ));
+    }
+    let community = sqlx::query_as::<_, Community>("INSERT INTO communities (slug, name, description) VALUES ($1, $2, $3) RETURNING slug, name, description, 0::bigint AS post_count").bind(&slug).bind(name).bind(description).fetch_optional(&db).await.map_err(|e| if matches!(e, sqlx::Error::Database(ref db) if db.constraint() == Some("communities_slug_key")) { ApiError::Invalid("That community slug is already in use") } else { ApiError::Database(e) })?;
+    Ok((
+        StatusCode::CREATED,
+        Json(community.ok_or(ApiError::Invalid("Could not create community"))?),
+    ))
 }
 async fn create_post(
     State(db): State<PgPool>,
@@ -495,7 +530,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/sessions", post_method(login).delete(logout))
         .route("/api/me", get(me))
         .route("/api/posts", post_method(create_post).get(posts))
-        .route("/api/communities", get(communities))
+        .route(
+            "/api/communities",
+            post_method(create_community).get(communities),
+        )
         .route("/api/communities/{slug}", get(community))
         .route("/api/posts/{id}", get(post))
         .route("/api/posts/{id}/comments", post_method(create_comment))

@@ -30,6 +30,10 @@ curl -X POST http://127.0.0.1:8080/api/sessions \
   -d '{"handle":"river","password":"a long passphrase"}'
 
 # Use the returned token to publish
+curl -X POST http://127.0.0.1:8080/api/communities \
+  -H 'authorization: Bearer TOKEN' -H 'content-type: application/json' \
+  -d '{"slug":"localnet","name":"Local Net","description":"A community with its own home."}'
+
 curl -X POST http://127.0.0.1:8080/api/posts \
   -H 'authorization: Bearer TOKEN' -H 'content-type: application/json' \
   -d '{"community":"commons","title":"A new thought","body":"Hello, commons."}'
