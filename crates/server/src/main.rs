@@ -277,6 +277,24 @@ async fn me(State(db): State<PgPool>, headers: HeaderMap) -> Result<Json<Current
         .ok_or(ApiError::Invalid("Authentication required"))?;
     Ok(Json(user))
 }
+async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
+    let value = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let Some(token) = value.strip_prefix("Bearer ") else {
+        return Err(ApiError::Invalid("Authentication required"));
+    };
+    if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ApiError::Invalid("Authentication required"));
+    }
+    let token_hash = Sha256::digest(token.as_bytes()).to_vec();
+    sqlx::query("DELETE FROM sessions WHERE token_hash = $1")
+        .bind(token_hash)
+        .execute(&db)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
 async fn create_post(
     State(db): State<PgPool>,
     headers: HeaderMap,
@@ -474,7 +492,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/accounts", post_method(signup))
-        .route("/api/sessions", post_method(login))
+        .route("/api/sessions", post_method(login).delete(logout))
         .route("/api/me", get(me))
         .route("/api/posts", post_method(create_post).get(posts))
         .route("/api/communities", get(communities))
