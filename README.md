@@ -13,6 +13,9 @@ Requirements: Rust stable and PostgreSQL 14+.
 Copy `.env.example` to a private environment file and change the database
 credentials before starting the server.
 
+Common checks are also available through `make check`, `make test`, `make fmt`,
+and `make web-build`.
+
 ```sh
 createdb swartzit
 export DATABASE_URL=postgres://localhost/swartzit
