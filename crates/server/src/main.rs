@@ -189,6 +189,21 @@ struct ReportResponse {
     id: i64,
     reason: String,
 }
+#[derive(Deserialize)]
+struct RegisterMediaRequest {
+    content_hash: String,
+    media_type: String,
+    byte_size: i64,
+    magnet_uri: Option<String>,
+}
+#[derive(Serialize, FromRow)]
+struct MediaAsset {
+    id: i64,
+    content_hash: String,
+    media_type: String,
+    byte_size: i64,
+    magnet_uri: Option<String>,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -435,6 +450,32 @@ async fn report(
     let row = sqlx::query_as::<_, ReportResponse>("INSERT INTO reports (reporter_id, post_id, comment_id, reason) VALUES ($1, $2, $3, $4) RETURNING id, reason").bind(reporter_id).bind(input.post_id).bind(input.comment_id).bind(reason).fetch_one(&db).await?;
     Ok((StatusCode::CREATED, Json(row)))
 }
+async fn register_media(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<RegisterMediaRequest>,
+) -> Result<(StatusCode, Json<MediaAsset>), ApiError> {
+    let _author_id = authenticated_author(&headers, &db).await?;
+    let hash = input.content_hash.trim().to_ascii_lowercase();
+    let media_type = input.media_type.trim().to_ascii_lowercase();
+    if hash.len() < 32 || hash.len() > 128 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ApiError::Invalid(
+            "Content hash must be a hexadecimal digest",
+        ));
+    }
+    if !["image", "video", "audio", "file"].contains(&media_type.as_str()) || input.byte_size < 0 {
+        return Err(ApiError::Invalid("Media type or size is invalid"));
+    }
+    if input
+        .magnet_uri
+        .as_ref()
+        .is_some_and(|uri| !uri.starts_with("magnet:?"))
+    {
+        return Err(ApiError::Invalid("Magnet URI must start with magnet:?"));
+    }
+    let row = sqlx::query_as::<_, MediaAsset>("INSERT INTO media_assets (content_hash, media_type, byte_size, magnet_uri) VALUES ($1, $2, $3, $4) ON CONFLICT (content_hash) DO UPDATE SET magnet_uri = COALESCE(EXCLUDED.magnet_uri, media_assets.magnet_uri) RETURNING id, content_hash, media_type, byte_size, magnet_uri").bind(hash).bind(media_type).bind(input.byte_size).bind(input.magnet_uri).fetch_one(&db).await?;
+    Ok((StatusCode::CREATED, Json(row)))
+}
 async fn create_post(
     State(db): State<PgPool>,
     headers: HeaderMap,
@@ -673,6 +714,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/posts/{id}/comments", post_method(create_comment))
         .route("/api/posts/{id}/vote", post_method(vote))
         .route("/api/reports", post_method(report))
+        .route("/api/media", post_method(register_media))
         .route("/api/export", get(export))
         .route("/feed.xml", get(feed))
         .layer(cors)
