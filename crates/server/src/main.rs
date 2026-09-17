@@ -8,6 +8,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Debug)]
 enum ApiError {
@@ -153,12 +154,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         seed(&db).await?;
         return Ok(());
     }
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/communities", get(communities))
         .route("/api/communities/{slug}", get(community))
         .route("/api/posts", get(posts))
         .route("/api/posts/{id}", get(post))
+        .layer(cors)
         .with_state(db);
     let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
