@@ -63,6 +63,38 @@ struct Comment {
     author: String,
     created_at: DateTime<Utc>,
 }
+#[derive(Serialize)]
+struct ExportBundle {
+    format: &'static str,
+    exported_at: DateTime<Utc>,
+    communities: Vec<CommunityExport>,
+    posts: Vec<PostExport>,
+    comments: Vec<CommentExport>,
+}
+#[derive(Serialize, FromRow)]
+struct CommunityExport {
+    slug: String,
+    name: String,
+    description: String,
+}
+#[derive(Serialize, FromRow)]
+struct PostExport {
+    id: i64,
+    community: String,
+    author: String,
+    title: String,
+    body: String,
+    created_at: DateTime<Utc>,
+}
+#[derive(Serialize, FromRow)]
+struct CommentExport {
+    id: i64,
+    post_id: i64,
+    parent_id: Option<i64>,
+    author: String,
+    body: String,
+    created_at: DateTime<Utc>,
+}
 #[derive(Deserialize, Default)]
 struct FeedQuery {
     community: Option<String>,
@@ -133,6 +165,25 @@ async fn post(
         serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated}),
     ))
 }
+async fn export(
+    State(db): State<PgPool>,
+    Query(query): Query<FeedQuery>,
+) -> Result<Json<ExportBundle>, ApiError> {
+    query.validate()?;
+    let communities: Vec<CommunityExport> = sqlx::query_as("SELECT slug, name, description FROM communities WHERE ($1::text IS NULL OR slug = $1) ORDER BY slug")
+        .bind(&query.community).fetch_all(&db).await?;
+    let posts: Vec<PostExport> = sqlx::query_as("SELECT p.id, c.slug AS community, a.handle AS author, p.title, p.body, p.created_at FROM posts p JOIN communities c ON c.id = p.community_id JOIN authors a ON a.id = p.author_id WHERE ($1::text IS NULL OR c.slug = $1) ORDER BY p.id LIMIT 10000")
+        .bind(&query.community).fetch_all(&db).await?;
+    let comments: Vec<CommentExport> = sqlx::query_as("SELECT cm.id, cm.post_id, cm.parent_id, a.handle AS author, cm.body, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id JOIN posts p ON p.id = cm.post_id JOIN communities c ON c.id = p.community_id WHERE ($1::text IS NULL OR c.slug = $1) ORDER BY cm.id LIMIT 50000")
+        .bind(&query.community).fetch_all(&db).await?;
+    Ok(Json(ExportBundle {
+        format: "swartzit-public-v1",
+        exported_at: Utc::now(),
+        communities,
+        posts,
+        comments,
+    }))
+}
 async fn shutdown() {
     let _ = tokio::signal::ctrl_c().await;
 }
@@ -164,6 +215,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/communities/{slug}", get(community))
         .route("/api/posts", get(posts))
         .route("/api/posts/{id}", get(post))
+        .route("/api/export", get(export))
         .layer(cors)
         .with_state(db);
     let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());

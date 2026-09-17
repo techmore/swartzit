@@ -16,6 +16,11 @@ replication, and migration.
 The application should bind to loopback inside a host. Caddy or Tor forwards to
 it. Onion-only installations do not need a public DNS name or inbound port.
 
+`GET /api/export` emits the bounded `swartzit-public-v1` JSON format. It is
+intended as a portable public-data snapshot and accepts `?community=slug` for a
+single community. Private account credentials and moderation records will not
+be included in this public export format.
+
 ## Portability
 
 Backups contain PostgreSQL data, media manifests, and signing keys. A host can
