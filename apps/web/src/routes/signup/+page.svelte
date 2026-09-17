@@ -1,0 +1,7 @@
+<script>
+  let handle = '', password = '', message = '', error = '';
+  async function submit() { error = ''; message = ''; const response = await fetch('/api/accounts', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ handle, password }) }); const data = await response.json(); if (!response.ok) { error = data.error ?? 'Could not create account'; return; } message = `Account created for u/${data.handle}. You can sign in now.`; }
+</script>
+<svelte:head><title>Create account — Swartzit</title></svelte:head>
+<header><a class="brand" href="/">swartzit</a><span>Read freely. Participate under a pseudonym. Take your community with you.</span><a class="login" href="/login">Sign in</a></header>
+<main class="auth"><p class="eyebrow">PARTICIPATE UNDER A PSEUDONYM</p><h1>Create your account</h1><p class="lede">Choose a handle for your conversations. No real name or external identity provider is required.</p><form on:submit|preventDefault={submit}><label>Handle<input bind:value={handle} autocomplete="username" required minlength="3" maxlength="32" pattern="[a-zA-Z0-9_]+" /></label><label>Password<input type="password" bind:value={password} autocomplete="new-password" required minlength="12" /></label><button>Create account</button></form>{#if error}<p class="form-error">{error}</p>{/if}{#if message}<p class="form-message">{message}</p>{/if}<p class="switch">Already have an account? <a href="/login">Sign in</a>.</p></main>
