@@ -204,6 +204,11 @@ struct MediaAsset {
     byte_size: i64,
     magnet_uri: Option<String>,
 }
+#[derive(Deserialize)]
+struct AttachMediaRequest {
+    media_id: i64,
+    position: Option<i16>,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -476,6 +481,23 @@ async fn register_media(
     let row = sqlx::query_as::<_, MediaAsset>("INSERT INTO media_assets (content_hash, media_type, byte_size, magnet_uri) VALUES ($1, $2, $3, $4) ON CONFLICT (content_hash) DO UPDATE SET magnet_uri = COALESCE(EXCLUDED.magnet_uri, media_assets.magnet_uri) RETURNING id, content_hash, media_type, byte_size, magnet_uri").bind(hash).bind(media_type).bind(input.byte_size).bind(input.magnet_uri).fetch_one(&db).await?;
     Ok((StatusCode::CREATED, Json(row)))
 }
+async fn attach_media(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(post_id): Path<i64>,
+    Json(input): Json<AttachMediaRequest>,
+) -> Result<StatusCode, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let position = input.position.unwrap_or(0);
+    if position < 0 {
+        return Err(ApiError::Invalid("Media position must be non-negative"));
+    }
+    let result = sqlx::query("INSERT INTO post_media (post_id, media_id, position) SELECT p.id, m.id, $3 FROM posts p CROSS JOIN media_assets m WHERE p.id = $1 AND p.author_id = $2 AND m.id = $4 ON CONFLICT (post_id, media_id) DO UPDATE SET position = EXCLUDED.position").bind(post_id).bind(author_id).bind(position).bind(input.media_id).execute(&db).await?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::Invalid("Post or media asset was not found"));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
 async fn create_post(
     State(db): State<PgPool>,
     headers: HeaderMap,
@@ -715,6 +737,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/posts/{id}/vote", post_method(vote))
         .route("/api/reports", post_method(report))
         .route("/api/media", post_method(register_media))
+        .route("/api/posts/{id}/media", post_method(attach_media))
         .route("/api/export", get(export))
         .route("/feed.xml", get(feed))
         .layer(cors)
