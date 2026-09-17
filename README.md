@@ -10,6 +10,9 @@ threaded comments, and PostgreSQL full-text search.
 
 Requirements: Rust stable and PostgreSQL 14+.
 
+Copy `.env.example` to a private environment file and change the database
+credentials before starting the server.
+
 ```sh
 createdb swartzit
 export DATABASE_URL=postgres://localhost/swartzit
