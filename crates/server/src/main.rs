@@ -178,6 +178,17 @@ struct SubscriptionResponse {
     community: String,
     subscribed: bool,
 }
+#[derive(Deserialize)]
+struct ReportRequest {
+    reason: String,
+    post_id: Option<i64>,
+    comment_id: Option<i64>,
+}
+#[derive(Serialize, FromRow)]
+struct ReportResponse {
+    id: i64,
+    reason: String,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -391,6 +402,38 @@ async fn subscription_status(
         community,
         subscribed,
     }))
+}
+async fn report(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<ReportRequest>,
+) -> Result<(StatusCode, Json<ReportResponse>), ApiError> {
+    let reporter_id = authenticated_author(&headers, &db).await?;
+    let reason = input.reason.trim();
+    if reason.is_empty()
+        || reason.len() > 1000
+        || input.post_id.is_some() == input.comment_id.is_some()
+    {
+        return Err(ApiError::Invalid(
+            "Provide a reason and exactly one post_id or comment_id",
+        ));
+    }
+    let valid: bool = if let Some(post_id) = input.post_id {
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM posts WHERE id = $1)")
+            .bind(post_id)
+            .fetch_one(&db)
+            .await?
+    } else {
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM comments WHERE id = $1)")
+            .bind(input.comment_id)
+            .fetch_one(&db)
+            .await?
+    };
+    if !valid {
+        return Err(ApiError::Missing);
+    }
+    let row = sqlx::query_as::<_, ReportResponse>("INSERT INTO reports (reporter_id, post_id, comment_id, reason) VALUES ($1, $2, $3, $4) RETURNING id, reason").bind(reporter_id).bind(input.post_id).bind(input.comment_id).bind(reason).fetch_one(&db).await?;
+    Ok((StatusCode::CREATED, Json(row)))
 }
 async fn create_post(
     State(db): State<PgPool>,
@@ -629,6 +672,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/home", get(home_feed))
         .route("/api/posts/{id}/comments", post_method(create_comment))
         .route("/api/posts/{id}/vote", post_method(vote))
+        .route("/api/reports", post_method(report))
         .route("/api/export", get(export))
         .route("/feed.xml", get(feed))
         .layer(cors)

@@ -24,6 +24,7 @@ Participation endpoints use `Authorization: Bearer <token>`:
 - `POST /api/posts` — create a text post
 - `POST /api/posts/:id/comments` — create a top-level or child comment
 - `POST /api/posts/:id/vote` — set `value` to `-1`, `0`, or `1`
+- `POST /api/reports` — report exactly one post or comment with a reason
 
 Tokens are returned once at login and stored only as SHA-256 hashes server-side.
 Clients should keep them in a protected credential store and send them only to
