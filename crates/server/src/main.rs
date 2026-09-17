@@ -639,8 +639,9 @@ async fn post(
     let mut comments: Vec<Comment> = sqlx::query_as("SELECT cm.id, cm.parent_id, cm.body, a.handle AS author, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id WHERE cm.post_id = $1 ORDER BY cm.id LIMIT 501").bind(id).fetch_all(&db).await?;
     let comments_truncated = comments.len() > 500;
     comments.truncate(500);
+    let media: Vec<MediaAsset> = sqlx::query_as("SELECT m.id, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id WHERE pm.post_id = $1 ORDER BY pm.position, m.id").bind(id).fetch_all(&db).await?;
     Ok(Json(
-        serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated}),
+        serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media}),
     ))
 }
 async fn export(
