@@ -18,6 +18,11 @@ cargo run -p swartzit-server
 curl http://127.0.0.1:8080/api/posts
 # Subscribe without an account or JavaScript
 curl http://127.0.0.1:8080/feed.xml
+
+# Create a pseudonymous account (passwords are stored as Argon2 hashes)
+curl -X POST http://127.0.0.1:8080/api/accounts \
+  -H 'content-type: application/json' \
+  -d '{"handle":"river","password":"a long passphrase"}'
 # Export public data for migration or backup
 curl http://127.0.0.1:8080/api/export > swartzit-export.json
 ```

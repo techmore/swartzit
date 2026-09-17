@@ -1,0 +1,2 @@
+ALTER TABLE authors ADD COLUMN password_hash TEXT;
+ALTER TABLE authors ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT now();

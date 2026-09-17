@@ -1,9 +1,13 @@
+use argon2::{
+    Argon2, PasswordHasher,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post as post_method},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -101,6 +105,15 @@ struct FeedQuery {
     q: Option<String>,
     page: Option<i64>,
 }
+#[derive(Deserialize)]
+struct SignupRequest {
+    handle: String,
+    password: String,
+}
+#[derive(Serialize)]
+struct SignupResponse {
+    handle: String,
+}
 impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
@@ -117,6 +130,36 @@ const POST_SELECT: &str = "SELECT p.id, p.title, p.body, p.created_at, a.handle 
 async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&db).await?;
     Ok(Json(serde_json::json!({"status":"ok"})))
+}
+async fn signup(
+    State(db): State<PgPool>,
+    Json(input): Json<SignupRequest>,
+) -> Result<(StatusCode, Json<SignupResponse>), ApiError> {
+    let handle = input.handle.trim().to_ascii_lowercase();
+    if !(3..=32).contains(&handle.len())
+        || !handle
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    {
+        return Err(ApiError::Invalid(
+            "Handle must be 3-32 lowercase letters, numbers, or underscores",
+        ));
+    }
+    if input.password.len() < 12 || input.password.len() > 256 {
+        return Err(ApiError::Invalid(
+            "Password must be between 12 and 256 characters",
+        ));
+    }
+    let salt = SaltString::generate(&mut OsRng);
+    let hash = Argon2::default()
+        .hash_password(input.password.as_bytes(), &salt)
+        .map_err(|_| ApiError::Invalid("Could not create account"))?
+        .to_string();
+    let inserted = sqlx::query_scalar::<_, String>("INSERT INTO authors (handle, password_hash) VALUES ($1, $2) ON CONFLICT (handle) DO NOTHING RETURNING handle").bind(&handle).bind(hash).fetch_optional(&db).await?;
+    if inserted.is_none() {
+        return Err(ApiError::Invalid("That handle is already in use"));
+    }
+    Ok((StatusCode::CREATED, Json(SignupResponse { handle })))
 }
 async fn communities(State(db): State<PgPool>) -> Result<Json<Vec<Community>>, ApiError> {
     Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id) AS post_count FROM communities c ORDER BY c.name").fetch_all(&db).await?))
@@ -238,6 +281,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_headers(Any);
     let app = Router::new()
         .route("/health", get(health))
+        .route("/api/accounts", post_method(signup))
         .route("/api/communities", get(communities))
         .route("/api/communities/{slug}", get(community))
         .route("/api/posts", get(posts))
