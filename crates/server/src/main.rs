@@ -237,6 +237,11 @@ async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, Api
     sqlx::query("SELECT 1").execute(&db).await?;
     Ok(Json(serde_json::json!({"status":"ok"})))
 }
+async fn nodeinfo() -> Json<serde_json::Value> {
+    Json(
+        serde_json::json!({"version":"2.0","software":{"name":"swartzit","version":env!("CARGO_PKG_VERSION")},"protocols":[],"usage":{"users":{"total":null},"localPosts":null},"openRegistrations":true}),
+    )
+}
 async fn signup(
     State(db): State<PgPool>,
     Json(input): Json<SignupRequest>,
@@ -737,6 +742,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_headers(Any);
     let app = Router::new()
         .route("/health", get(health))
+        .route("/.well-known/nodeinfo", get(nodeinfo))
         .route("/api/accounts", post_method(signup))
         .route("/api/sessions", post_method(login).delete(logout))
         .route("/api/me", get(me))

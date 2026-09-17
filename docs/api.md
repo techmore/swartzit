@@ -10,6 +10,7 @@ endpoints require no account:
 - `GET /api/home` — recent posts from followed communities (authentication required)
 - `GET /api/export` (`community` optional)
 - `GET /feed.xml`
+- `GET /.well-known/nodeinfo` — public instance metadata
 
 Participation endpoints use `Authorization: Bearer <token>`:
 
