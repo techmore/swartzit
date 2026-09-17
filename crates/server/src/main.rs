@@ -78,6 +78,7 @@ struct ExportBundle {
     communities: Vec<CommunityExport>,
     posts: Vec<PostExport>,
     comments: Vec<CommentExport>,
+    media: Vec<ExportMedia>,
 }
 #[derive(Serialize, FromRow)]
 struct CommunityExport {
@@ -102,6 +103,16 @@ struct CommentExport {
     author: String,
     body: String,
     created_at: DateTime<Utc>,
+}
+#[derive(Serialize, FromRow)]
+struct ExportMedia {
+    post_id: i64,
+    media_id: i64,
+    position: i16,
+    content_hash: String,
+    media_type: String,
+    byte_size: i64,
+    magnet_uri: Option<String>,
 }
 #[derive(Deserialize, Default)]
 struct FeedQuery {
@@ -661,12 +672,15 @@ async fn export(
         .bind(&query.community).fetch_all(&db).await?;
     let comments: Vec<CommentExport> = sqlx::query_as("SELECT cm.id, cm.post_id, cm.parent_id, a.handle AS author, cm.body, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id JOIN posts p ON p.id = cm.post_id JOIN communities c ON c.id = p.community_id WHERE ($1::text IS NULL OR c.slug = $1) ORDER BY cm.id LIMIT 50000")
         .bind(&query.community).fetch_all(&db).await?;
+    let media: Vec<ExportMedia> = sqlx::query_as("SELECT pm.post_id, pm.media_id, pm.position, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id JOIN posts p ON p.id = pm.post_id JOIN communities c ON c.id = p.community_id WHERE ($1::text IS NULL OR c.slug = $1) ORDER BY pm.post_id, pm.position LIMIT 50000")
+        .bind(&query.community).fetch_all(&db).await?;
     Ok(Json(ExportBundle {
         format: "swartzit-public-v1",
         exported_at: Utc::now(),
         communities,
         posts,
         comments,
+        media,
     }))
 }
 async fn feed(State(db): State<PgPool>) -> Result<axum::response::Response, ApiError> {
