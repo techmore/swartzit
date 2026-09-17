@@ -27,6 +27,7 @@ Participation endpoints use `Authorization: Bearer <token>`:
 - `POST /api/reports` — report exactly one post or comment with a reason
 - `POST /api/media` — register a content hash and optional magnet URI
 - `POST /api/posts/:id/media` — attach a registered asset to its author’s post
+- `GET /api/media/:id` — resolve public media metadata
 
 Tokens are returned once at login and stored only as SHA-256 hashes server-side.
 Clients should keep them in a protected credential store and send them only to

@@ -498,6 +498,12 @@ async fn attach_media(
     }
     Ok(StatusCode::NO_CONTENT)
 }
+async fn media(
+    State(db): State<PgPool>,
+    Path(id): Path<i64>,
+) -> Result<Json<MediaAsset>, ApiError> {
+    Ok(Json(sqlx::query_as::<_, MediaAsset>("SELECT id, content_hash, media_type, byte_size, magnet_uri FROM media_assets WHERE id = $1").bind(id).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
+}
 async fn create_post(
     State(db): State<PgPool>,
     headers: HeaderMap,
@@ -739,6 +745,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/reports", post_method(report))
         .route("/api/media", post_method(register_media))
         .route("/api/posts/{id}/media", post_method(attach_media))
+        .route("/api/media/{id}", get(media))
         .route("/api/export", get(export))
         .route("/feed.xml", get(feed))
         .layer(cors)
