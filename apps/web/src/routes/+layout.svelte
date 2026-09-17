@@ -1,1 +1,1 @@
-<script>import '../app.css';</script><slot />
+<script>import '../app.css'; import '../forms.css';</script><slot />

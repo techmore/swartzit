@@ -277,11 +277,12 @@ async fn login(
     Json(input): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
     let handle = input.handle.trim().to_ascii_lowercase();
-    let hash: Option<(i64, String)> =
-        sqlx::query_as("SELECT id, password_hash FROM authors WHERE handle = $1")
-            .bind(&handle)
-            .fetch_optional(&db)
-            .await?;
+    let hash: Option<(i64, String)> = sqlx::query_as(
+        "SELECT id, password_hash FROM authors WHERE handle = $1 AND password_hash IS NOT NULL",
+    )
+    .bind(&handle)
+    .fetch_optional(&db)
+    .await?;
     let Some((author_id, password_hash)) = hash else {
         return Err(ApiError::Invalid("Invalid handle or password"));
     };

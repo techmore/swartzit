@@ -1,6 +1,6 @@
 <script>
   let handle = '', password = '', message = '', error = '';
-  async function submit() { error = ''; message = ''; const response = await fetch('/api/sessions', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ handle, password }) }); const data = await response.json(); if (!response.ok) { error = data.error ?? 'Could not sign in'; return; } localStorage.setItem('swartzit_session', data.token); message = `Signed in as u/${handle.toLowerCase()}.`; }
+  async function submit() { error = ''; message = ''; const response = await fetch('/api/sessions', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ handle, password }) }); const data = await response.json(); if (!response.ok) { error = data.error ?? 'Could not sign in'; return; } localStorage.setItem('swartzit_session', data.token); window.location.assign('/'); }
 </script>
 <svelte:head><title>Sign in — Swartzit</title></svelte:head>
 <header><a class="brand" href="/">swartzit</a><span>Read freely. Participate under a pseudonym. Take your community with you.</span><a class="login" href="/signup">Create account</a></header>

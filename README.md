@@ -8,6 +8,28 @@ threaded comments, and PostgreSQL full-text search.
 
 ## Development
 
+### Run on this Mac
+
+With Apple `container`, Rust, and Node.js installed:
+
+```sh
+bash scripts/run-local.sh
+```
+
+Open http://127.0.0.1:4173. The script runs PostgreSQL in an Apple Linux
+container with a persistent named volume, seeds sample discussions only on an
+empty instance, and starts the Rust API and standalone SvelteKit website.
+Create your own account through **Create account**; the seeded authors are
+display-only identities without passwords. The local database password is a
+development credential and must not be reused for public hosting.
+
+The website uses port 4173, the API 18080, and PostgreSQL 54329, all on loopback.
+Ctrl-C stops the website and API. Stop PostgreSQL separately with
+`container stop swartzit-db`; its named volume retains the data.
+
+This is a local prototype. Federation, full community migration/import, media
+transfer, and moderator workflows are not implemented yet.
+
 Requirements: Rust stable and PostgreSQL 14+.
 
 Copy `.env.example` to a private environment file and change the database
