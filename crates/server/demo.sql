@@ -1,8 +1,10 @@
-INSERT INTO authors (handle) VALUES ('river'), ('moss'), ('ada');
+INSERT INTO authors (handle) VALUES ('river'), ('moss'), ('ada')
+ON CONFLICT (handle) DO NOTHING;
 INSERT INTO communities (slug, name, description) VALUES
 ('commons', 'The Commons', 'A place to think out loud about an internet that belongs to its communities.'),
 ('selfhosted', 'Self-hosted', 'Small servers, independent communities, and the things we learn by running them.'),
-('opensource', 'Open Source', 'Tools, ideas, and knowledge we can build on together.');
+('opensource', 'Open Source', 'Tools, ideas, and knowledge we can build on together.')
+ON CONFLICT (slug) DO NOTHING;
 INSERT INTO posts (community_id, author_id, title, body, created_at) VALUES
 ((SELECT id FROM communities WHERE slug='commons'), (SELECT id FROM authors WHERE handle='river'), 'What would an internet built for its communities look like?', 'Read freely. Participate under a pseudonym. Take your community with you.\n\nThose are the principles behind Swartzit. This is a sample discussion in the first working prototype. What would make a community feel like a place you actually have a stake in?', now() - interval '1 hour'),
 ((SELECT id FROM communities WHERE slug='selfhosted'), (SELECT id FROM authors WHERE handle='moss'), 'A community should be able to start on a spare computer', 'You should not need a cloud subscription or a purchased domain to give a community a home.\n\nWe are exploring Linux hosting with Incus and optional onion services. Reliable backups and a clear upgrade path matter just as much as the first install.', now() - interval '2 hours'),

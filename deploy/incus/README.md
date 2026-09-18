@@ -1,5 +1,10 @@
 # Incus quickstart
 
+This is an early infrastructure sketch, not a tested production installer.
+It describes API setup only; also run the Node website with `API_URL` pointing
+to the private Rust API. Publish the website on port 4173 through Caddy or Tor.
+See the [root README](../../README.md) for working local commands and sharing.
+
 Swartzit is designed to run as an ordinary Linux service inside an Incus
 container or VM. A VM is a good default when the host is a personal Mac or when
 stronger kernel isolation is desired.
@@ -23,7 +28,7 @@ systemctl enable --now swartzit
 
 For an onion-only host, do not add the `http` proxy device. Install Tor inside
 the instance and use the configuration in `deploy/tor/README.md`; Tor can
-forward to the loopback API without a public address or DNS name.
+forward to the loopback website without a public address or DNS name.
 
 Keep `/srv/swartzit` backed up. It is the natural home for restored exports,
 media manifests, and future signing keys.

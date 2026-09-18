@@ -16,9 +16,17 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 use tower_http::cors::{Any, CorsLayer};
+mod admin;
+mod imports;
+mod operations;
+mod views;
+
+static STARTED_AT: std::sync::OnceLock<DateTime<Utc>> = std::sync::OnceLock::new();
 
 #[derive(Debug)]
 enum ApiError {
+    Unauthorized,
+    Forbidden,
     Missing,
     Invalid(&'static str),
     Database(sqlx::Error),
@@ -31,6 +39,8 @@ impl From<sqlx::Error> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
+            Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Authentication required"),
+            Self::Forbidden => (StatusCode::FORBIDDEN, "Administrator access required"),
             Self::Missing => (StatusCode::NOT_FOUND, "Not found"),
             Self::Invalid(message) => (StatusCode::BAD_REQUEST, message),
             Self::Database(error) => {
@@ -53,6 +63,10 @@ struct Community {
 }
 #[derive(Serialize, FromRow)]
 struct Post {
+    source: Option<serde_json::Value>,
+    view_count: i64,
+    engaged_view_count: i64,
+    deep_view_count: i64,
     id: i64,
     title: String,
     body: String,
@@ -116,6 +130,7 @@ struct ExportMedia {
 }
 #[derive(Deserialize, Default)]
 struct FeedQuery {
+    sort: Option<String>,
     community: Option<String>,
     q: Option<String>,
     page: Option<i64>,
@@ -177,6 +192,21 @@ struct VoteResponse {
 #[derive(Serialize, FromRow)]
 struct CurrentUser {
     handle: String,
+    is_admin: bool,
+}
+#[derive(Serialize)]
+struct AdminOverview {
+    runtime: operations::Snapshot,
+    started_at: DateTime<Utc>,
+    users: i64,
+    active_sessions: i64,
+    communities: i64,
+    posts: i64,
+    comments: i64,
+    open_reports: i64,
+    media_assets: i64,
+    database_size_bytes: i64,
+    log_entries: i64,
 }
 #[derive(Deserialize)]
 struct CreateCommunityRequest {
@@ -232,10 +262,22 @@ impl FeedQuery {
         Ok((page - 1) * 20)
     }
 }
-const POST_SELECT: &str = "SELECT p.id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count, (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
+const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e)-'post_id' FROM external_posts e WHERE e.post_id=p.id) AS source, p.view_count, p.engaged_view_count, p.deep_view_count, p.id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count, (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
 async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&db).await?;
     Ok(Json(serde_json::json!({"status":"ok"})))
+}
+async fn log_event(db: &PgPool, level: &str, event: &str, detail: serde_json::Value) {
+    if let Err(error) =
+        sqlx::query("INSERT INTO system_logs (level, event, detail) VALUES ($1, $2, $3) ON CONFLICT (slot) DO UPDATE SET id = EXCLUDED.id, level = EXCLUDED.level, event = EXCLUDED.event, detail = EXCLUDED.detail, created_at = EXCLUDED.created_at")
+            .bind(level)
+            .bind(event)
+            .bind(detail)
+            .execute(db)
+            .await
+    {
+        tracing::warn!(%error, "could not write system log");
+    }
 }
 async fn nodeinfo() -> Json<serde_json::Value> {
     Json(
@@ -270,6 +312,13 @@ async fn signup(
     if inserted.is_none() {
         return Err(ApiError::Invalid("That handle is already in use"));
     }
+    log_event(
+        &db,
+        "info",
+        "account.created",
+        serde_json::json!({"handle": handle}),
+    )
+    .await;
     Ok((StatusCode::CREATED, Json(SignupResponse { handle })))
 }
 async fn login(
@@ -329,12 +378,63 @@ async fn authenticated_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, A
 }
 async fn me(State(db): State<PgPool>, headers: HeaderMap) -> Result<Json<CurrentUser>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
-    let user = sqlx::query_as::<_, CurrentUser>("SELECT handle FROM authors WHERE id = $1")
+    let user =
+        sqlx::query_as::<_, CurrentUser>("SELECT handle, is_admin FROM authors WHERE id = $1")
+            .bind(author_id)
+            .fetch_optional(&db)
+            .await?
+            .ok_or(ApiError::Invalid("Authentication required"))?;
+    Ok(Json(user))
+}
+async fn require_admin(headers: &HeaderMap, db: &PgPool) -> Result<i64, ApiError> {
+    let author_id = authenticated_author(headers, db)
+        .await
+        .map_err(|e| match e {
+            ApiError::Invalid(_) => ApiError::Unauthorized,
+            other => other,
+        })?;
+    let is_admin: bool = sqlx::query_scalar("SELECT is_admin FROM authors WHERE id = $1")
         .bind(author_id)
-        .fetch_optional(&db)
+        .fetch_optional(db)
         .await?
         .ok_or(ApiError::Invalid("Authentication required"))?;
-    Ok(Json(user))
+    if !is_admin {
+        return Err(ApiError::Forbidden);
+    }
+    Ok(author_id)
+}
+async fn admin_overview(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<AdminOverview>, ApiError> {
+    require_admin(&headers, &db).await?;
+    let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, i64, i64, i64)>(
+        "SELECT
+          (SELECT count(*) FROM authors WHERE password_hash IS NOT NULL),
+          (SELECT count(*) FROM sessions WHERE expires_at > now()),
+          (SELECT count(*) FROM communities),
+          (SELECT count(*) FROM posts),
+          (SELECT count(*) FROM comments),
+          (SELECT count(*) FROM reports WHERE resolved_at IS NULL),
+          (SELECT count(*) FROM media_assets),
+          pg_database_size(current_database()),
+          (SELECT count(*) FROM system_logs)",
+    )
+    .fetch_one(&db)
+    .await?;
+    Ok(Json(AdminOverview {
+        runtime: operations::snapshot(&db),
+        started_at: *STARTED_AT.get().expect("server start time"),
+        users: row.0,
+        active_sessions: row.1,
+        communities: row.2,
+        posts: row.3,
+        comments: row.4,
+        open_reports: row.5,
+        media_assets: row.6,
+        database_size_bytes: row.7,
+        log_entries: row.8,
+    }))
 }
 async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
     let value = headers
@@ -612,8 +712,9 @@ async fn posts(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let offset = query.validate()?;
     let q = query.q.as_deref().unwrap_or("").trim();
+    let order = imports::order(query.sort.as_deref())?;
     let sql = format!(
-        "{POST_SELECT} WHERE ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY p.created_at DESC, p.id DESC LIMIT 21 OFFSET $3"
+        "{POST_SELECT} WHERE ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY {order}, p.id DESC LIMIT 21 OFFSET $3"
     );
     let mut posts: Vec<Post> = sqlx::query_as(&sql)
         .bind(&query.community)
@@ -633,9 +734,10 @@ async fn home_feed(
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
+    let order = imports::order(query.sort.as_deref())?;
     let offset = query.validate()?;
     let sql = format!(
-        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY p.created_at DESC, p.id DESC LIMIT 21 OFFSET $3"
+        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY {order}, p.id DESC LIMIT 21 OFFSET $3"
     );
     let mut posts: Vec<Post> = sqlx::query_as(&sql)
         .bind(author_id)
@@ -721,6 +823,7 @@ async fn shutdown() {
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    STARTED_AT.set(Utc::now()).ok();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -733,6 +836,93 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(&database_url)
         .await?;
     sqlx::migrate!().run(&db).await?;
+    if std::env::args().any(|a| a == "--seed-communities") {
+        let inserted = sqlx::raw_sql(include_str!("../starter-communities.sql"))
+            .execute(&db)
+            .await?
+            .rows_affected();
+        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM communities")
+            .fetch_one(&db)
+            .await?;
+        println!(
+            "Starter communities ready: {total} total ({inserted} newly added). Existing communities preserved."
+        );
+        return Ok(());
+    }
+    if std::env::args().any(|a| a == "--bootstrap-admin") {
+        let handle = std::env::var("ADMIN_HANDLE")
+            .unwrap_or_else(|_| "techmore".into())
+            .trim()
+            .to_ascii_lowercase();
+        let mut tx = db.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(738129)")
+            .execute(&mut *tx)
+            .await?;
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM authors WHERE handle = $1 AND password_hash IS NOT NULL)",
+        )
+        .bind(&handle)
+        .fetch_one(&mut *tx)
+        .await?;
+        if exists && std::env::var("RESET_ADMIN_PASSWORD").as_deref() != Ok("1") {
+            sqlx::query("UPDATE authors SET is_admin = TRUE WHERE handle = $1")
+                .bind(&handle)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            log_event(
+                &db,
+                "info",
+                "admin.promoted",
+                serde_json::json!({"handle": handle}),
+            )
+            .await;
+            println!(
+                "Administrator ready: u/{handle}. Existing password preserved. Sign in at /login, then open /admin."
+            );
+            return Ok(());
+        }
+        let supplied = std::env::var("ADMIN_PASSWORD").ok();
+        let password = supplied.clone().unwrap_or_else(|| {
+            let mut bytes = [0u8; 24];
+            rand::rng().fill_bytes(&mut bytes);
+            hex::encode(bytes)
+        });
+        if !(12..=256).contains(&password.len())
+            || !(3..=32).contains(&handle.len())
+            || !handle
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        {
+            return Err("Invalid handle or password length".into());
+        }
+        let salt = SaltString::generate(&mut OsRng);
+        let hash = Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(|_| "could not hash administrator password")?
+            .to_string();
+        sqlx::query("INSERT INTO authors (handle, password_hash, is_admin) VALUES ($1, $2, TRUE) ON CONFLICT (handle) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_admin = TRUE")
+            .bind(&handle).bind(hash).execute(&mut *tx).await?;
+        sqlx::query(
+            "DELETE FROM sessions WHERE author_id = (SELECT id FROM authors WHERE handle = $1)",
+        )
+        .bind(&handle)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        log_event(
+            &db,
+            "info",
+            "admin.bootstrapped",
+            serde_json::json!({"handle": handle}),
+        )
+        .await;
+        println!("Administrator account ready: u/{handle}");
+        if supplied.is_none() {
+            println!("Generated password (save now): {password}");
+        }
+        return Ok(());
+    }
     if std::env::args().any(|a| a == "--seed-demo") {
         seed(&db).await?;
         return Ok(());
@@ -747,6 +937,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/accounts", post_method(signup))
         .route("/api/sessions", post_method(login).delete(logout))
         .route("/api/me", get(me))
+        .route("/api/admin/overview", get(admin_overview))
+        .route("/api/admin/logs", get(admin::logs))
+        .route("/api/admin/users", get(admin::users))
+        .route(
+            "/api/admin/users/{id}/revoke-sessions",
+            post_method(admin::revoke),
+        )
+        .route("/api/admin/content", get(admin::content))
+        .route("/api/admin/reports", get(admin::reports))
+        .route(
+            "/api/admin/reports/{id}/resolve",
+            post_method(admin::resolve),
+        )
+        .route("/api/admin/analytics", get(admin::analytics))
+        .route("/api/admin/imports", post_method(imports::ingest))
+        .route("/api/views", post_method(operations::view))
         .route("/api/posts", post_method(create_post).get(posts))
         .route(
             "/api/communities",
@@ -763,17 +969,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/home", get(home_feed))
         .route("/api/posts/{id}/comments", post_method(create_comment))
         .route("/api/posts/{id}/vote", post_method(vote))
+        .route("/api/posts/{id}/views", post_method(views::record))
         .route("/api/reports", post_method(report))
         .route("/api/media", post_method(register_media))
         .route("/api/posts/{id}/media", post_method(attach_media))
         .route("/api/media/{id}", get(media))
         .route("/api/export", get(export))
         .route("/feed.xml", get(feed))
+        .layer(axum::middleware::from_fn_with_state(
+            db.clone(),
+            operations::observe,
+        ))
         .layer(cors)
-        .with_state(db);
+        .with_state(db.clone());
     let bind = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     tracing::info!(%bind, "Swartzit API listening");
+    log_event(
+        &db,
+        "info",
+        "server.started",
+        serde_json::json!({"version": env!("CARGO_PKG_VERSION")}),
+    )
+    .await;
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown())
         .await?;
@@ -781,15 +999,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 async fn seed(db: &PgPool) -> Result<(), sqlx::Error> {
     let mut tx = db.begin().await?;
-    // Serialize seed runs and refuse to mix fixtures with existing communities.
-    sqlx::query("LOCK TABLE communities IN EXCLUSIVE MODE")
+    // Serialize seed runs; starter list is idempotent so demo and
+    // post-install seeding can coexist in any order.
+    sqlx::query("LOCK TABLE communities, authors, posts IN EXCLUSIVE MODE")
         .execute(&mut *tx)
         .await?;
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM communities")
-        .fetch_one(&mut *tx)
+    sqlx::raw_sql(include_str!("../starter-communities.sql"))
+        .execute(&mut *tx)
         .await?;
-    if count > 0 {
-        tracing::info!("Seed skipped: communities already exist");
+    let demo_present: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM posts WHERE title = 'What would an internet built for its communities look like?')",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if demo_present {
+        tx.commit().await?;
+        tracing::info!("Seed skipped: demo discussions already exist");
         return Ok(());
     }
     sqlx::raw_sql(include_str!("../demo.sql"))
