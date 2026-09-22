@@ -402,6 +402,27 @@ Add `--author techmore_edu` to include only that author's archived posts
 or fetch new posts. The limit applies after filtering; no matches produces an
 empty batch rather than substituting unrelated content.
 
+### Protestant-first X discovery runner
+
+For a focused faith link runner, use the X API and Reddit's public JSON search
+with three bounded searches each. Protestant and Presbyterian terms are weighted
+above broader biblical and Christian terms; duplicate links are collapsed before
+publishing.
+
+```sh
+node scripts/x-faith-runner.mjs \
+  --community x_imports --limit 10 --per-query 20 \
+  --output .local/import-previews/protestant-x.json
+node scripts/scheduled-imports.mjs \
+  --job x --batch .local/import-previews/protestant-x.json --limit 10
+```
+
+The runner looks for Presbyterian, Reformed, confessional, Westminster,
+`sola scriptura`, `sola fide`, biblical, expository, gospel, theology, and
+general Christian terms in descending priority. It imports only public results
+returned by X or Reddit, preserves each source link and observed metrics, and
+leaves moderation to the existing import workflow.
+
 ### Running collection through Hermes locally
 
 Hermes can be the local collector while Swartzit remains the publisher. Give
@@ -490,6 +511,8 @@ encounter login or user-control blocks. The photo task posts from the existing
 manifest and reports exhaustion; it does not discover new photos automatically.
 
 See [the run procedure](docs/content-sync.md) for collection limits and recovery.
+See [the runner map](docs/runners.md) for the ownership and startup rules for
+local, Hermes, hosted, and heartbeat jobs.
 The publisher accepts only fresh X batches, exits nonzero on failures, revokes
 its session, prevents overlapping publishers, and checkpoints successful photos
 individually. The latest 100 receipts are retained per job in
