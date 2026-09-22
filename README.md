@@ -128,15 +128,33 @@ bash scripts/run-local.sh
 ```
 
 Open http://127.0.0.1:4173. The script runs PostgreSQL in an Apple Linux
-container with a persistent named volume, seeds sample discussions only on an
-empty instance, and starts the Rust API and standalone SvelteKit website.
+container with a persistent named volume and starts the Rust API and standalone
+SvelteKit website. Startup is idempotent: it reuses healthy listeners, waits
+for PostgreSQL/API/web readiness, and skips rebuilds when artifacts already
+exist, so a reboot does not trigger a full install/build cycle. The web server
+binds to all local interfaces for Wi-Fi/LAN access; the API and database stay
+on loopback.
 Create your own account through **Create account**; the seeded authors are
 display-only identities without passwords. The local database password is a
 development credential and must not be reused for public hosting.
 
-The website uses port 4173, the API 18080, and PostgreSQL 54329, all on loopback.
-Ctrl-C stops the website and API. Stop PostgreSQL separately with
+The website uses port 4173, the API 18080, and PostgreSQL 54329. The API and
+PostgreSQL remain loopback-only; the website is reachable from the current LAN
+address printed by the launcher. Stop application services with
+`bash scripts/stop-local.sh`; stop PostgreSQL separately with
 `container stop swartzit-db`; its named volume retains the data.
+
+For a direct HTTPS domain from the Mac, configure the router to forward TCP
+80 and 443 to this Mac, then start the optional Caddy terminator:
+
+```sh
+SWARTZIT_DOMAIN=stoverparc.org SWARTZIT_CADDY=1 bash scripts/run-local.sh
+```
+
+Caddy obtains and renews the certificate automatically once DNS points to the
+router and both forwards are active. If the Mac changes Wi-Fi networks, use
+the new LAN address printed by the launcher or reserve a DHCP lease in the
+router; the public DNS record does not change.
 
 This is a local prototype. Federation, full community migration/import, media
 transfer, and moderator workflows are not implemented yet.
