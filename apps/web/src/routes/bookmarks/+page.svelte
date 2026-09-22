@@ -45,7 +45,7 @@
         <h2>{selected?.name || (filter === 'unfiled' ? 'Unfiled' : 'All bookmarks')}</h2>
         {#if !items.length && !error}<p>No bookmarks here yet. Use “Bookmark” on any discussion to save it.</p>{/if}
         {#each items as item (item.post_id)}
-          <article><small>c/{item.community} · Saved {new Date(item.created_at).toLocaleDateString()}</small><h3><a href="/post/{item.post_id}">{item.title}</a></h3>
+          <article><small>c/{item.community} · Saved {new Date(item.created_at).toLocaleDateString()}</small><h3><a href="/post/{item.public_id}">{item.title}</a></h3>
             <div class="actions"><label>Folder <select value={item.folder_id == null ? '' : String(item.folder_id)} disabled={busy} on:change={e => {const value=e.currentTarget.value;run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'POST',{folder_id:value ? Number(value) : null});message='Bookmark moved.';});}}><option value="">Unfiled</option>{#each folders as f}<option value={String(f.id)}>{f.name}</option>{/each}</select></label>
             <button disabled={busy} on:click={() => run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'DELETE');message='Bookmark removed.';})}>Remove bookmark</button></div>
           </article>

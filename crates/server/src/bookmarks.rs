@@ -22,6 +22,7 @@ pub struct Folder {
 #[derive(Serialize, FromRow)]
 pub struct Saved {
     post_id: i64,
+    public_id: String,
     folder_id: Option<i64>,
     title: String,
     community: String,
@@ -178,7 +179,7 @@ pub async fn list(
     if !(1..=100000).contains(&page) {
         return Err(ApiError::Invalid("Invalid page"));
     }
-    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,b.folder_id,p.title,c.slug AS community,b.created_at FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=$1 AND ($2::bigint IS NULL OR b.folder_id=$2) AND (NOT $3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET $4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
+    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=$1 AND ($2::bigint IS NULL OR b.folder_id=$2) AND (NOT $3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET $4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
     let has_more = rows.len() > 50;
     rows.truncate(50);
     Ok(Json(serde_json::json!({"items":rows,"has_more":has_more})))

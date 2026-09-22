@@ -70,6 +70,7 @@ struct Post {
     engaged_view_count: i64,
     deep_view_count: i64,
     id: i64,
+    public_id: String,
     title: String,
     body: String,
     created_at: DateTime<Utc>,
@@ -165,6 +166,7 @@ struct CreatePostRequest {
 #[derive(Serialize, FromRow)]
 struct CreatedPost {
     id: i64,
+    public_id: String,
     title: String,
     community: String,
 }
@@ -264,7 +266,7 @@ impl FeedQuery {
         Ok((page - 1) * 20)
     }
 }
-const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.view_count, p.engaged_view_count, p.deep_view_count, p.id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count, (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
+const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.view_count, p.engaged_view_count, p.deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count, (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
 
 async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
     if id <= 0 {
@@ -669,7 +671,7 @@ async fn create_post(
             "Title or body is outside the allowed length",
         ));
     }
-    let result = sqlx::query_as::<_, CreatedPost>("INSERT INTO posts (community_id, author_id, title, body) SELECT id, $1, $2, $3 FROM communities WHERE slug = $4 RETURNING id, title, $4::text AS community").bind(author_id).bind(title).bind(body).bind(&community).fetch_optional(&db).await?;
+    let result = sqlx::query_as::<_, CreatedPost>("INSERT INTO posts (community_id, author_id, title, body) SELECT id, $1, $2, $3 FROM communities WHERE slug = $4 RETURNING id, public_id, title, $4::text AS community").bind(author_id).bind(title).bind(body).bind(&community).fetch_optional(&db).await?;
     Ok((StatusCode::CREATED, Json(result.ok_or(ApiError::Missing)?)))
 }
 async fn create_comment(
@@ -787,13 +789,21 @@ async fn home_feed(
 }
 async fn post(
     State(db): State<PgPool>,
-    Path(id): Path<i64>,
+    Path(raw_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let post: Post = sqlx::query_as(&format!("{POST_SELECT} WHERE p.id = $1"))
-        .bind(id)
-        .fetch_optional(&db)
-        .await?
-        .ok_or(ApiError::Missing)?;
+    let post: Post = if let Ok(id) = raw_id.parse::<i64>() {
+        sqlx::query_as(&format!("{POST_SELECT} WHERE p.id = $1"))
+            .bind(id)
+            .fetch_optional(&db)
+            .await?
+    } else {
+        sqlx::query_as(&format!("{POST_SELECT} WHERE p.public_id = $1"))
+            .bind(&raw_id)
+            .fetch_optional(&db)
+            .await?
+    }
+    .ok_or(ApiError::Missing)?;
+    let id = post.id;
     // Bounded for the initial reader; expose truncation instead of silently losing replies.
     let mut comments: Vec<Comment> = sqlx::query_as("SELECT cm.id, cm.parent_id, cm.body, a.handle AS author, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id WHERE cm.post_id = $1 ORDER BY cm.id LIMIT 501").bind(id).fetch_all(&db).await?;
     let comments_truncated = comments.len() > 500;

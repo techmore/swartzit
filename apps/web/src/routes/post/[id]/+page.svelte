@@ -15,7 +15,7 @@
   $: previewTitle = `${data.post.title} — Swartzit`;
   $: previewDescription = (data.post.body || '').replace(/\s+/g, ' ').trim().slice(0, 240) || 'A public discussion on Swartzit.';
   $: previewMedia = mediaValue(data.post.source?.media?.[0]);
-  $: canonicalUrl = `https://stoverparc.org/post/${data.post.id}`;
+  $: canonicalUrl = `https://stoverparc.org/post/${data.post.public_id}`;
   onMount(() => {
     token = localStorage.getItem('swartzit_session') || '';
     const timer = setInterval(() => { if (!document.hidden) invalidateAll(); }, 300000);
@@ -70,7 +70,7 @@
     {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}<p>{data.post.body}</p>{/if}
     {#if data.post.source}{#key data.post.id}<SourcePost source={data.post.source} text={data.post.body} />{/key}{/if}
     <div class="post-actions">{#key data.post.id}<BookmarkButton id={data.post.id} />{/key}
-    <ShareButton id={data.post.id} title={data.post.title} /></div>
+    <ShareButton id={data.post.public_id} title={data.post.title} /></div>
     <footer><span>{data.post.score} points</span><span>{data.post.comment_count} comments</span></footer>
     {#key data.post.id}<PostViews id={data.post.id} initial={data.post} />{/key}
     {#if token}
