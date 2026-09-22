@@ -3,6 +3,7 @@
   export let text = '';
   const count = n => n == null ? '—' : new Intl.NumberFormat().format(n);
   let failed = {};
+  let activeMedia = 0;
   const attachment = m => typeof m === 'string' ? {kind:'image',src:m} : m;
   const clean = value => String(value ?? '').trim();
   function splitPost(value) {
@@ -10,6 +11,12 @@
     return match ? { text: match[1].trim(), quotedAuthor: match[2].trim(), quotedText: match[3].trim() } : { text: clean(value), quotedAuthor: '', quotedText: '' };
   }
   $: parsed = splitPost(text);
+  $: mediaCount = source.media?.length ?? 0;
+  $: if (activeMedia >= mediaCount) activeMedia = Math.max(0, mediaCount - 1);
+  function moveMedia(delta) {
+    if (mediaCount < 2) return;
+    activeMedia = (activeMedia + delta + mediaCount) % mediaCount;
+  }
   function announcePlay(event, media) {
     window.dispatchEvent(new CustomEvent('swartzit-media-play', { detail: { element: event.currentTarget, media, source } }));
   }
@@ -67,10 +74,12 @@
     {#if source.attribution}<p>{source.attribution}</p>{/if}
   {/if}
   {#if source.media?.length}
-    <div class="source-images count-{source.media.length > 4 ? 'many' : source.media.length}">
-      {#each source.media as item}
+    <div class:carousel-shell={source.media.length > 1} class="media-shell">
+      {#if source.media.length > 1}<button class="carousel-button previous" type="button" aria-label="Previous media" onclick={() => moveMedia(-1)}>‹</button>{/if}
+      <div class="source-images count-{source.media.length > 4 ? 'many' : source.media.length} {source.media.length > 1 ? 'carousel-images' : ''}">
+      {#each source.media as item, index}
         {@const media = attachment(item)}
-        <figure>
+        <figure class:carousel-slide={source.media.length > 1} class:inactive={source.media.length > 1 && index !== activeMedia}>
           {#if failed[media.src]}<p>This browser could not load the {media.kind === 'video' ? 'video' : 'image'}. <a href={source.source_url} target="_blank" rel="noopener noreferrer">View original post</a></p>
           {:else if media.kind === 'video'}
             <!-- Source videos have no caption tracks available. -->
@@ -80,7 +89,11 @@
           {#if media.kind === 'video' || media.alt}<figcaption>{media.alt || ''}{#if media.kind === 'video'} <a href={media.src} target="_blank" rel="noopener noreferrer">Open video ↗</a>{/if}</figcaption>{/if}
         </figure>
       {/each}
-    </div><small>Photos and videos load directly from the source host. Videos autoplay muted while visible and pause when scrolled away.</small>
+      </div>
+      {#if source.media.length > 1}<button class="carousel-button next" type="button" aria-label="Next media" onclick={() => moveMedia(1)}>›</button>{/if}
+    </div>
+    {#if source.media.length > 1}<div class="carousel-status" aria-live="polite"><span>Photo {activeMedia + 1} of {source.media.length}</span><div class="carousel-dots" aria-label="Choose media">{#each source.media as _, index}<button class:active={index === activeMedia} type="button" aria-label={`Show media ${index + 1}`} aria-current={index === activeMedia ? 'true' : undefined} onclick={() => activeMedia = index}></button>{/each}</div></div>{/if}
+    <small>Photos and videos load directly from the source host. {source.media.length > 1 ? 'Use the carousel to browse the post media. ' : ''}Videos autoplay muted while visible and pause when scrolled away.</small>
   {/if}
 </section>
 <style>
@@ -96,6 +109,7 @@
   small{display:block;color:var(--muted,#66766c);margin:6px 0}
   .source-post p{margin:8px 0}.source-text{font-size:1.05rem;line-height:1.45;white-space:pre-wrap}.quoted-post{border:1px solid var(--border,#c7d0c6);border-radius:12px;margin:14px 0;padding:12px;background:var(--subtle,#f5f7f3)}.quoted-post p{margin:5px 0;white-space:pre-wrap}.source-metrics{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted,#66766c);margin:14px 0 4px!important}.snapshot{font-size:.72rem}
   .source-images{display:grid;gap:8px;margin:8px 0;max-width:680px}
+  .media-shell{position:relative}.carousel-shell{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}.carousel-images{display:block;min-height:220px}.carousel-slide.inactive{display:none}.carousel-button{width:36px;height:36px;border:1px solid var(--border,#c7d0c6);border-radius:50%;background:var(--surface,#fff);color:var(--text,#15251b);font-size:1.8rem;line-height:1;cursor:pointer}.carousel-button:hover{background:var(--subtle,#f0f3ec)}.carousel-status{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:680px;color:var(--muted,#66766c);font-size:.78rem}.carousel-dots{display:flex;gap:5px}.carousel-dots button{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:var(--border,#c7d0c6);cursor:pointer}.carousel-dots button.active{background:var(--link,#215e47);transform:scale(1.25)}
   figure{margin:0;min-width:0} figcaption{margin-top:6px;color:var(--muted,#66766c)}
   .source-images img,.source-images video{width:100%;max-height:600px;object-fit:contain;background:var(--subtle,#dde3da);display:block}
   .count-1{grid-template-columns:1fr}
