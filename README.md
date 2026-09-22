@@ -569,9 +569,11 @@ node scripts/cache-profile-images.mjs
 ```
 
 The cache job follows only HTTPS X profile-image URLs, refuses redirects, and
-skips files over 1 MiB or with a non-image content type. The API serves cached
-files at `/profile-images/:post_id`; the web app proxies that path and falls
-back to the public source URL when an image has not been cached yet. Run the
-job from a timer after imports, and make `PROFILE_IMAGE_CACHE_DIR` writable by
-the service account. This cache is intentionally limited to profile avatars;
-post photos and videos remain source-hosted or torrent-backed.
+skips files over 1 MiB or with a non-image content type. It deduplicates
+downloads by the source image URL, then links one local cached file to every
+post that uses that avatar. The API serves cached files at
+`/profile-images/:post_id`; the web app uses only that local route, so a cache
+miss does not trigger a browser request back to X. Run the job from a timer
+after imports, and make `PROFILE_IMAGE_CACHE_DIR` writable by the service
+account. This cache is intentionally limited to profile avatars; post photos
+and videos remain source-hosted or torrent-backed.

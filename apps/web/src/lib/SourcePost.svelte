@@ -52,9 +52,9 @@
   <div class="source-heading">
     {#if source.provider === 'x' && source.profile_image_url}
       <span class="profile-hover" role="button" tabindex="0" aria-label={`Preview ${source.profile_display_name || source.source_author} profile`}>
-        <img class="source-avatar" src={`/profile-images/${source.post_id}`} alt="" loading="lazy" onerror={(event) => event.currentTarget.src = source.profile_image_url} />
+        <img class="source-avatar" src={`/profile-images/${source.post_id}`} alt="" loading="lazy" onerror={(event) => event.currentTarget.hidden = true} />
         <div class="profile-card" role="tooltip">
-          <div class="profile-card-heading"><img src={`/profile-images/${source.post_id}`} alt="" /><div><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<small>{source.profile_url ? new URL(source.profile_url).pathname : source.source_author}</small></div></div>
+          <div class="profile-card-heading"><img src={`/profile-images/${source.post_id}`} alt="" onerror={(event) => event.currentTarget.hidden = true} /><div><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<small>{source.profile_url ? new URL(source.profile_url).pathname : source.source_author}</small></div></div>
           {#if source.profile_bio}<p>{source.profile_bio}</p>{/if}
           <div class="profile-stats">{#if source.profile_followers != null}<span><strong>{count(source.profile_followers)}</strong> followers</span>{/if}{#if source.profile_following != null}<span><strong>{count(source.profile_following)}</strong> following</span>{/if}</div>
           {#if source.profile_url}<a href={source.profile_url} target="_blank" rel="noopener noreferrer">Open profile ↗</a>{/if}
