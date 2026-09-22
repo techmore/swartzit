@@ -11,6 +11,11 @@
   export let data;
   let token = '', body = '', parent = null, message = '', busy = false;
   const redundantSourceTitle = post => post?.source?.provider === 'x' && post.title?.trim() === post.body?.split(/\r?\n/, 1)[0]?.trim();
+  const mediaValue = value => typeof value === 'string' ? { kind: 'image', src: value } : value;
+  $: previewTitle = `${data.post.title} — Swartzit`;
+  $: previewDescription = (data.post.body || '').replace(/\s+/g, ' ').trim().slice(0, 240) || 'A public discussion on Swartzit.';
+  $: previewMedia = mediaValue(data.post.source?.media?.[0]);
+  $: canonicalUrl = `https://stoverparc.org/post/${data.post.id}`;
   onMount(() => {
     token = localStorage.getItem('swartzit_session') || '';
     const timer = setInterval(() => { if (!document.hidden) invalidateAll(); }, 300000);
@@ -36,7 +41,20 @@
   }
   function children(comments, id, order) { return comments.filter(comment => comment.parent_id === id).sort((a,b) => order === 'newest' ? b.id-a.id : a.id-b.id); }
 </script>
-<svelte:head><title>{data.post.title} — Swartzit</title></svelte:head>
+<svelte:head>
+  <title>{previewTitle}</title>
+  <meta name="description" content={previewDescription} />
+  <link rel="canonical" href={canonicalUrl} />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Swartzit" />
+  <meta property="og:title" content={previewTitle} />
+  <meta property="og:description" content={previewDescription} />
+  <meta property="og:url" content={canonicalUrl} />
+  {#if previewMedia?.src}<meta property="og:image" content={previewMedia.poster || previewMedia.src} /><meta property="og:image:alt" content={previewMedia.alt || previewTitle} />{/if}
+  <meta name="twitter:card" content={previewMedia?.src ? 'summary_large_image' : 'summary'} />
+  <meta name="twitter:title" content={previewTitle} />
+  <meta name="twitter:description" content={previewDescription} />
+</svelte:head>
 <header>
   <a class="brand" href="/">swartzit</a>
   <a href="/api/export?community={data.post.community}" download="swartzit-community-export.json">Export community</a>
