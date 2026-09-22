@@ -36,7 +36,7 @@
   <button onclick={preview} disabled={busy}>Review batch</button>
   {#if error}<p class="form-error" role="alert">{error}</p>{/if}
   {#if items.length}<h3>{items.length} posts ready for review</h3><ul>{#each items as item}<li>{item.title} → c/{item.community}<br /><small>{item.source_url}</small></li>{/each}</ul>
-  <p>Publish only public material intended for this instance. Source images load from their original host when a reader chooses to load them.</p>
+  <p>Publish only public material intended for this instance. Source images load directly from their original host: up to 4 images per post, 5 MB max each (X display standard).</p>
   <button onclick={publish} disabled={busy}>{busy?'Importing…':'Publish / update reviewed posts'}</button>{/if}
   <ul aria-live="polite">{#each results as result}<li>{result.state}: <a href={'/post/'+result.id}>{result.title}</a></li>{/each}</ul>
 </section>

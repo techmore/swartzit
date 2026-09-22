@@ -45,14 +45,14 @@
   </section>
 </main>
 <style>
-  h1{font:500 3rem Georgia,serif;color:#173d34;letter-spacing:-.04em}
+  h1{font:500 3rem Georgia,serif;color:var(--heading,#173d34);letter-spacing:-.04em}
   .community-search{display:flex;margin:26px 0;max-width:650px}
   .community-search input{flex:1;min-width:0}
   .community-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
   article{margin:0;display:flex;flex-direction:column;overflow-wrap:anywhere}
-  article h2{font:600 1.4rem Georgia,serif;color:#173d34}
-  article>a{margin-top:auto;font-size:.8rem;color:#215e47}
-  article small{color:#9b5e38}
+  article h2{font:600 1.4rem Georgia,serif;color:var(--heading,#173d34)}
+  article>a{margin-top:auto;font-size:.8rem;color:var(--link,#215e47)}
+  article small{color:var(--accent,#9b5e38)}
   .community-pages{display:flex;gap:24px;margin-top:24px}
   .compose{margin:40px 0;max-width:650px}
   @media(max-width:900px){.community-grid{grid-template-columns:repeat(2,1fr)}}

@@ -2,16 +2,20 @@
   import { onMount } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import SessionNav from '$lib/SessionNav.svelte';
+  import BookmarkButton from '$lib/BookmarkButton.svelte';
+  import ShareButton from '$lib/ShareButton.svelte';
   import PostViews from '$lib/PostViews.svelte';
   import SourcePost from '$lib/SourcePost.svelte';
-  let commentOrder = 'oldest', shareMessage = '';
-  async function share() {
-    try { await navigator.clipboard.writeText(location.href); shareMessage = 'Link copied'; }
-    catch { shareMessage = 'Copy this page’s address to share it.'; }
-  }
+  import AuthorAvatar from '$lib/AuthorAvatar.svelte';
+  let commentOrder = 'oldest';
   export let data;
   let token = '', body = '', parent = null, message = '', busy = false;
-  onMount(() => { token = localStorage.getItem('swartzit_session') || ''; });
+  const redundantSourceTitle = post => post?.source?.provider === 'x' && post.title?.trim() === post.body?.split(/\r?\n/, 1)[0]?.trim();
+  onMount(() => {
+    token = localStorage.getItem('swartzit_session') || '';
+    const timer = setInterval(() => { if (!document.hidden) invalidateAll(); }, 300000);
+    return () => clearInterval(timer);
+  });
   async function send(path, payload) {
     busy = true; message = '';
     try {
@@ -41,13 +45,17 @@
 <main class="post-page">
   <a class="back" href="/?community={data.post.community}">← c/{data.post.community}</a>
   <article class="post">
-    <div class="meta">c/{data.post.community} · u/{data.post.author}</div>
-    <h1>{data.post.title}</h1>
+    <div class="meta post-author">
+{#if data.post.source?.provider === 'x'}<AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From X</strong> · {data.post.source.source_author}</span>
+{:else}<AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · u/{data.post.author}</span>{/if}
+</div>
+    {#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}
     <p>{data.post.body}</p>
     {#if data.post.source}{#key data.post.id}<SourcePost source={data.post.source} />{/key}{/if}
+    <div class="post-actions">{#key data.post.id}<BookmarkButton id={data.post.id} />{/key}
+    <ShareButton id={data.post.id} title={data.post.title} /></div>
     <footer><span>{data.post.score} points</span><span>{data.post.comment_count} comments</span></footer>
     {#key data.post.id}<PostViews id={data.post.id} initial={data.post} />{/key}
-    <p><button class="vote-button" on:click={share}>Copy discussion link</button> <span role="status">{shareMessage}</span></p>
     {#if token}
       <div class="vote-controls">
         <button class="vote-button" disabled={busy} on:click={() => send(`/api/posts/${data.post.id}/vote`, { value: 1 })}>Upvote</button>
@@ -76,7 +84,7 @@
       {#each children(data.comments, parentId, commentOrder) as item (item.id)}
         <div style:margin-left={depth > 0 ? '16px' : '0'}>
           <article id={'comment-' + item.id}>
-            <div class="meta">u/{item.author} · {new Date(item.created_at).toLocaleDateString()}</div>
+            <div class="meta comment-author"><AuthorAvatar handle={item.author} size="small" /><span>u/{item.author} · {new Date(item.created_at).toLocaleDateString()}</span></div>
             <p>{item.body}</p>
             {#if token}<a href="#reply" on:click={() => parent = item.id}>Reply</a>{/if}
           </article>
@@ -89,3 +97,6 @@
     {#if data.comments_truncated}<p>Showing the first 500 comments.</p>{/if}
   </section>
 </main>
+<style>
+  .post-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+</style>

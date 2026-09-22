@@ -12,6 +12,6 @@
 </script>
 <nav class="session-nav" aria-label="Account">
   <a href="/communities">Communities</a>
-  {#if handle}<span>u/{handle}</span>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
+  {#if handle}<a href="/bookmarks">Bookmarks</a><span>u/{handle}</span>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
   {:else}<a href="/login">Sign in</a><a href="/signup">Create account</a>{/if}
 </nav>

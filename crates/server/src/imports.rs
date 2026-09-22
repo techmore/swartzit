@@ -1,6 +1,49 @@
 use super::*;
 use url::Url;
 
+#[derive(Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum Media {
+    Image(String),
+    Attachment {
+        kind: String,
+        src: String,
+        poster: Option<String>,
+        alt: Option<String>,
+    },
+}
+fn validate_media(media: &Media, provider: &str) -> Result<(), ApiError> {
+    let (kind, src, poster, alt) = match media {
+        Media::Image(src) => ("image", src, None, None),
+        Media::Attachment {
+            kind,
+            src,
+            poster,
+            alt,
+        } => (kind.as_str(), src, poster.as_ref(), alt.as_ref()),
+    };
+    let u = https(src)?;
+    let valid = matches!(
+        (provider, kind, u.host_str()),
+        ("x", "image", Some("pbs.twimg.com"))
+            | ("commons", "image", Some("upload.wikimedia.org"))
+            | ("reddit", "image", Some("i.redd.it"))
+            | ("reddit", "image", Some("preview.redd.it"))
+    ) || (provider == "x"
+        && kind == "video"
+        && u.host_str() == Some("video.twimg.com")
+        && u.path().ends_with(".mp4"));
+    if !valid || alt.is_some_and(|s| s.len() > 1000) {
+        return Err(ApiError::Invalid("Invalid source media"));
+    }
+    if let Some(poster) = poster {
+        if kind != "video" || https(poster)?.host_str() != Some("pbs.twimg.com") {
+            return Err(ApiError::Invalid("Invalid video poster"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 pub struct Import {
     pub community: String,
@@ -16,9 +59,16 @@ pub struct Import {
     pub source_reposts: Option<i64>,
     pub source_replies: Option<i64>,
     #[serde(default)]
-    pub media: Vec<String>,
+    pub media: Vec<Media>,
     #[serde(default)]
     pub attribution: String,
+    pub profile_image_url: Option<String>,
+    pub profile_url: Option<String>,
+    pub profile_display_name: Option<String>,
+    pub profile_bio: Option<String>,
+    pub profile_followers: Option<i64>,
+    pub profile_following: Option<i64>,
+    pub profile_verified: Option<bool>,
 }
 fn https(raw: &str) -> Result<Url, ApiError> {
     let u = Url::parse(raw).map_err(|_| ApiError::Invalid("Invalid source URL"))?;
@@ -60,10 +110,25 @@ fn canonical(provider: &str, raw: &str) -> Result<String, ApiError> {
             u.set_fragment(None);
             return Ok(u.to_string());
         }
+        "reddit"
+            if ["reddit.com", "www.reddit.com"].contains(&u.host_str().unwrap_or(""))
+                && u.path().starts_with('/') =>
+        {
+            let mut u = u;
+            u.set_query(None);
+            u.set_fragment(None);
+            return Ok(u.to_string());
+        }
+        "rss" => {
+            let mut u = u;
+            u.set_query(None);
+            u.set_fragment(None);
+            return Ok(u.to_string());
+        }
         _ => {}
     }
     Err(ApiError::Invalid(
-        "Use an X status URL or a Wikimedia Commons File page",
+        "Use a supported X, Reddit, RSS, or Wikimedia Commons source URL",
     ))
 }
 pub async fn ingest(
@@ -100,15 +165,37 @@ pub async fn ingest(
         }
     }
     for media in &input.media {
-        let u = https(media)?;
-        if !matches!(
-            (u.host_str(), input.provider.as_str()),
-            (Some("pbs.twimg.com"), "x") | (Some("upload.wikimedia.org"), "commons")
-        ) {
-            return Err(ApiError::Invalid(
-                "Media must use the source platform's public image CDN",
-            ));
+        validate_media(media, &input.provider)?;
+    }
+    if let Some(url) = &input.profile_image_url {
+        let u = https(url)?;
+        if input.provider != "x"
+            || u.host_str() != Some("pbs.twimg.com")
+            || !u.path().contains("/profile_images/")
+        {
+            return Err(ApiError::Invalid("Invalid profile image source"));
         }
+    }
+    if let Some(url) = &input.profile_url {
+        let u = https(url)?;
+        if input.provider != "x"
+            || !matches!(u.host_str(), Some("x.com") | Some("www.x.com"))
+            || u.path().split('/').filter(|s| !s.is_empty()).count() != 1
+        {
+            return Err(ApiError::Invalid("Invalid profile URL"));
+        }
+    }
+    if input
+        .profile_display_name
+        .as_ref()
+        .is_some_and(|s| s.len() > 200)
+        || input.profile_bio.as_ref().is_some_and(|s| s.len() > 2000)
+        || [input.profile_followers, input.profile_following]
+            .into_iter()
+            .flatten()
+            .any(|n| !(0..=9_007_199_254_740_991).contains(&n))
+    {
+        return Err(ApiError::Invalid("Invalid profile metadata"));
     }
     let mut tx = db.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
@@ -138,8 +225,8 @@ pub async fn ingest(
         .fetch_one(&mut *tx)
         .await?
     };
-    let changed=sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,attribution) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(post_id) DO UPDATE SET source_author=EXCLUDED.source_author,published_at=COALESCE(EXCLUDED.published_at,external_posts.published_at),observed_at=EXCLUDED.observed_at,source_views=EXCLUDED.source_views,source_likes=EXCLUDED.source_likes,source_reposts=EXCLUDED.source_reposts,source_replies=EXCLUDED.source_replies,media=EXCLUDED.media,attribution=EXCLUDED.attribution WHERE EXCLUDED.observed_at>=external_posts.observed_at")
-        .bind(id).bind(&input.provider).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at).bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies).bind(serde_json::json!(input.media)).bind(&input.attribution).execute(&mut *tx).await?.rows_affected()>0;
+    let changed=sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(post_id) DO UPDATE SET source_author=EXCLUDED.source_author,published_at=COALESCE(EXCLUDED.published_at,external_posts.published_at),observed_at=EXCLUDED.observed_at,source_views=EXCLUDED.source_views,source_likes=EXCLUDED.source_likes,source_reposts=EXCLUDED.source_reposts,source_replies=EXCLUDED.source_replies,media=EXCLUDED.media,attribution=EXCLUDED.attribution,profile_image_url=COALESCE(EXCLUDED.profile_image_url,external_posts.profile_image_url),profile_url=COALESCE(EXCLUDED.profile_url,external_posts.profile_url),profile_display_name=COALESCE(EXCLUDED.profile_display_name,external_posts.profile_display_name),profile_bio=COALESCE(EXCLUDED.profile_bio,external_posts.profile_bio),profile_followers=COALESCE(EXCLUDED.profile_followers,external_posts.profile_followers),profile_following=COALESCE(EXCLUDED.profile_following,external_posts.profile_following),profile_verified=COALESCE(EXCLUDED.profile_verified,external_posts.profile_verified) WHERE EXCLUDED.observed_at>=external_posts.observed_at")
+        .bind(id).bind(&input.provider).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at).bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies).bind(serde_json::json!(input.media)).bind(&input.attribution).bind(&input.profile_image_url).bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio).bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified).execute(&mut *tx).await?.rows_affected()>0;
     if changed {
         sqlx::query("UPDATE posts SET title=$2,body=$3 WHERE id=$1")
             .bind(id)
@@ -179,6 +266,28 @@ pub fn order(sort: Option<&str>) -> Result<&'static str, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn media_validation() {
+        let video = |src: &str| Media::Attachment {
+            kind: "video".into(),
+            src: src.into(),
+            poster: Some("https://pbs.twimg.com/poster.jpg".into()),
+            alt: None,
+        };
+        assert!(validate_media(&video("https://video.twimg.com/clip.mp4"), "x").is_ok());
+        for url in [
+            "https://evil.test/clip.mp4",
+            "https://video.twimg.com.evil.test/clip.mp4",
+            "blob:https://x.com/id",
+            "https://video.twimg.com/clip.m3u8",
+        ] {
+            assert!(validate_media(&video(url), "x").is_err());
+        }
+        assert!(validate_media(&video("https://video.twimg.com/clip.mp4"), "commons").is_err());
+        assert!(
+            validate_media(&Media::Image("https://pbs.twimg.com/photo.jpg".into()), "x").is_ok()
+        );
+    }
     #[test]
     fn canonical_identity() {
         assert_eq!(

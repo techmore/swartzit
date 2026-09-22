@@ -1,0 +1,18 @@
+[Unit]
+Description=Swartzit scheduled crawler worker
+After=swartzit.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=swartzit
+Group=swartzit
+WorkingDirectory=/var/lib/swartzit
+EnvironmentFile=/etc/swartzit/worker.env
+ExecStart=/usr/bin/node /var/lib/swartzit/scripts/swartzit-worker.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/swartzit
+

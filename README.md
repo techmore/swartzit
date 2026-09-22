@@ -141,6 +141,76 @@ Ctrl-C stops the website and API. Stop PostgreSQL separately with
 This is a local prototype. Federation, full community migration/import, media
 transfer, and moderator workflows are not implemented yet.
 
+## Production VPS deployment
+
+For an always-on instance, use a small Linux VPS rather than keeping the Mac
+running. The practical minimum for the complete stack (PostgreSQL, Rust API,
+SvelteKit web server, Caddy, and the scheduler) is a 2 GiB / 1-2 vCPU machine
+with about 50 GiB of disk. A 512 MiB / $4 proxy-only machine is not enough for
+the database and workers; a 2 GiB DigitalOcean Basic Droplet is roughly
+$12/month before optional backups and taxes. The current price list is at
+[DigitalOcean Droplet pricing](https://www.digitalocean.com/pricing/droplets).
+
+The repository includes a repeatable Ubuntu installer. It builds a pinned
+checkout, installs the API and web systemd services, and enables the crawler
+timer. Supply secrets out of band; never commit them:
+
+```sh
+sudo REPO_URL=https://github.com/techmore/swartzit.git \
+  REF=main \
+  DATABASE_URL='postgres://swartzit:change-me@127.0.0.1:5432/swartzit' \
+  ORIGIN=https://swartzit.example.org \
+  SCHEDULER_HANDLE=techmore \
+  SCHEDULER_PASSWORD='use-a-password-manager-value' \
+  CADDY_DOMAIN=swartzit.example.org \
+  bash scripts/install-server.sh
+```
+
+The installer expects PostgreSQL to be installed and the database/user to
+already exist. It keeps the API on `127.0.0.1:18080`, the web server on
+`127.0.0.1:4173`, and exposes only Caddy. Check the services with:
+
+```sh
+systemctl status swartzit swartzit-web swartzit-worker.timer
+journalctl -u swartzit-worker.service
+```
+
+The admin **Crawler Jobs** tab stores provider, source, destination community,
+interval, maximum items, moderation mode, and run status. The worker runs once
+per minute and claims due jobs without overlapping runs. The Commons/Daddario
+adapter uses the existing bounded publisher. Reddit uses its public JSON feed
+and RSS accepts public HTTPS feeds; X uses the official API and requires
+`X_BEARER_TOKEN` in the worker environment. An X job can use either an
+`@handle`/profile URL or a search source such as
+`search:("Alexandra Daddario" OR Daddario) has:media -is:retweet -is:reply`.
+Search jobs expand public authors and attachments, skip protected authors, and
+preserve the original status URL and metric snapshot. Provider errors are
+recorded as failed; the worker never scrapes a browser login or reports a
+fabricated success. Provider credentials belong in the worker environment, not
+in the job record or repository.
+
+Swartzit stores external media metadata and source URLs rather than silently
+mirroring every image or video. Public assets may be loaded from the provider
+CDN and can later use a bounded LRU cache. Do not cache sessions, admin pages,
+or authenticated responses. A future media cache must support purge/takedown,
+refresh expiring provider URLs, and respect the source license. Torrent or
+IPFS distribution is an optional backend for media that is explicitly
+redistributable; it is not enabled by default.
+
+## Optional JEV finance bridge
+
+The planned JEV/Ego Lite finance bridge is a separate, local, read-only
+component for user-approved balance snapshots, transaction review, and draft
+bill planning. Bank credentials, cookies, MFA codes, screenshots, and raw
+transaction feeds must stay outside Swartzit. See
+[docs/jev-finance-bridge.md](docs/jev-finance-bridge.md) for the tool boundary,
+redaction, retention, and browser handoff requirements.
+
+For deployment that should survive a home-network outage, point the domain at
+the VPS and run the full stack there. A VPS acting only as a Caddy/WireGuard
+proxy is useful for keeping the Mac private, but it does not run Swartzit when
+the Mac is offline.
+
 
 ## Sharing with other people
 
@@ -314,6 +384,38 @@ Add `--author techmore_edu` to include only that author's archived posts
 or fetch new posts. The limit applies after filtering; no matches produces an
 empty batch rather than substituting unrelated content.
 
+### Running collection through Hermes locally
+
+Hermes can be the local collector while Swartzit remains the publisher. Give
+Hermes access to a signed-in browser session for public Following/For You
+collection, or an authorized X API connector for unattended collection. Hermes
+must write a fresh normalized JSON array using the same record shape accepted by
+`POST /api/admin/imports`, including the real `source_url`, `source_author`,
+`observed_at`, and any observed media and metrics. It must never copy cookies,
+read DMs, bypass visibility controls, or invent missing values.
+
+Publish one Hermes batch from the repository root:
+
+```sh
+node scripts/hermes-content-sync.mjs \
+  --job feed --batch .local/hermes/inbox/following-2026-09-22.json --limit 10
+```
+
+For a hands-off local loop, have Hermes atomically place completed batches in an
+inbox directory and invoke:
+
+```sh
+node scripts/hermes-content-sync.mjs --job feed --inbox .local/hermes/inbox --limit 10
+```
+
+Successful files move to `.local/hermes/archive` and receive a receipt in
+`.local/hermes/receipts`; failed files stay in the inbox for inspection and
+retry. The wrapper calls `scheduled-imports.mjs`, so canonical URL deduplication,
+media enrichment, attribution checks, admin authentication, and session cleanup
+remain in one place. A Commons photo run can be scheduled locally with
+`node scripts/hermes-content-sync.mjs --job ddario --limit 3 --due-hours 24`.
+This is a local handoff contract, not a new Signal integration.
+
 Prepare reusable Commons photos from the Alexandra Daddario library manifest:
 
 ```sh
@@ -329,7 +431,11 @@ file's terms and attribution before publishing.
 session. Required fields are `community`, `provider` (`x` or `commons`),
 `source_url`, `source_author`, `title`, `body`, and ISO-8601 `observed_at`.
 Optional fields: `published_at`, `source_views`, `source_likes`,
-`source_reposts`, `source_replies`, `media` (image URL array), and `attribution`.
+`source_reposts`, `source_replies`, `media`, and `attribution`. Media accepts
+legacy image URL strings or objects: `{ "kind": "image" | "video", "src":
+"https://...", "poster": "https://...", "alt": "..." }`. Poster and alt are
+optional. Up to eight attachments allow a post plus its quoted-post media.
+X photos/posters must use pbs.twimg.com; videos must be MP4s on video.twimg.com.
 Unknown metrics are null, not zero. Every refresh replaces the complete source
 snapshot; omitted metrics become unknown. Older snapshots cannot overwrite
 newer ones. Canonical source URLs prevent duplicate posts, including concurrent
@@ -337,13 +443,49 @@ imports and X/Twitter URL aliases. Reimports preserve local votes, views,
 comments, and community placement.
 
 Readers can sort discussions by local activity or X snapshot counts, copy a
-discussion link, and sort local comments oldest/newest. Source images require
-an explicit click and then load directly from their original CDN; this is not
+discussion link, and sort local comments oldest/newest. Source images load
+automatically and directly from their original CDN; this is not
 torrent storage or an offline media mirror. Source counts are timestamped
 snapshots, not live counters. The existing Hermes archive does not contain
 engagement counts, so those show as unknown unless supplied by a collector.
-X reply bodies, video downloads, fresh Brave collection, and scheduled imports
-are not implemented by this adapter. Existing Signal jobs are unchanged.
+X imports are automatically enriched with public photos, animated-GIF MP4s,
+videos, and quoted-post attachments where X exposes them. Videos play inline
+with controls and no autoplay. Legacy image-only records remain compatible.
+Source reply bodies and permanent video downloads are not implemented.
+Media stays on X's CDN and can become unavailable if X removes or blocks it.
+Backfill existing X cross-posts with `node scripts/backfill-x-media.mjs`;
+this preserves their captured engagement timestamps and local discussions.
+Existing Signal jobs are unchanged.
+
+### Recurring sync on this Mac
+
+The **Swartzit content sync** Codex heartbeat is scheduled hourly. It reads
+public posts from the signed-in `@techmore_edu` account's Following and For You
+feeds (up to ten posts total), then publishes through the runner. It also checks
+the Daddario library each run, publishing up to three eligible Commons sources
+when 24 hours have elapsed since its last successful photo run.
+
+This requires the Mac/Codex, the local server, and an accessible signed-in Brave
+session. It is an agent-operated collector, not an independent Linux service.
+Scheduled execution has been enabled; future unattended browser runs may still
+encounter login or user-control blocks. The photo task posts from the existing
+manifest and reports exhaustion; it does not discover new photos automatically.
+
+See [the run procedure](docs/content-sync.md) for collection limits and recovery.
+The publisher accepts only fresh X batches, exits nonzero on failures, revokes
+its session, prevents overlapping publishers, and checkpoints successful photos
+individually. The latest 100 receipts are retained per job in
+`.local/sync-x.json` and `.local/sync-ddario.json`. Credentials stay in the
+gitignored `.local/import-scheduler.env`; never commit or print them.
+
+```sh
+node scripts/scheduled-imports.mjs --job x --batch .local/import-previews/scheduled-x.json --limit 10
+node scripts/scheduled-imports.mjs --job ddario --limit 3 --due-hours 24
+node --test scripts/scheduled-imports.test.mjs
+```
+
+Adjust or pause **Swartzit content sync** in Codex automations. Source URLs
+deduplicate across both feeds; local votes and comments survive refreshes.
 
 ## Deployment direction
 
@@ -360,3 +502,76 @@ processes. Forward public traffic to the website on 4173.
 The first release deliberately keeps uploads and federation out of the public
 API while their privacy, moderation, migration, and onion behavior are being
 specified.
+
+### Private bookmarks and folders
+
+Signed-in users can choose **Bookmark** on feed cards or discussion pages.
+**Save to folder** saves or moves a post into a folder; posts can also remain
+**Unfiled**. Open **Bookmarks** in the account navigation (`/bookmarks`) to
+browse saved posts, create or rename folders, move bookmarks, or remove them.
+Deleting a folder moves its bookmarks to Unfiled without unsaving the posts.
+Each post can be saved once per account, in one folder at a time.
+
+Bookmarks and folders belong to the signed-in account and are excluded from
+public feeds and community exports. Their API routes require a bearer session:
+`GET /api/bookmarks` (optional `folder_id`, `unfiled=true`, and `page`),
+`GET/POST /api/bookmark-folders`, `POST/DELETE /api/bookmark-folders/{id}`,
+and `GET/POST/DELETE /api/posts/{id}/bookmark`. Folder writes accept `{ "name":
+"Reading" }`; bookmark writes accept `{ "folder_id": null }` or a folder ID.
+Migration `0013_bookmarks.sql` runs automatically when the server starts.
+
+The bookmark isolation/lifecycle integration test uses a disposable database:
+`DATABASE_URL=... cargo test --locked private_bookmarks_and_folder_lifecycle -- --ignored`.
+The database role must have permission to create test databases.
+
+### Appearance
+
+Use the **Dark mode / Light mode** toggle at the bottom-right of any page.
+The site follows the operating system's theme until you choose a mode, then
+remembers that choice in this browser (`swartzit_theme` in local storage).
+The preference applies to public pages, forms, bookmarks, and the admin panel;
+it does not require an account.
+
+### Admin security
+
+The **Security** tab shows recent proxy-derived request activity and reversible
+address blocks. Swartzit stores a keyed one-way hash of each address, not the
+raw IP, and keeps activity for seven days. To enable this
+behind Caddy or another trusted reverse proxy, set both variables for the API:
+
+```sh
+TRUST_PROXY=true
+IP_HASH_SECRET='a-long-random-secret'
+```
+
+Only enable `TRUST_PROXY` when every request reaching the API comes through
+that proxy; otherwise clients can forge forwarding headers. Blocks can be
+temporary or indefinite and can be removed from the same tab. Migration
+`0018_ip_security.sql` creates the activity and block tables.
+
+Imported X video playback uses the site's `no-referrer` policy: X's CDN can
+reject video requests with a third-party Referer (HTTP 403). Keep the referrer
+meta tag in `apps/web/src/app.html` when customizing the layout. This also keeps
+private page addresses out of outbound requests. Videos still stream directly
+from X, with byte-range support for seeking; Swartzit does not proxy or store them.
+
+### Profile image cache
+
+Imported X posts record the public `pbs.twimg.com/profile_images` URL returned
+by the source API or syndication endpoint. Profile images can be copied into a
+small local cache and served from Swartzit so the reader is not dependent on X
+for every avatar request:
+
+```sh
+API_URL=http://127.0.0.1:18080 \
+PROFILE_IMAGE_CACHE_DIR=/var/lib/swartzit/profile-cache \
+node scripts/cache-profile-images.mjs
+```
+
+The cache job follows only HTTPS X profile-image URLs, refuses redirects, and
+skips files over 1 MiB or with a non-image content type. The API serves cached
+files at `/profile-images/:post_id`; the web app proxies that path and falls
+back to the public source URL when an image has not been cached yet. Run the
+job from a timer after imports, and make `PROFILE_IMAGE_CACHE_DIR` writable by
+the service account. This cache is intentionally limited to profile avatars;
+post photos and videos remain source-hosted or torrent-backed.

@@ -1,0 +1,22 @@
+[Unit]
+Description=Swartzit web application
+After=network-online.target swartzit.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=swartzit
+Group=swartzit
+WorkingDirectory=/var/lib/swartzit
+EnvironmentFile=/etc/swartzit/web.env
+ExecStart=/usr/bin/node /var/lib/swartzit/apps/web/build
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/swartzit
+
+[Install]
+WantedBy=multi-user.target

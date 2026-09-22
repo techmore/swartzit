@@ -5,6 +5,7 @@ use argon2::{
 };
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -17,6 +18,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
 use tower_http::cors::{Any, CorsLayer};
 mod admin;
+mod bookmarks;
 mod imports;
 mod operations;
 mod views;
@@ -262,7 +264,35 @@ impl FeedQuery {
         Ok((page - 1) * 20)
     }
 }
-const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e)-'post_id' FROM external_posts e WHERE e.post_id=p.id) AS source, p.view_count, p.engaged_view_count, p.deep_view_count, p.id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count, (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
+const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.view_count, p.engaged_view_count, p.deep_view_count, p.id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count, (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
+
+async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
+    if id <= 0 {
+        return Err(ApiError::Missing);
+    }
+    let root =
+        std::env::var("PROFILE_IMAGE_CACHE_DIR").unwrap_or_else(|_| ".local/profile-cache".into());
+    let base = std::path::PathBuf::from(root);
+    for (ext, mime) in [
+        ("jpg", "image/jpeg"),
+        ("jpeg", "image/jpeg"),
+        ("png", "image/png"),
+        ("webp", "image/webp"),
+        ("gif", "image/gif"),
+    ] {
+        let path = base.join(format!("{id}.{ext}"));
+        if let Ok(bytes) = tokio::fs::read(&path).await {
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", mime)
+                .header("cache-control", "public, max-age=86400")
+                .body(Body::from(bytes))
+                .map_err(|_| ApiError::Missing)
+                .unwrap());
+        }
+    }
+    Err(ApiError::Missing)
+}
 async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&db).await?;
     Ok(Json(serde_json::json!({"status":"ok"})))
@@ -587,6 +617,10 @@ async fn register_media(
     }
     if !["image", "video", "audio", "file"].contains(&media_type.as_str()) || input.byte_size < 0 {
         return Err(ApiError::Invalid("Media type or size is invalid"));
+    }
+    // X display standard: in-feed images are 1200x675 at most 5 MB.
+    if media_type == "image" && input.byte_size > 5_242_880 {
+        return Err(ApiError::Invalid("Images must be at most 5 MB"));
     }
     if input
         .magnet_uri
@@ -937,6 +971,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/accounts", post_method(signup))
         .route("/api/sessions", post_method(login).delete(logout))
         .route("/api/me", get(me))
+        .route("/api/bookmarks", get(bookmarks::list))
+        .route(
+            "/api/bookmark-folders",
+            get(bookmarks::folders).post(bookmarks::create_folder),
+        )
+        .route(
+            "/api/bookmark-folders/{id}",
+            post_method(bookmarks::rename_folder).delete(bookmarks::delete_folder),
+        )
+        .route(
+            "/api/posts/{id}/bookmark",
+            get(bookmarks::status)
+                .post(bookmarks::save)
+                .delete(bookmarks::remove),
+        )
         .route("/api/admin/overview", get(admin_overview))
         .route("/api/admin/logs", get(admin::logs))
         .route("/api/admin/users", get(admin::users))
@@ -951,7 +1000,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(admin::resolve),
         )
         .route("/api/admin/analytics", get(admin::analytics))
+        .route(
+            "/api/admin/security",
+            get(admin::security).post(admin::block_ip),
+        )
+        .route(
+            "/api/admin/security/{id}",
+            axum::routing::delete(admin::unblock_ip),
+        )
+        .route(
+            "/api/admin/crawler-jobs",
+            get(admin::crawler_jobs).post(admin::create_crawler_job),
+        )
+        .route(
+            "/api/admin/crawler-jobs/{id}/toggle",
+            post_method(admin::toggle_crawler_job),
+        )
+        .route(
+            "/api/admin/crawler-jobs/{id}/run-now",
+            post_method(admin::run_crawler_job_now),
+        )
+        .route(
+            "/api/admin/crawler-jobs/{id}",
+            axum::routing::delete(admin::delete_crawler_job),
+        )
+        .route("/api/admin/crawler-runs", get(admin::crawler_runs))
+        .route(
+            "/api/admin/crawler-jobs/{id}/claim",
+            post_method(admin::claim_crawler_job),
+        )
+        .route(
+            "/api/admin/crawler-runs/{run_id}/complete",
+            post_method(admin::complete_crawler_job),
+        )
         .route("/api/admin/imports", post_method(imports::ingest))
+        .route("/profile-images/{id}", get(profile_image))
         .route("/api/views", post_method(operations::view))
         .route("/api/posts", post_method(create_post).get(posts))
         .route(
