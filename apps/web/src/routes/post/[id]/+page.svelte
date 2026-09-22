@@ -63,13 +63,12 @@
 <main class="post-page">
   <a class="back" href="/?community={data.post.community}">← c/{data.post.community}</a>
   <article class="post">
-    <div class="meta post-author">
+    {#if data.post.source?.provider !== 'x'}<div class="meta post-author">
 {#if data.post.source?.provider === 'x'}<AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From X</strong> · {data.post.source.source_author}</span>
 {:else}<AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · u/{data.post.author}</span>{/if}
-</div>
-    {#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}
-    <p>{data.post.body}</p>
-    {#if data.post.source}{#key data.post.id}<SourcePost source={data.post.source} />{/key}{/if}
+</div>{/if}
+    {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}<p>{data.post.body}</p>{/if}
+    {#if data.post.source}{#key data.post.id}<SourcePost source={data.post.source} text={data.post.body} />{/key}{/if}
     <div class="post-actions">{#key data.post.id}<BookmarkButton id={data.post.id} />{/key}
     <ShareButton id={data.post.id} title={data.post.title} /></div>
     <footer><span>{data.post.score} points</span><span>{data.post.comment_count} comments</span></footer>

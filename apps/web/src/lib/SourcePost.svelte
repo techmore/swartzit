@@ -1,8 +1,15 @@
 <script>
   export let source;
+  export let text = '';
   const count = n => n == null ? '—' : new Intl.NumberFormat().format(n);
   let failed = {};
   const attachment = m => typeof m === 'string' ? {kind:'image',src:m} : m;
+  const clean = value => String(value ?? '').trim();
+  function splitPost(value) {
+    const match = clean(value).match(/^(.*?)(?:\n\nQuoted post by (@[^:]+):\s*)([\s\S]*)$/i);
+    return match ? { text: match[1].trim(), quotedAuthor: match[2].trim(), quotedText: match[3].trim() } : { text: clean(value), quotedAuthor: '', quotedText: '' };
+  }
+  $: parsed = splitPost(text);
   function announcePlay(event, media) {
     window.dispatchEvent(new CustomEvent('swartzit-media-play', { detail: { element: event.currentTarget, media, source } }));
   }
@@ -34,7 +41,7 @@
     return { destroy: () => { observer.disconnect(); window.removeEventListener('swartzit-autoplay-change', preferenceChanged); } };
   }
 </script>
-<section class="source-post" aria-label="Original source">
+<section class="source-post" class:external-x={source.provider === 'x'} aria-label={source.provider === 'x' ? 'Imported X post' : 'Original source'}>
   <div class="source-heading">
     {#if source.provider === 'x' && source.profile_image_url}
       <span class="profile-hover" role="button" tabindex="0" aria-label={`Preview ${source.profile_display_name || source.source_author} profile`}>
@@ -46,13 +53,19 @@
           {#if source.profile_url}<a href={source.profile_url} target="_blank" rel="noopener noreferrer">Open profile ↗</a>{/if}
         </div>
       </span>
+    {:else}<span class="source-avatar source-avatar-fallback" aria-hidden="true">{(source.profile_display_name || source.source_author || '?').slice(0, 1).toUpperCase()}</span>
     {/if}
-    <strong>{source.provider === 'x' ? 'From X' : 'Wikimedia Commons'} · {source.profile_display_name || source.source_author}</strong>
-  <a href={source.source_url} target="_blank" rel="noopener noreferrer">Open original ↗</a></div>
-  {#if source.published_at}<small>Originally published {new Date(source.published_at).toLocaleString()}</small>{/if}
-  {#if source.provider === 'x'}<p class="source-metrics">X: {count(source.source_views)} views · {count(source.source_likes)} likes · {count(source.source_reposts)} reposts · {count(source.source_replies)} replies</p>
-  <small>Snapshot {new Date(source.observed_at).toLocaleString()} · — means not captured. X counts are separate from Swartzit activity.</small>{/if}
-  {#if source.attribution}<p>{source.attribution}</p>{/if}
+    <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<small>{source.source_author}</small></div>
+    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏 X' : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer">↗</a></div></div>
+  {#if source.provider === 'x'}
+    {#if parsed.text}<p class="source-text">{parsed.text}</p>{/if}
+    {#if parsed.quotedText}<blockquote class="quoted-post"><strong>{parsed.quotedAuthor}</strong><p>{parsed.quotedText}</p></blockquote>{/if}
+    <div class="source-metrics" aria-label="Observed X engagement"><span>♥ {count(source.source_likes)}</span><span>↻ {count(source.source_reposts)}</span><span>💬 {count(source.source_replies)}</span><span>◉ {count(source.source_views)}</span></div>
+    <small class="snapshot">{#if source.published_at}{new Date(source.published_at).toLocaleString()} · {/if}Observed on {new Date(source.observed_at).toLocaleString()} · X counts are separate from Swartzit activity.</small>
+  {:else}
+    {#if source.published_at}<small>Originally published {new Date(source.published_at).toLocaleString()}</small>{/if}
+    {#if source.attribution}<p>{source.attribution}</p>{/if}
+  {/if}
   {#if source.media?.length}
     <div class="source-images count-{source.media.length > 4 ? 'many' : source.media.length}">
       {#each source.media as item}
@@ -71,16 +84,17 @@
   {/if}
 </section>
 <style>
-  .source-post{border-left:3px solid var(--border,#89a28c);background:var(--subtle,#f0f3ec);padding:14px;margin:16px 0;font-size:.85rem}
+  .source-post{border:1px solid var(--border,#c7d0c6);border-radius:14px;background:var(--surface,#fff);padding:16px;margin:16px 0;font-size:.92rem;box-shadow:0 1px 2px #0001}
   .source-post>div:first-child{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap}
-  .source-heading{align-items:center}.source-avatar{width:32px;height:32px;border-radius:50%;object-fit:cover;background:var(--subtle,#dde3da)}
+  .source-heading{align-items:center}.source-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:var(--subtle,#dde3da)}.source-avatar-fallback{display:grid;place-items:center;font-weight:700;color:var(--link,#215e47)}
+  .source-identity{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1}.source-identity small{width:100%;margin:0}.source-right{display:flex;align-items:center;gap:10px}.provider-badge{font-size:.75rem;color:var(--muted,#66766c);font-weight:700}.source-link{font-size:1.25rem;text-decoration:none}
   .profile-hover{position:relative;display:flex;align-items:center;outline:none}.profile-hover:focus-visible .source-avatar{box-shadow:0 0 0 3px var(--link,#215e47)}
   .profile-card{position:absolute;z-index:5;top:42px;left:0;width:280px;padding:14px;border:1px solid var(--border,#89a28c);border-radius:10px;background:var(--surface,#fff);box-shadow:0 8px 24px #0003;visibility:hidden;opacity:0;transform:translateY(-4px);transition:opacity .12s,transform .12s,visibility .12s;pointer-events:none}
   .profile-hover:hover .profile-card,.profile-hover:focus-within .profile-card,.profile-hover:focus .profile-card{visibility:visible;opacity:1;transform:translateY(0);pointer-events:auto}
   .profile-card-heading{display:flex;gap:10px;align-items:center}.profile-card-heading img{width:44px;height:44px;border-radius:50%;object-fit:cover}.profile-card-heading small{margin:2px 0 0}.profile-card p{font-size:.9rem;line-height:1.35}.profile-stats{display:flex;gap:12px;font-size:.8rem;color:var(--muted,#66766c)}.verified{display:inline-grid;place-items:center;width:16px;height:16px;margin-left:4px;border-radius:50%;background:var(--link,#215e47);color:white;font-size:.7rem}
   a{color:var(--link,#215e47);text-decoration:underline}
   small{display:block;color:var(--muted,#66766c);margin:6px 0}
-  .source-post p{margin:8px 0}
+  .source-post p{margin:8px 0}.source-text{font-size:1.05rem;line-height:1.45;white-space:pre-wrap}.quoted-post{border:1px solid var(--border,#c7d0c6);border-radius:12px;margin:14px 0;padding:12px;background:var(--subtle,#f5f7f3)}.quoted-post p{margin:5px 0;white-space:pre-wrap}.source-metrics{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted,#66766c);margin:14px 0 4px!important}.snapshot{font-size:.72rem}
   .source-images{display:grid;gap:8px;margin:8px 0;max-width:680px}
   figure{margin:0;min-width:0} figcaption{margin-top:6px;color:var(--muted,#66766c)}
   .source-images img,.source-images video{width:100%;max-height:600px;object-fit:contain;background:var(--subtle,#dde3da);display:block}
