@@ -36,10 +36,10 @@ fn validate_media(media: &Media, provider: &str) -> Result<(), ApiError> {
     if !valid || alt.is_some_and(|s| s.len() > 1000) {
         return Err(ApiError::Invalid("Invalid source media"));
     }
-    if let Some(poster) = poster {
-        if kind != "video" || https(poster)?.host_str() != Some("pbs.twimg.com") {
-            return Err(ApiError::Invalid("Invalid video poster"));
-        }
+    if let Some(poster) = poster
+        && (kind != "video" || https(poster)?.host_str() != Some("pbs.twimg.com"))
+    {
+        return Err(ApiError::Invalid("Invalid video poster"));
     }
     Ok(())
 }
@@ -365,7 +365,9 @@ pub async fn cross_post(
 
 pub fn order(sort: Option<&str>) -> Result<&'static str, ApiError> {
     Ok(match sort.unwrap_or("newest") {
-        "recommended" => "(2.0*LN(1.0+p.engaged_view_count)+1.5*LN(1.0+(SELECT count(*) FROM comments cm WHERE cm.post_id=p.id))+LN(1.0+GREATEST(0,(SELECT COALESCE(sum(value),0) FROM post_votes v WHERE v.post_id=p.id)))+0.5*LN(1.0+p.view_count))/(1.0+GREATEST(0.0,EXTRACT(EPOCH FROM(now()-p.created_at))/604800.0)) DESC",
+        "recommended" => {
+            "(2.0*LN(1.0+p.engaged_view_count)+1.5*LN(1.0+(SELECT count(*) FROM comments cm WHERE cm.post_id=p.id))+LN(1.0+GREATEST(0,(SELECT COALESCE(sum(value),0) FROM post_votes v WHERE v.post_id=p.id)))+0.5*LN(1.0+p.view_count))/(1.0+GREATEST(0.0,EXTRACT(EPOCH FROM(now()-p.created_at))/604800.0)) DESC"
+        }
         "newest" => "p.created_at DESC",
         "score" => "score DESC",
         "comments" => "comment_count DESC",

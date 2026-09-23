@@ -265,7 +265,7 @@ pub async fn create_crawler_job(
             .bind(slug)
             .fetch_optional(&db)
             .await?
-            .or_else(|| Some(-1)),
+            .or(Some(-1)),
         None => None,
     };
     if community_id == Some(-1) {
@@ -380,7 +380,17 @@ pub async fn claim_crawler_job(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
     let mut tx = db.begin().await?;
-    let job: Option<(i64,String,String,String,Option<String>,i32,i32,String)> = sqlx::query_as("SELECT j.id,j.name,j.provider,j.source,(SELECT slug FROM communities WHERE id=j.community_id),j.interval_seconds,j.max_items,j.mode FROM crawler_jobs j WHERE j.id=$1 AND j.enabled AND j.next_run_at<=now() FOR UPDATE SKIP LOCKED")
+    type ClaimedJob = (
+        i64,
+        String,
+        String,
+        String,
+        Option<String>,
+        i32,
+        i32,
+        String,
+    );
+    let job: Option<ClaimedJob> = sqlx::query_as("SELECT j.id,j.name,j.provider,j.source,(SELECT slug FROM communities WHERE id=j.community_id),j.interval_seconds,j.max_items,j.mode FROM crawler_jobs j WHERE j.id=$1 AND j.enabled AND j.next_run_at<=now() FOR UPDATE SKIP LOCKED")
         .bind(id).fetch_optional(&mut *tx).await?;
     let Some((id, name, provider, source, community, interval_seconds, max_items, mode)) = job
     else {

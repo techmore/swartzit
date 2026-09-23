@@ -124,7 +124,7 @@ pub async fn observe(State(db): State<PgPool>, request: Request, next: Next) -> 
                 .bind(status.as_u16() as i32)
                 .execute(&db)
                 .await;
-        if REQUESTS.load(Relaxed) % 100 == 0 {
+        if REQUESTS.load(Relaxed).is_multiple_of(100) {
             let _ =
                 sqlx::query("DELETE FROM ip_activity WHERE created_at < now() - interval '7 days'")
                     .execute(&db)
