@@ -91,7 +91,7 @@ On macOS, install the small native status companion so end users can see at a gl
 bash scripts/install-mac-status.sh
 ```
 
-The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Open the menu to see a calm `Running`, `Stopped`, or `Unavailable` status card; `Network`, `Recent activity`, and `Server details` keep diagnostics available without turning the dropdown into a wall of status rows. It uses the same Swartzit icon as the web app/favicon, enforces one menu companion per user, shows native macOS symbols for actions and network types, runs as a per-user LaunchAgent, and does not store application data in the menu-bar app.
+The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Open the menu to see a calm `Running`, `Stopped`, or `Unavailable` status card; `Network`, `Recent activity`, and `Server details` keep diagnostics available without turning the dropdown into a wall of status rows. The `Updates` row checks Homebrew in the background and becomes **Install update** when a newer release is available; that action uses the same backup, upgrade, restart, and health-check flow as `swartzit update --yes`. It uses the same Swartzit icon as the web app/favicon, enforces one menu companion per user, shows native macOS symbols for actions and network types, runs as a per-user LaunchAgent, and does not store application data in the menu-bar app.
 
 Use **Network** in the menu to choose an active loopback, Wi-Fi/LAN,
 USB/Thunderbolt Ethernet adapter, WireGuard/VPN tunnel, or concrete macOS

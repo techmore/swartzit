@@ -48,6 +48,11 @@ struct BindingOption: Decodable {
 struct ActivityWindow: Decodable { let label: String; let users: Int; let posts: Int; let comments: Int }
 struct ActivityFeatures: Decodable { let orchard_enabled: Bool? }
 struct Activity: Decodable { let windows: [ActivityWindow]; let features: ActivityFeatures? }
+struct BrewOutdatedResponse: Decodable { let formulae: [BrewOutdatedFormula] }
+struct BrewOutdatedFormula: Decodable {
+    let name: String
+    let current_version: String?
+}
 
 final class SingleInstanceLock {
     private var descriptor: Int32 = -1
@@ -153,6 +158,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     private var orchardRootItem: NSMenuItem!
     private var orchardMenu: NSMenu!
     private var checkNowItem: NSMenuItem!
+    private var upgradeItem: NSMenuItem!
     private var startItem: NSMenuItem!
     private var stopItem: NSMenuItem!
     private var versionItem: NSMenuItem!
@@ -166,10 +172,15 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     private var networkRows: [NSMenuItem] = []
     private var bindingInProgress = false
     private var serviceInProgress = false
+    private var updateCheckInProgress = false
+    private var updateInProgress = false
+    private var updateAvailableVersion: String?
     private var currentOpenURL: String?
     private var timer: Timer?
+    private var updateTimer: Timer?
     private var command: String { ProcessInfo.processInfo.environment["SWARTZIT_COMMAND"] ?? "swartzit" }
     private var openURL: String { ProcessInfo.processInfo.environment["SWARTZIT_OPEN_URL"] ?? "http://127.0.0.1:4173" }
+    private var currentVersion: String { ProcessInfo.processInfo.environment["SWARTZIT_STATUS_VERSION"] ?? "development" }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -194,6 +205,10 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         add("Open Swartzit", #selector(openSwartzit), icon: "arrow.up.forward.app")
         checkNowItem = add("Refresh status", #selector(checkNow), icon: "arrow.clockwise")
+        upgradeItem = menuItem("Updates  ·  Checking…", #selector(handleUpgradeAction), icon: "arrow.down.circle")
+        upgradeItem.isEnabled = false
+        upgradeItem.toolTip = "Checking Homebrew for a newer Swartzit release."
+        menu.addItem(upgradeItem)
         menu.addItem(.separator())
         startItem = add("Start service", #selector(startSwartzit), icon: "play.fill")
         stopItem = add("Stop service", #selector(stopSwartzit), icon: "stop.fill")
@@ -240,7 +255,9 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         setOrchardEnabled(true)
         item.menu = menu
         checkNow()
+        checkForUpdates()
         timer = Timer.scheduledTimer(timeInterval: 30, target: self, selector: #selector(checkNow), userInfo: nil, repeats: true)
+        updateTimer = Timer.scheduledTimer(timeInterval: 900, target: self, selector: #selector(checkForUpdates), userInfo: nil, repeats: true)
     }
 
     @discardableResult
@@ -278,6 +295,141 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             orchardMenu.addItem(menuItem("Install Orchard with Homebrew…", #selector(installOrchard), icon: "arrow.down.circle"))
         } else {
             orchardRootItem.isHidden = true
+        }
+    }
+
+    @objc private func checkForUpdates() {
+        guard !updateCheckInProgress, !updateInProgress else { return }
+        updateCheckInProgress = true
+        upgradeItem.title = "Updates  ·  Checking…"
+        upgradeItem.isEnabled = false
+        upgradeItem.toolTip = "Checking Homebrew for a newer Swartzit release."
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let result: (data: Data?, code: Int32)
+            if let brew = self.executablePath(named: "brew") {
+                result = self.run(executable: brew, arguments: ["outdated", "--json=v2", "swartzit"])
+            } else {
+                result = (nil, -1)
+            }
+            // Homebrew exits with 1 when it successfully finds an outdated
+            // formula, so the JSON payload is the source of truth here.
+            let response = self.decodeBrewOutdated(result.data)
+            let availableVersion = response?.formulae
+                .first(where: { $0.name == "swartzit" || $0.name.hasSuffix("/swartzit") })?
+                .current_version
+
+            DispatchQueue.main.async {
+                self.updateCheckInProgress = false
+                guard !self.updateInProgress else { return }
+                if response == nil {
+                    self.updateAvailableVersion = nil
+                    self.upgradeItem.title = "Updates  ·  Check unavailable"
+                    self.upgradeItem.isEnabled = !self.serviceInProgress && !self.bindingInProgress
+                    self.upgradeItem.toolTip = "Homebrew could not be queried. Click to try again."
+                } else if let availableVersion {
+                    self.updateAvailableVersion = availableVersion
+                    self.upgradeItem.title = "Install update  ·  \(availableVersion)"
+                    self.upgradeItem.isEnabled = !self.serviceInProgress && !self.bindingInProgress
+                    self.upgradeItem.toolTip = "Create a backup and install Swartzit \(availableVersion)."
+                } else {
+                    self.updateAvailableVersion = nil
+                    self.upgradeItem.title = "Updates  ·  Up to date"
+                    self.upgradeItem.isEnabled = !self.serviceInProgress && !self.bindingInProgress
+                    self.upgradeItem.toolTip = "Swartzit \(self.currentVersion) is up to date. Click to check again."
+                }
+            }
+        }
+    }
+
+    private func decodeBrewOutdated(_ data: Data?) -> BrewOutdatedResponse? {
+        guard let output = data.flatMap({ String(data: $0, encoding: .utf8) }),
+              let start = output.firstIndex(of: "{"),
+              let end = output.lastIndex(of: "}") else {
+            return nil
+        }
+        let json = String(output[start...end])
+        return try? JSONDecoder().decode(BrewOutdatedResponse.self, from: Data(json.utf8))
+    }
+
+    private func executablePath(named name: String) -> String? {
+        if name.contains("/") {
+            return FileManager.default.isExecutableFile(atPath: name) ? name : nil
+        }
+        let searchPath = ProcessInfo.processInfo.environment["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        for directory in searchPath.split(separator: ":", omittingEmptySubsequences: true) {
+            let candidate = URL(fileURLWithPath: String(directory)).appendingPathComponent(name).path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func refreshUpdateActionAvailability() {
+        guard !updateInProgress, !updateCheckInProgress else { return }
+        upgradeItem.isEnabled = !serviceInProgress && !bindingInProgress
+    }
+
+    @objc private func handleUpgradeAction() {
+        guard let availableVersion = updateAvailableVersion else {
+            checkForUpdates()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Install Swartzit \(availableVersion)?"
+        alert.informativeText = "This creates a PostgreSQL backup, upgrades the Homebrew package, restarts local services, and refreshes this menu companion."
+        alert.addButton(withTitle: "Install Update")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        applyUpdate(to: availableVersion)
+    }
+
+    private func applyUpdate(to version: String) {
+        guard !updateInProgress, !serviceInProgress, !bindingInProgress else { return }
+        updateInProgress = true
+        updateAvailableVersion = nil
+        checkNowItem.isEnabled = false
+        upgradeItem.title = "Updates  ·  Installing \(version)…"
+        upgradeItem.isEnabled = false
+        startItem.isEnabled = false
+        stopItem.isEnabled = false
+        networkRootItem.isEnabled = false
+        summaryItem.title = "Swartzit  ·  Updating…"
+        statusHeaderView.update(
+            status: "Updating…",
+            detail: "Backing up data and installing \(version)",
+            symbol: "arrow.down.circle.fill",
+            tint: .systemOrange
+        )
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.run(["update", "--yes"])
+            DispatchQueue.main.async {
+                self.updateInProgress = false
+                if result.code != 0 {
+                    let alert = NSAlert()
+                    alert.messageText = "Swartzit could not be updated."
+                    let output = String(data: result.data ?? Data(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    alert.informativeText = (output?.isEmpty == false ? output : nil) ?? "The update command failed. Your existing installation was left in place."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                } else {
+                    self.summaryItem.title = "Swartzit  ·  Updated"
+                    self.statusHeaderView.update(
+                        status: "Updated",
+                        detail: "Swartzit \(version) installed successfully",
+                        symbol: "checkmark.circle.fill",
+                        tint: .systemGreen
+                    )
+                }
+                self.checkNowItem.isEnabled = true
+                self.checkNow()
+                self.checkForUpdates()
+            }
         }
     }
 
@@ -492,10 +644,14 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     }
 
     private func run(_ arguments: [String]) -> (data: Data?, code: Int32) {
+        run(executable: command, arguments: arguments)
+    }
+
+    private func run(executable: String, arguments: [String]) -> (data: Data?, code: Int32) {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [command] + arguments
+        process.arguments = [executable] + arguments
         process.standardOutput = pipe
         process.standardError = pipe
         do { try process.run(); process.waitUntilExit(); return (pipe.fileHandleForReading.readDataToEndOfFile(), process.terminationStatus) }
@@ -530,6 +686,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         guard !bindingInProgress, !serviceInProgress, let binding = sender.representedObject as? String else { return }
         bindingInProgress = true
         networkRootItem.isEnabled = false
+        upgradeItem.isEnabled = false
         startItem.isEnabled = false
         stopItem.isEnabled = false
         for row in networkRows { row.isEnabled = false }
@@ -546,6 +703,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.bindingInProgress = false
                 self.networkRootItem.isEnabled = !self.serviceInProgress
+                self.refreshUpdateActionAvailability()
                 if result.code != 0 {
                     let alert = NSAlert()
                     alert.messageText = "Could not bind Swartzit and refresh Caddy for \(binding)."
@@ -565,6 +723,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         startItem.isEnabled = false
         stopItem.isEnabled = false
         networkRootItem.isEnabled = false
+        upgradeItem.isEnabled = false
         statusHeaderView.update(
             status: "Working…",
             detail: label,
@@ -576,6 +735,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             let result = self.run(arguments)
             DispatchQueue.main.async {
                 self.serviceInProgress = false
+                self.refreshUpdateActionAvailability()
                 if result.code != 0 {
                     let alert = NSAlert()
                     alert.messageText = "Could not \(arguments.first ?? "update") Swartzit."
