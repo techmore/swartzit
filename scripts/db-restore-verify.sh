@@ -6,6 +6,7 @@ cd "$ROOT"
 BACKUP="${1:-}"
 [[ -f "$BACKUP" ]] || { echo "Usage: $0 /absolute/path/to/swartzit.dump" >&2; exit 2; }
 BACKUP_DIR="$(cd "$(dirname "$BACKUP")" && pwd)"
+BACKUP="$BACKUP_DIR/$(basename "$BACKUP")"
 TEST_CONTAINER="${SWARTZIT_VERIFY_CONTAINER:-swartzit-db-restore}"
 TEST_VOLUME="${SWARTZIT_VERIFY_VOLUME:-swartzit-db-restore-data}"
 DB_USER="${SWARTZIT_DB_USER:-swartzit}"
