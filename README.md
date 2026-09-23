@@ -27,14 +27,17 @@ for crawler jobs, reports, logs, users, and runtime health.
 
 ## Homebrew installation
 
-The repository includes a formula at `Formula/swartzit.rb`. Once this repository
-is pushed, the development formula can install the current `main` branch:
+The repository includes a formula at `Formula/swartzit.rb`. The pinned release
+formula installs the tagged archive:
 
 ```sh
-brew install --HEAD --build-from-source ./Formula/swartzit.rb
+brew tap techmore/swartzit
+brew install swartzit
 swartzit start
 swartzit status
 ```
+
+For development builds from `main`, use `brew install --HEAD techmore/swartzit/swartzit`.
 
 ### Performance smoke benchmark
 
