@@ -157,7 +157,7 @@ case "${1:-status}" in
       printf 'SWARTZIT_CHECK_URL=%q\n' "${SWARTZIT_CHECK_URL:-}"
       printf 'SWARTZIT_CADDY=%q\n' "${SWARTZIT_CADDY:-0}"
       printf 'SWARTZIT_DOMAIN=%q\n' "${SWARTZIT_DOMAIN:-}"
-      printf 'SWARTZIT_CADDY_BIND_IP=%q\n' "${SWARTZIT_CADDY_BIND_IP:-$WEB_BIND_IP}"
+      printf 'SWARTZIT_CADDY_BIND_IP=%q\n' "${SWARTZIT_CADDY_BIND_IP:-0.0.0.0}"
       printf 'SWARTZIT_CADDY_UPSTREAM=%q\n' "${SWARTZIT_CADDY_UPSTREAM:-$WEB_BIND_IP:$PORT}"
       printf 'SWARTZIT_STATE_DIR=%q\n' "$STATE_DIR"
     } > "$STATE_DIR/runtime.env"

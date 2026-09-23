@@ -395,9 +395,9 @@ swartzit status --json                  # local components plus the latest pulse
 ```
 
 For the WireGuard-backed public path used by `stoverparc.org`, bind the web
-server and Caddy to the tunnel address. Caddy listens on 80/443, obtains and
-renews the domain certificate, and proxies to the same selected web address;
-the API remains on loopback:
+server to the tunnel address. Caddy listens on wildcard 80/443, obtains and
+renews the domain certificate, and proxies to that selected web address; the
+API remains on loopback:
 
 ```sh
 swartzit caddy-install

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.13-20260923T14
+
+- Keeps Caddy on a non-privileged wildcard listener while binding Swartzit's
+  web server to the selected WireGuard, Wi-Fi, or Ethernet address.
+- Prevents macOS permission failures when Caddy serves HTTPS on port 443.
+
 ## 0.1.12-20260923T14
 
 - Keeps the public Caddy reverse proxy synchronized with the selected Swartzit
