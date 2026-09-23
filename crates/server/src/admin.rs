@@ -242,7 +242,8 @@ pub async fn moderation(
            LEFT JOIN posts p ON mi.kind = 'post' AND p.id = mi.target_id
            LEFT JOIN comments cm ON mi.kind = 'comment' AND cm.id = mi.target_id
            LEFT JOIN communities c ON c.id = p.community_id
-           WHERE mi.status IN ('pending', 'escalated')
+           WHERE mi.kind <> 'profile'
+             AND mi.status IN ('pending', 'escalated')
              AND ($1 = '' OR strpos(lower(
                a.handle || ' ' || COALESCE(p.title, '') || ' ' ||
                COALESCE(p.body, cm.body, '') || ' ' || COALESCE(mi.payload::text, '')
@@ -473,6 +474,10 @@ pub struct UpdateSettings {
     orchard_enabled: Option<bool>,
     content_runners_enabled: Option<bool>,
     moderation_enabled: Option<bool>,
+    media_primary: Option<String>,
+    media_cache_enabled: Option<bool>,
+    media_cache_max_bytes: Option<i64>,
+    media_share: Option<String>,
 }
 
 pub async fn settings(
@@ -483,6 +488,9 @@ pub async fn settings(
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let media = media_store::settings_view(&db)
+        .await
+        .map_err(ApiError::Storage)?;
     Ok(Json(serde_json::json!({
         "modules": {
             "orchard": {
@@ -494,7 +502,8 @@ pub async fn settings(
             "moderation": {
                 "enabled": moderation_enabled
             }
-        }
+        },
+        "media": media
     })))
 }
 
@@ -507,9 +516,13 @@ pub async fn update_settings(
     if input.orchard_enabled.is_none()
         && input.content_runners_enabled.is_none()
         && input.moderation_enabled.is_none()
+        && input.media_primary.is_none()
+        && input.media_cache_enabled.is_none()
+        && input.media_cache_max_bytes.is_none()
+        && input.media_share.is_none()
     {
         return Err(ApiError::Invalid(
-            "No supported module setting was provided",
+            "No supported setting was provided",
         ));
     }
     let actor = actor;
@@ -564,9 +577,80 @@ pub async fn update_settings(
         )
         .await;
     }
+    if let Some(primary) = input.media_primary.as_deref() {
+        if !["filesystem", "s3"].contains(&primary) {
+            return Err(ApiError::Invalid("Media primary must be filesystem or s3"));
+        }
+    }
+    if let Some(share) = input.media_share.as_deref() {
+        if !["disabled", "catbox"].contains(&share) {
+            return Err(ApiError::Invalid("Media sharing must be disabled or catbox"));
+        }
+    }
+    if let Some(max_bytes) = input.media_cache_max_bytes {
+        if !(1_048_576..=1_099_511_627_776).contains(&max_bytes) {
+            return Err(ApiError::Invalid(
+                "Media cache size must be between 1 MiB and 1 TiB",
+            ));
+        }
+    }
+    if let Some(primary) = input.media_primary.as_deref() {
+        let current = media_store::load_config(&db)
+            .await
+            .map_err(ApiError::Storage)?;
+        if current.primary_source == "environment" && current.primary_provider != primary {
+            return Err(ApiError::Invalid(
+                "SWARTZIT_MEDIA_PRIMARY is set in the environment; change that override first",
+            ));
+        }
+        let mut candidate = current;
+        candidate.primary_provider = primary.to_owned();
+        media_store::test_primary(&candidate)
+            .await
+            .map_err(ApiError::Storage)?;
+    }
+    if input.media_primary.is_some()
+        || input.media_cache_enabled.is_some()
+        || input.media_cache_max_bytes.is_some()
+        || input.media_share.is_some()
+    {
+        sqlx::query(
+            "UPDATE media_settings
+             SET primary_provider = COALESCE($1, primary_provider),
+                 cache_enabled = COALESCE($2, cache_enabled),
+                 cache_max_bytes = COALESCE($3, cache_max_bytes),
+                 share_provider = COALESCE($4, share_provider),
+                 updated_by = $5,
+                 updated_at = now()
+             WHERE singleton = TRUE",
+        )
+        .bind(input.media_primary.as_deref())
+        .bind(input.media_cache_enabled)
+        .bind(input.media_cache_max_bytes)
+        .bind(input.media_share.as_deref())
+        .bind(actor)
+        .execute(&db)
+        .await?;
+        log_event(
+            &db,
+            "info",
+            "admin.media_settings_updated",
+            serde_json::json!({
+                "actor_id": actor,
+                "primary": input.media_primary,
+                "cache_enabled": input.media_cache_enabled,
+                "cache_max_bytes": input.media_cache_max_bytes,
+                "share": input.media_share
+            }),
+        )
+        .await;
+    }
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let media = media_store::settings_view(&db)
+        .await
+        .map_err(ApiError::Storage)?;
     Ok(Json(serde_json::json!({
         "modules": {
             "orchard": {
@@ -578,7 +662,8 @@ pub async fn update_settings(
             "moderation": {
                 "enabled": moderation_enabled
             }
-        }
+        },
+        "media": media
     })))
 }
 
@@ -1535,6 +1620,240 @@ pub struct RunnerMediaUpload {
     content_type: String,
 }
 
+#[derive(FromRow)]
+struct MediaSource {
+    id: i64,
+    content_hash: String,
+    content_bytes: Option<Vec<u8>>,
+    byte_size: i64,
+    mime_type: Option<String>,
+    content_type: String,
+    storage_backend: String,
+    object_key: Option<String>,
+    status: String,
+    variants: serde_json::Value,
+}
+
+async fn media_source(db: &PgPool, id: i64) -> Result<MediaSource, ApiError> {
+    sqlx::query_as(
+        "SELECT id, content_hash, content_bytes, byte_size, mime_type, content_type,
+                storage_backend, object_key, status, variants
+         FROM media_assets WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?
+    .ok_or(ApiError::Missing)
+}
+
+fn source_variant(source: &MediaSource, variant: &str) -> Result<media_store::StoredVariant, ApiError> {
+    if variant != "original" && variant != "thumbnail" {
+        return Err(ApiError::Missing);
+    }
+    if let Some(metadata) = media_store::variant_metadata(&source.variants, variant) {
+        return Ok(metadata);
+    }
+    if variant == "original" {
+        return Ok(media_store::StoredVariant {
+            variant: variant.to_owned(),
+            object_key: source.object_key.clone().unwrap_or_default(),
+            byte_size: source.byte_size.max(0) as u64,
+            mime_type: source
+                .mime_type
+                .clone()
+                .unwrap_or_else(|| source.content_type.clone()),
+            checksum: source.content_hash.clone(),
+            external_url: None,
+        });
+    }
+    Err(ApiError::Missing)
+}
+
+async fn load_media_variant(
+    db: &PgPool,
+    config: &media_store::MediaConfig,
+    id: i64,
+    variant: &str,
+) -> Result<(MediaSource, media_store::StoredVariant, Vec<u8>), ApiError> {
+    let source = media_source(db, id).await?;
+    if source.status == "deleted" {
+        return Err(ApiError::Missing);
+    }
+    let metadata = source_variant(&source, variant)?;
+    let bytes = media_store::read_variant(
+        config,
+        &source.content_hash,
+        &source.storage_backend,
+        (!metadata.object_key.is_empty()).then_some(metadata.object_key.as_str()),
+        variant,
+        source.content_bytes.as_deref(),
+    )
+    .await
+    .map_err(ApiError::Storage)?;
+    if !metadata.checksum.is_empty() && media_store::checksum(&bytes) != metadata.checksum {
+        return Err(ApiError::Storage(format!(
+            "checksum verification failed for media {} {}",
+            source.id, variant
+        )));
+    }
+    Ok((source, metadata, bytes))
+}
+
+async fn record_primary_replicas(
+    db: &PgPool,
+    media_id: i64,
+    stored: &media_store::StoredAsset,
+) -> Result<(), ApiError> {
+    for variant in &stored.variants {
+        sqlx::query(
+            "INSERT INTO media_replicas
+                (media_id, provider, role, variant, object_key, external_url,
+                 checksum, byte_size, mime_type, state, error, updated_at, last_verified_at)
+             VALUES ($1, $2, 'primary', $3, $4, $5, $6, $7, $8, 'ready', '', now(), now())
+             ON CONFLICT (media_id, provider, role, variant) DO UPDATE SET
+                object_key = EXCLUDED.object_key,
+                external_url = EXCLUDED.external_url,
+                checksum = EXCLUDED.checksum,
+                byte_size = EXCLUDED.byte_size,
+                mime_type = EXCLUDED.mime_type,
+                state = 'ready',
+                error = '',
+                updated_at = now(),
+                last_verified_at = now()",
+        )
+        .bind(media_id)
+        .bind(&stored.backend)
+        .bind(&variant.variant)
+        .bind(&variant.object_key)
+        .bind(variant.external_url.as_deref())
+        .bind(&variant.checksum)
+        .bind(variant.byte_size as i64)
+        .bind(&variant.mime_type)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn persist_stored_asset(
+    db: &PgPool,
+    media_type: &str,
+    content_type: &str,
+    bytes: &[u8],
+    digest: &str,
+    stored: &media_store::StoredAsset,
+) -> Result<(i64, String, String, serde_json::Value), ApiError> {
+    let variants = media_store::variants_json(&stored.variants);
+    let row: (i64, String, String, serde_json::Value) = sqlx::query_as(
+        "INSERT INTO media_assets
+            (content_hash, media_type, byte_size, content_type, storage_backend,
+             object_key, mime_type, status, variants, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $4, 'ready', $7, now())
+         ON CONFLICT (content_hash) DO UPDATE SET
+            byte_size = EXCLUDED.byte_size,
+            media_type = CASE WHEN media_assets.storage_backend = 'legacy'
+                              THEN EXCLUDED.media_type ELSE media_assets.media_type END,
+            content_type = CASE WHEN media_assets.content_bytes IS NULL
+                                 THEN EXCLUDED.content_type ELSE media_assets.content_type END,
+            storage_backend = CASE WHEN media_assets.storage_backend = 'legacy'
+                                   THEN EXCLUDED.storage_backend ELSE media_assets.storage_backend END,
+            object_key = CASE WHEN media_assets.storage_backend = 'legacy'
+                              THEN EXCLUDED.object_key ELSE media_assets.object_key END,
+            mime_type = CASE WHEN media_assets.storage_backend = 'legacy'
+                             THEN EXCLUDED.mime_type ELSE media_assets.mime_type END,
+            status = CASE WHEN media_assets.storage_backend = 'legacy'
+                          THEN 'ready' ELSE media_assets.status END,
+            variants = CASE WHEN media_assets.storage_backend = 'legacy'
+                            THEN EXCLUDED.variants ELSE media_assets.variants END,
+            updated_at = now()
+         RETURNING id, content_type, storage_backend, variants",
+    )
+    .bind(digest)
+    .bind(media_type)
+    .bind(bytes.len() as i64)
+    .bind(content_type)
+    .bind(&stored.backend)
+    .bind(&stored.object_key)
+    .bind(variants)
+    .fetch_one(db)
+    .await?;
+    if row.2 == stored.backend {
+        record_primary_replicas(db, row.0, stored).await?;
+    }
+    Ok(row)
+}
+
+#[derive(Deserialize)]
+pub struct MediaUploadRequest {
+    data_hex: String,
+    content_type: String,
+}
+
+pub async fn upload_media(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<MediaUploadRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let _author_id = active_author(&headers, &db).await?;
+    let content_type = input.content_type.trim().to_ascii_lowercase();
+    let media_type = if content_type.starts_with("image/") {
+        "image"
+    } else if content_type.starts_with("video/") {
+        "video"
+    } else if content_type.starts_with("audio/") {
+        "audio"
+    } else if content_type.starts_with("application/") {
+        "file"
+    } else {
+        return Err(ApiError::Invalid("Unsupported media content type"));
+    };
+    let max_bytes = match media_type {
+        "image" => 5_242_880,
+        "audio" => 52_428_800,
+        "video" => 104_857_600,
+        _ => 25_165_824,
+    };
+    if input.data_hex.is_empty()
+        || input.data_hex.len() > max_bytes * 2
+        || input.data_hex.len() % 2 != 0
+    {
+        return Err(ApiError::Invalid("Media upload is outside the size limit"));
+    }
+    let bytes = hex::decode(input.data_hex.trim())
+        .map_err(|_| ApiError::Invalid("Media is not valid hexadecimal data"))?;
+    if bytes.is_empty() || bytes.len() > max_bytes {
+        return Err(ApiError::Invalid("Media upload is outside the size limit"));
+    }
+    let digest = media_store::checksum(&bytes);
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    let stored = media_store::store_asset(&config, &digest, &content_type, &bytes)
+        .await
+        .map_err(ApiError::Storage)?;
+    let row = persist_stored_asset(
+        &db,
+        media_type,
+        &content_type,
+        &bytes,
+        &digest,
+        &stored,
+    )
+    .await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "id": row.0,
+            "src": format!("/media/{}", row.0),
+            "original_src": format!("/media/{}/original", row.0),
+            "thumbnail_src": row.3.get("thumbnail").map(|_| format!("/media/{}/thumbnail", row.0)),
+            "kind": media_type,
+            "content_type": row.1,
+            "storage_backend": row.2,
+        })),
+    ))
+}
+
 /// Store a bounded image produced by a worker-side command. The worker sends
 /// hex rather than a filesystem path because the API host and the worker may
 /// be different machines. This endpoint is admin-only and never exposes a
@@ -1563,22 +1882,418 @@ pub async fn upload_content_runner_media(
     if bytes.is_empty() || bytes.len() > 5_242_880 {
         return Err(ApiError::Invalid("Runner images must be between 1 byte and 5 MB"));
     }
-    let digest = hex::encode(Sha256::digest(&bytes));
-    let row: (i64, String) = sqlx::query_as(
-        "INSERT INTO media_assets(content_hash,media_type,byte_size,content_bytes,content_type) VALUES($1,'image',$2,$3,$4) ON CONFLICT(content_hash) DO UPDATE SET content_bytes=COALESCE(media_assets.content_bytes,EXCLUDED.content_bytes),content_type=CASE WHEN media_assets.content_bytes IS NULL THEN EXCLUDED.content_type ELSE media_assets.content_type END RETURNING id,content_type",
-    )
-    .bind(&digest)
-    .bind(bytes.len() as i64)
-    .bind(bytes)
-    .bind(&content_type)
-    .fetch_one(&db)
-    .await?;
+    let digest = media_store::checksum(&bytes);
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    let stored = media_store::store_asset(&config, &digest, &content_type, &bytes)
+        .await
+        .map_err(ApiError::Storage)?;
+    let row = persist_stored_asset(&db, "image", &content_type, &bytes, &digest, &stored).await?;
     Ok(Json(serde_json::json!({
         "id": row.0,
         "src": format!("/media/{}", row.0),
+        "original_src": format!("/media/{}/original", row.0),
+        "thumbnail_src": row.3.get("thumbnail").map(|_| format!("/media/{}/thumbnail", row.0)),
         "kind": "image",
         "content_type": row.1,
+        "storage_backend": row.2,
     })))
+}
+
+#[derive(Deserialize, Default)]
+pub struct ShareMediaRequest {
+    variant: Option<String>,
+}
+
+pub async fn media_test(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    media_store::test_primary(&config)
+        .await
+        .map_err(ApiError::Storage)?;
+    log_event(
+        &db,
+        "info",
+        "admin.media_storage_tested",
+        serde_json::json!({"actor_id": actor, "provider": config.primary_provider}),
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "provider": config.primary_provider,
+        "source": config.primary_source,
+    })))
+}
+
+pub async fn media_clear_cache(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    media_store::clear_cache(&config.cache_root)
+        .await
+        .map_err(ApiError::Storage)?;
+    log_event(
+        &db,
+        "info",
+        "admin.media_cache_cleared",
+        serde_json::json!({"actor_id": actor}),
+    )
+    .await;
+    Ok(Json(serde_json::json!({"status": "cleared"})))
+}
+
+pub async fn media_migrate(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    let sources: Vec<MediaSource> = sqlx::query_as(
+        "SELECT id, content_hash, content_bytes, byte_size, mime_type, content_type,
+                storage_backend, object_key, status, variants
+         FROM media_assets
+         WHERE status = 'ready' AND (storage_backend = 'legacy' OR storage_backend <> $1)
+         ORDER BY id",
+    )
+    .bind(&config.primary_provider)
+    .fetch_all(&db)
+    .await?;
+    let mut migrated = 0_u64;
+    let mut failures = Vec::new();
+    for source in sources {
+        let mut stored_variants = Vec::new();
+        let mut source_error = None;
+        for variant in ["original", "thumbnail"] {
+            let metadata = match source_variant(&source, variant) {
+                Ok(metadata) => metadata,
+                Err(ApiError::Missing) => continue,
+                Err(_) => continue,
+            };
+            let bytes = if source.storage_backend == "legacy" {
+                match source.content_bytes.as_deref() {
+                    Some(bytes) => bytes.to_vec(),
+                    None => {
+                        source_error = Some("legacy media has no database content".to_owned());
+                        break;
+                    }
+                }
+            } else {
+                match media_store::read_primary(
+                    &config,
+                    &source.storage_backend,
+                    &metadata.object_key,
+                )
+                .await
+                {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        source_error = Some(error);
+                        break;
+                    }
+                }
+            };
+            if !metadata.checksum.is_empty() && media_store::checksum(&bytes) != metadata.checksum {
+                source_error = Some(format!("checksum mismatch for {variant}"));
+                break;
+            }
+            match media_store::store_variant(
+                &config,
+                &source.content_hash,
+                variant,
+                &metadata.mime_type,
+                &bytes,
+            )
+            .await
+            {
+                Ok(stored) => stored_variants.push(stored),
+                Err(error) => {
+                    source_error = Some(error);
+                    break;
+                }
+            }
+        }
+        let Some(stored_original) = stored_variants
+            .iter()
+            .find(|variant| variant.variant == "original")
+        else {
+            source_error.get_or_insert_with(|| "original media variant is unavailable".to_owned());
+            failures.push(serde_json::json!({
+                "id": source.id,
+                "error": source_error.unwrap_or_else(|| "media migration failed".to_owned())
+            }));
+            continue;
+        };
+        if let Some(error) = source_error {
+            failures.push(serde_json::json!({"id": source.id, "error": error}));
+            continue;
+        }
+        let original_key = stored_original.object_key.clone();
+        let original_byte_size = stored_original.byte_size;
+        let original_mime_type = stored_original.mime_type.clone();
+        let stored = media_store::StoredAsset {
+            backend: config.primary_provider.clone(),
+            object_key: original_key,
+            variants: stored_variants,
+        };
+        let variants = media_store::variants_json(&stored.variants);
+        sqlx::query(
+            "UPDATE media_assets
+             SET storage_backend = $2, object_key = $3, mime_type = $4,
+                 byte_size = $5, content_type = $4, status = 'ready',
+                 variants = $6, updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(source.id)
+        .bind(&stored.backend)
+        .bind(&stored.object_key)
+        .bind(&original_mime_type)
+        .bind(original_byte_size as i64)
+        .bind(variants)
+        .execute(&db)
+        .await?;
+        if source.storage_backend != "legacy" {
+            sqlx::query(
+                "UPDATE media_replicas AS replica
+                 SET role = 'backup', updated_at = now()
+                 WHERE replica.media_id = $1 AND replica.provider = $2 AND replica.role = 'primary'
+                   AND NOT EXISTS (
+                     SELECT 1 FROM media_replicas existing
+                     WHERE existing.media_id = $1 AND existing.provider = $2
+                       AND existing.role = 'backup' AND existing.variant = replica.variant
+                   )",
+            )
+            .bind(source.id)
+            .bind(&source.storage_backend)
+            .execute(&db)
+            .await?;
+        }
+        record_primary_replicas(&db, source.id, &stored).await?;
+        migrated += 1;
+    }
+    log_event(
+        &db,
+        if failures.is_empty() { "info" } else { "warn" },
+        "admin.media_migrated",
+        serde_json::json!({
+            "actor_id": actor,
+            "provider": config.primary_provider,
+            "migrated": migrated,
+            "failures": failures.len()
+        }),
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "provider": config.primary_provider,
+        "migrated": migrated,
+        "failures": failures
+    })))
+}
+
+pub async fn media_verify(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    let sources: Vec<MediaSource> = sqlx::query_as(
+        "SELECT id, content_hash, content_bytes, byte_size, mime_type, content_type,
+                storage_backend, object_key, status, variants
+         FROM media_assets
+         WHERE storage_backend <> 'legacy' AND status = 'ready'
+         ORDER BY id",
+    )
+    .fetch_all(&db)
+    .await?;
+    let mut checked = 0_u64;
+    let mut failures = Vec::new();
+    for source in sources {
+        for variant in ["original", "thumbnail"] {
+            let Ok(metadata) = source_variant(&source, variant) else {
+                continue;
+            };
+            if metadata.object_key.is_empty() {
+                failures.push(serde_json::json!({
+                    "id": source.id,
+                    "variant": variant,
+                    "error": "missing object key"
+                }));
+                continue;
+            }
+            let result = media_store::read_primary(
+                &config,
+                &source.storage_backend,
+                &metadata.object_key,
+            )
+            .await
+            .and_then(|bytes| {
+                if media_store::checksum(&bytes) != metadata.checksum {
+                    Err("checksum mismatch".to_owned())
+                } else {
+                    Ok(bytes)
+                }
+            });
+            match result {
+                Ok(_) => {
+                    checked += 1;
+                    sqlx::query(
+                        "UPDATE media_replicas
+                         SET last_verified_at = now(), updated_at = now(), state = 'ready', error = ''
+                         WHERE media_id = $1 AND provider = $2 AND role = 'primary' AND variant = $3",
+                    )
+                    .bind(source.id)
+                    .bind(&source.storage_backend)
+                    .bind(variant)
+                    .execute(&db)
+                    .await?;
+                }
+                Err(error) => failures.push(serde_json::json!({
+                    "id": source.id,
+                    "variant": variant,
+                    "error": error
+                })),
+            }
+        }
+    }
+    log_event(
+        &db,
+        if failures.is_empty() { "info" } else { "warn" },
+        "admin.media_verified",
+        serde_json::json!({
+            "actor_id": actor,
+            "checked": checked,
+            "failures": failures.len()
+        }),
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "checked": checked,
+        "failures": failures
+    })))
+}
+
+pub async fn share_media(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(input): Json<ShareMediaRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let variant = input.variant.as_deref().unwrap_or("original");
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    let (source, metadata, bytes) = load_media_variant(&db, &config, id, variant).await?;
+    let extension = metadata
+        .mime_type
+        .rsplit('/')
+        .next()
+        .filter(|value| value.len() <= 8)
+        .unwrap_or("bin");
+    let filename = format!("swartzit-{}-{}.{}", id, variant, extension);
+    let (external_url, external_id) = media_store::share_catbox(
+        &config,
+        &bytes,
+        &metadata.mime_type,
+        &filename,
+    )
+    .await
+    .map_err(ApiError::Storage)?;
+    sqlx::query(
+        "INSERT INTO media_replicas
+            (media_id, provider, role, variant, external_url, external_id,
+             checksum, byte_size, mime_type, state, error, updated_at, last_verified_at)
+         VALUES ($1, 'catbox', 'share', $2, $3, $4, $5, $6, $7, 'ready', '', now(), now())
+         ON CONFLICT (media_id, provider, role, variant) DO UPDATE SET
+            external_url = EXCLUDED.external_url,
+            external_id = EXCLUDED.external_id,
+            checksum = EXCLUDED.checksum,
+            byte_size = EXCLUDED.byte_size,
+            mime_type = EXCLUDED.mime_type,
+            state = 'ready',
+            error = '',
+            updated_at = now(),
+            last_verified_at = now()",
+    )
+    .bind(source.id)
+    .bind(variant)
+    .bind(&external_url)
+    .bind(&external_id)
+    .bind(media_store::checksum(&bytes))
+    .bind(bytes.len() as i64)
+    .bind(&metadata.mime_type)
+    .execute(&db)
+    .await?;
+    log_event(
+        &db,
+        "info",
+        "admin.media_shared",
+        serde_json::json!({
+            "actor_id": actor,
+            "media_id": id,
+            "variant": variant,
+            "provider": "catbox"
+        }),
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "media_id": id,
+        "variant": variant,
+        "url": external_url,
+        "external_id": external_id
+    })))
+}
+
+pub async fn unshare_media(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    let external_id: String = sqlx::query_scalar(
+        "SELECT external_id FROM media_replicas
+         WHERE media_id = $1 AND provider = 'catbox' AND role = 'share'
+           AND variant = 'original' AND state = 'ready'",
+    )
+    .bind(id)
+    .fetch_optional(&db)
+    .await?
+    .ok_or(ApiError::Missing)?;
+    media_store::delete_catbox(&config, &external_id)
+        .await
+        .map_err(ApiError::Storage)?;
+    sqlx::query(
+        "UPDATE media_replicas
+         SET state = 'deleted', updated_at = now(), last_verified_at = NULL
+         WHERE media_id = $1 AND provider = 'catbox' AND role = 'share' AND variant = 'original'",
+    )
+    .bind(id)
+    .execute(&db)
+    .await?;
+    log_event(
+        &db,
+        "info",
+        "admin.media_unshared",
+        serde_json::json!({"actor_id": actor, "media_id": id, "provider": "catbox"}),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// The worker calls this after a host-side command has produced its JSON

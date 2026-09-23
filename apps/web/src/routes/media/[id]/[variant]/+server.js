@@ -1,9 +1,11 @@
 import { env } from '$env/dynamic/private';
 
 export async function GET({ params }) {
-  if (!/^\d+$/.test(params.id)) return new Response('Not found', { status: 404 });
+  if (!/^\d+$/.test(params.id) || !/^(original|thumbnail)$/.test(params.variant)) {
+    return new Response('Not found', { status: 404 });
+  }
   try {
-    const response = await fetch(`${env.API_URL || 'http://127.0.0.1:8080'}/media/${params.id}`, {
+    const response = await fetch(`${env.API_URL || 'http://127.0.0.1:8080'}/media/${params.id}/${params.variant}`, {
       signal: AbortSignal.timeout(10000),
       redirect: 'error'
     });

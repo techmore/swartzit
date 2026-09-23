@@ -11,7 +11,7 @@
   let generation = 0, authState = 'signed_out', authError = '';
   const number = value => new Intl.NumberFormat().format(value ?? 0);
   const date = value => value ? new Date(value).toLocaleString() : '—';
-  const size = value => (value / 1024 / 1024).toFixed(1) + ' MB';
+  const size = value => value == null ? '—' : (value / 1024 / 1024).toFixed(1) + ' MB';
   async function api(path, method = 'GET', body) {
     const token = localStorage.getItem('swartzit_session');
     if (!token) throw new Error('Sign in with an administrator account to continue.');
@@ -65,7 +65,7 @@
         tab === 'Moderation' ? api('moderation-history') : Promise.resolve([])
       ]);
       if (version !== generation) return;
-      overview = stats; rows = items; trend = daily; jobs = scheduled; runs = history; runners = runnerData; runnerRuns = runnerLogData; moderationHistory = tab === 'Moderation' ? moderationHistoryData : []; security = tab === 'Security' ? securityData : null; uptime = tab === 'Settings' ? uptimeData : null; settings = tab === 'Settings' || tab === 'Content Runners' ? settingsData : null; error = ''; refreshed = new Date();
+      overview = stats; rows = items; trend = daily; jobs = scheduled; runs = history; runners = runnerData; runnerRuns = runnerLogData; moderationHistory = tab === 'Moderation' ? moderationHistoryData : []; security = tab === 'Security' ? securityData : null; uptime = tab === 'Settings' ? uptimeData : null; settings = ['Settings', 'Content Runners', 'Moderation'].includes(tab) ? settingsData : null; error = ''; refreshed = new Date();
     } catch (e) { if (version === generation) { error = e.message; overview = null; rows = []; trend = []; jobs = []; runs = []; runners = []; runnerRuns = []; moderationHistory = []; uptime = null; settings = null; } }
     finally { if (version === generation) loading = false; }
   }
@@ -112,7 +112,9 @@
     finally { busy = false; }
   }
   async function toggleRunners(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { content_runners_enabled: enabled }); notice = enabled ? 'Content runners enabled.' : 'Content runners disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
-  async function toggleModeration(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { moderation_enabled: enabled }); notice = enabled ? 'Publication moderation enabled.' : 'Publication moderation disabled. New posts, comments, and profile changes publish immediately.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
+  async function toggleModeration(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { moderation_enabled: enabled }); notice = enabled ? 'Publication moderation enabled for posts and comments.' : 'Publication moderation disabled. Posts and comments publish immediately; profile changes always publish immediately.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
+  async function updateMediaSettings(body, message = 'Media storage settings saved.') { busy = true; notice = ''; try { await api('settings', 'POST', body); notice = message; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
+  async function mediaAction(path, question) { await action(path, question); }
   function parseCommand(value) { const command = value.trim().startsWith('[') ? JSON.parse(value) : value.trim().split(/\s+/); if (!Array.isArray(command) || !command.length || command.some(item => typeof item !== 'string')) throw new Error('Command must be a JSON argv array, for example ["draw-things-cli","generate"]'); return command; }
   function parseLoras(value) { const loras = JSON.parse(value || '[]'); if (!Array.isArray(loras)) throw new Error('LoRAs must be a JSON array, for example [{"file":"style.ckpt","version":"flux1","weight":0.8}]'); return loras; }
   function drawCommand() { return { executable: drawExecutable.trim(), models_dir: drawModelsDir.trim() || undefined, model: drawModel.trim(), width: Number(drawWidth), height: Number(drawHeight), steps: Number(drawSteps), cfg: Number(drawCfg), seed: drawSeed === '' ? null : Number(drawSeed), loras: parseLoras(drawLoras), output_path: drawOutputPath.trim() || undefined, posts_per_run: Number(drawPostsPerRun), title_prefix: drawTitlePrefix.trim() || undefined }; }
@@ -242,10 +244,10 @@
     {:else if tab === 'Moderation'}
       <section class="panel">
         <h3>Human review queue</h3>
-        <p class="muted">{settings?.modules?.moderation?.enabled === false ? 'Publication moderation is disabled. This queue is retained for historical records and any older items that were already submitted.' : 'All direct user posts, comments, and profile changes wait here before publication. Flags are deterministic advisory signals; threat flags are urgent but never auto-ban anyone.'}</p>
+        <p class="muted">{settings?.modules?.moderation?.enabled === false ? 'Publication moderation is disabled. This queue is retained for historical post/comment records and any older items that were already submitted.' : 'Posts, comments, imports, and runner output can wait here before publication. Profile changes publish immediately and never enter this queue. Flags are deterministic advisory signals; threat flags are urgent but never auto-ban anyone.'}</p>
         <form class="admin-toolbar" onsubmit={(e) => { e.preventDefault(); filter(); }}>
           <input aria-label="Search moderation queue" placeholder="Search handles or content…" bind:value={search} maxlength="200" />
-          <select aria-label="Moderation type" bind:value={kind} onchange={filter}><option value="">All types</option><option value="post">Posts</option><option value="comment">Comments</option><option value="profile">Profiles</option></select>
+          <select aria-label="Moderation type" bind:value={kind} onchange={filter}><option value="">All types</option><option value="post">Posts</option><option value="comment">Comments</option></select>
           <button>Filter queue</button>
         </form>
       </section>
@@ -256,7 +258,7 @@
             <tr class:urgent={item.urgent}>
               <td><strong>{item.kind}</strong><small>{item.status}{item.urgent ? ' · urgent' : ''}</small><small>{date(item.created_at)}</small></td>
               <td><a href={'/u/' + item.author}>u/{item.author}</a>{#if item.community}<small>c/{item.community}</small>{/if}</td>
-              <td>{#if item.title}<strong>{item.title}</strong>{/if}<p class="content-body">{item.body || 'Profile fields submitted for review.'}</p></td>
+              <td>{#if item.title}<strong>{item.title}</strong>{/if}<p class="content-body">{item.body || 'Content submitted for review.'}</p></td>
               <td>{#if item.flags?.length}{#each item.flags as flag}<span class="badge">{flag.category} · {flag.severity}</span>{/each}{:else}<span class="muted">No rule flags</span>{/if}<small>Rules {item.rule_version}</small></td>
               <td class="moderation-actions"><button disabled={busy} onclick={() => moderationAction(item.id, 'approve')}>Approve</button><button disabled={busy} onclick={() => moderationAction(item.id, 'dismiss')}>Dismiss + publish</button><button disabled={busy} onclick={() => moderationAction(item.id, 'reject')}>Reject</button><button disabled={busy} onclick={() => moderationAction(item.id, 'suspend')}>Suspend 24h</button><button disabled={busy} onclick={() => moderationAction(item.id, 'escalate')}>Escalate</button></td>
             </tr>
@@ -273,8 +275,8 @@
       <div class="admin-columns">
         <section class="panel">
           <h3>Publication moderation</h3>
-          <p><label><input type="checkbox" checked={settings?.modules?.moderation?.enabled !== false} onchange={(event) => toggleModeration(event.currentTarget.checked)} disabled={busy} /> Hold new posts, comments, and profile changes for review</label></p>
-          {#if settings?.modules?.moderation?.enabled === false}<p class="muted">Publication moderation is disabled. The classifier and review gate are bypassed; reports, account suspension, security controls, and historical audit records remain available.</p>{:else}<p class="muted">New direct submissions and scheduled imports wait for human review before becoming public.</p>{/if}
+          <p><label><input type="checkbox" checked={settings?.modules?.moderation?.enabled !== false} onchange={(event) => toggleModeration(event.currentTarget.checked)} disabled={busy} /> Hold new posts and comments for review</label></p>
+          {#if settings?.modules?.moderation?.enabled === false}<p class="muted">Publication moderation is disabled. The classifier and review gate are bypassed; profile changes are always immediate. Reports, account suspension, security controls, and historical audit records remain available.</p>{:else}<p class="muted">New posts, comments, imports, and scheduled runner output can wait for human review. Profile changes publish immediately and never enter the queue.</p>{/if}
         </section>
         <section class="panel">
           <h3>Optional integration · Orchard</h3>
@@ -295,6 +297,32 @@
           <dl><dt>Checked URL</dt><dd><code>{uptime?.pulse?.url || uptime?.configuration?.url || 'Not configured'}</code></dd><dt>Schedule</dt><dd>{uptime?.configuration?.interval_seconds ? 'Every ' + uptime.configuration.interval_seconds + ' seconds' : 'Not configured'}</dd><dt>Last success</dt><dd>{date(uptime?.pulse?.last_up_at)}</dd><dt>Last failure</dt><dd>{date(uptime?.pulse?.last_down_at)}</dd></dl>
           <p class="muted">This is the answer to “is the app serving?”: the monitor requests the configured URL from outside the local process and records the result in persistent state. A healthy database alone is not enough.</p>
           <p><code>swartzit monitor-install</code> installs the native macOS LaunchAgent. Change <code>SWARTZIT_CHECK_URL</code>, <code>SWARTZIT_CHECK_INTERVAL</code>, or <code>SWARTZIT_CHECK_TIMEOUT</code> and reinstall it to apply.</p>
+        </section>
+        <section class="panel">
+          <h3>Media storage</h3>
+          <p class="muted">Swartzit keeps stable asset IDs in posts while storing originals in a provider you control. The cache is disposable; Catbox is sharing only and never a backup.</p>
+          <div class="admin-toolbar">
+            <label>Primary
+              <select value={settings?.media?.primary ?? 'filesystem'} onchange={(event) => updateMediaSettings({ media_primary: event.currentTarget.value })} disabled={busy}>
+                <option value="filesystem">Local filesystem</option>
+                <option value="s3">S3-compatible storage</option>
+              </select>
+            </label>
+            <label><input type="checkbox" checked={settings?.media?.cache_enabled !== false} onchange={(event) => updateMediaSettings({ media_cache_enabled: event.currentTarget.checked })} disabled={busy} /> Enable cache</label>
+            <label>Cache limit (GB)
+              <input type="number" min="0.001" max="1024" step="0.1" value={(settings?.media?.cache_max_bytes ?? 5368709120) / 1073741824} onchange={(event) => updateMediaSettings({ media_cache_max_bytes: Math.round(Number(event.currentTarget.value) * 1073741824) })} disabled={busy} />
+            </label>
+            <label>External sharing
+              <select value={settings?.media?.share ?? 'disabled'} onchange={(event) => updateMediaSettings({ media_share: event.currentTarget.value })} disabled={busy}>
+                <option value="disabled">Disabled</option>
+                <option value="catbox">Catbox share/export</option>
+              </select>
+            </label>
+          </div>
+          <dl><dt>Primary source</dt><dd>{settings?.media?.primary_source ?? '—'}</dd><dt>Media root</dt><dd><code>{settings?.media?.media_root ?? '—'}</code></dd><dt>Cache</dt><dd>{number(settings?.media?.cache_files)} files · {size(settings?.media?.cache_bytes)}</dd><dt>Provider configuration</dt><dd>{settings?.media?.s3_configured ? 'S3 credentials loaded' : 'S3 not configured'} · {settings?.media?.catbox_configured ? 'Catbox account hash loaded' : 'Catbox anonymous or not configured'}</dd></dl>
+          <p class="muted">Changing the primary provider affects new writes. Existing replicas remain addressable until you migrate and verify them. Set environment credentials before selecting S3; environment overrides are shown as “environment”.</p>
+          <div class="admin-toolbar"><button disabled={busy} onclick={() => mediaAction('media/test', 'Test the configured primary media storage now?')}>Test storage</button><button disabled={busy} onclick={() => mediaAction('media/migrate', 'Copy all legacy database media into the configured primary storage?')}>Migrate legacy media</button><button disabled={busy} onclick={() => mediaAction('media/verify', 'Read and checksum every configured primary media replica?')}>Verify media</button><button disabled={busy} onclick={() => mediaAction('media/cache/clear', 'Clear the disposable media cache? Originals will remain safe.')}>Clear cache</button></div>
+          {#if settings?.media?.share === 'catbox'}<p class="muted">Catbox sharing is enabled. Use the admin share endpoint only for explicit exports; Catbox may remove inactive anonymous files and is not suitable as a CDN, backup, or streaming origin.</p>{/if}
         </section>
       </div>
     {:else if tab === 'Server'}

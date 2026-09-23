@@ -35,15 +35,36 @@ while [[ -e "$OUT_DIR" || -e "$BACKUP_ROOT/swartzit-$STAMP-backup.tgz" ]]; do
 done
 mkdir -p "$OUT_DIR"
 
+if [[ -n "${SWARTZIT_MEDIA_ROOT:-}" ]]; then
+  MEDIA_ROOT="$SWARTZIT_MEDIA_ROOT"
+elif [[ -n "${SWARTZIT_STATE_DIR:-}" ]]; then
+  MEDIA_ROOT="$SWARTZIT_STATE_DIR/media"
+elif [[ -n "${SWARTZIT_DATA_DIR:-}" ]]; then
+  MEDIA_ROOT="$SWARTZIT_DATA_DIR/media"
+else
+  MEDIA_ROOT="$HOME/Library/Application Support/Swartzit/media"
+fi
+
 container inspect "$CONTAINER" >/dev/null 2>&1 || { echo "Database container $CONTAINER was not found." >&2; exit 1; }
 container exec "$CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
 container exec "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" --format=custom --no-owner --file=/tmp/swartzit.dump
 container cp "$CONTAINER:/tmp/swartzit.dump" "$OUT_DIR/swartzit.dump"
 container exec "$CONTAINER" rm -f /tmp/swartzit.dump
 container exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atqc "select tablename || E'\\t' || (xpath('/table/row/count/text()', query_to_xml('select count(*) as count from ' || quote_ident(tablename), true, false, '')))[1]::text from pg_tables where schemaname='public' and tablename <> '_sqlx_migrations' order by tablename" > "$OUT_DIR/row-counts.tsv"
-shasum -a 256 "$OUT_DIR/swartzit.dump" > "$OUT_DIR/SHA256SUMS"
+if [[ -d "$MEDIA_ROOT" ]]; then
+  tar -C "$MEDIA_ROOT" -czf "$OUT_DIR/media.tgz" .
+  MEDIA_STATUS="included"
+else
+  MEDIA_STATUS="not present"
+fi
+{
+  shasum -a 256 "$OUT_DIR/swartzit.dump"
+  [[ ! -f "$OUT_DIR/media.tgz" ]] || shasum -a 256 "$OUT_DIR/media.tgz"
+} > "$OUT_DIR/SHA256SUMS"
 cp "$OUT_DIR/row-counts.tsv" "$OUT_DIR/source-row-counts.tsv"
-tar -C "$OUT_DIR" -czf "$BACKUP_ROOT/swartzit-$STAMP-backup.tgz" swartzit.dump row-counts.tsv source-row-counts.tsv SHA256SUMS
+archive_files=(swartzit.dump row-counts.tsv source-row-counts.tsv SHA256SUMS)
+[[ ! -f "$OUT_DIR/media.tgz" ]] || archive_files+=(media.tgz)
+tar -C "$OUT_DIR" -czf "$BACKUP_ROOT/swartzit-$STAMP-backup.tgz" "${archive_files[@]}"
 
 pruned=0
 while IFS= read -r archive; do
@@ -63,4 +84,5 @@ done < <(find "$BACKUP_ROOT" -maxdepth 1 -type f -name 'swartzit-*-backup.tgz' -
 echo "Backup: $OUT_DIR/swartzit.dump"
 echo "Archive: $BACKUP_ROOT/swartzit-$STAMP-backup.tgz"
 echo "Counts: $OUT_DIR/row-counts.tsv"
+echo "Media: $MEDIA_STATUS ($MEDIA_ROOT)"
 echo "Retention: $RETENTION archive(s); pruned: $pruned"

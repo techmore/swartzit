@@ -78,7 +78,8 @@ without a shell:
 
 For multiple posts, `{index}` is replaced with a one-based variant number. If
 the starting seed is set, each variant increments it. A local output image is
-uploaded to Swartzit’s bounded media store and displayed at `/media/{id}`; the
+uploaded to Swartzit’s provider-neutral media store and displayed at `/media/{id}`
+(with `/media/{id}/thumbnail` available for generated previews); the
 post body and `generation_config` source metadata include the prompt, model,
 LoRAs, dimensions, steps, CFG, and seed so a successful recipe can be reused.
 Images are limited to 5 MB and PNG, JPEG, WebP, and GIF.

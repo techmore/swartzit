@@ -4,7 +4,7 @@
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
 
   export let data;
-  let token = '', viewer = null, pending = null, displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
+  let token = '', viewer = null, displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
   let activeTab = data.tab ?? 'posts';
   const date = value => value ? new Date(value).toLocaleDateString() : '—';
   const attachment = value => {
@@ -24,11 +24,6 @@
       if (!meResponse.ok) return;
       viewer = await meResponse.json();
       if (viewer.handle !== data.profile.handle) return;
-      const profileResponse = await fetch('/api/me/profile', { headers: { authorization: 'Bearer ' + token } });
-      if (profileResponse.ok) {
-        const profile = await profileResponse.json();
-        pending = profile.pending_change;
-      }
     } catch { /* Public profile rendering does not depend on session refresh. */ }
   });
 
@@ -41,9 +36,8 @@
         body: JSON.stringify({ display_name: displayName, bio, avatar_url: avatarUrl || null })
       });
       const result = await response.json();
-      if (!response.ok) { formError = result.error ?? 'Could not submit profile changes.'; return; }
-      pending = result;
-      formMessage = result.message ?? 'Profile changes are waiting for moderator review.';
+      if (!response.ok) { formError = result.error ?? 'Could not save profile changes.'; return; }
+      formMessage = result.message ?? 'Profile updated.';
     } catch { formError = 'Could not reach Swartzit.'; }
     finally { saving = false; }
   }
@@ -72,14 +66,13 @@
   {#if viewer?.handle === data.profile.handle}
     <section class="panel profile-editor">
       <h2>Edit your profile</h2>
-      <p class="muted">Changes are held for moderator review before they become public.</p>
+      <p class="muted">Profile changes publish immediately and are not sent to moderation review.</p>
       <form onsubmit={(event) => { event.preventDefault(); saveProfile(); }}>
         <label>Display name<input bind:value={displayName} maxlength="80" placeholder="How should people see you?" /></label>
         <label>Bio<textarea bind:value={bio} maxlength="2000" rows="4" placeholder="Tell the community a little about yourself."></textarea></label>
         <label>Avatar URL <span class="muted">(HTTPS image URL)</span><input bind:value={avatarUrl} maxlength="2048" placeholder="https://…" /></label>
-        <button disabled={saving}>{saving ? 'Submitting…' : 'Submit profile changes'}</button>
+        <button disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</button>
       </form>
-      {#if pending}<p class="moderation-note" role="status">A profile change is pending moderator review. Flags are advisory and do not include matched private text.</p>{/if}
       {#if formMessage}<p class="form-message" role="status">{formMessage}</p>{/if}
       {#if formError}<p class="form-error" role="alert">{formError}</p>{/if}
     </section>
@@ -147,7 +140,7 @@
   .profile-identity{display:flex;align-items:center;gap:16px}.profile-identity :global(.author-avatar){width:72px;height:72px;flex-basis:72px;font-size:1.2rem}.profile-avatar{width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid var(--border,#dedfd7)}
   .profile-card h1{font:500 2rem/1.1 Georgia,serif;color:var(--heading,#173d34);margin:4px 0}.handle{margin:0;color:var(--muted,#77827d);font-size:.86rem}.bio{max-width:650px;margin:22px 0 0;white-space:pre-wrap}
   .profile-stats{display:flex;gap:28px;margin:24px 0 0;border-top:1px solid var(--border,#dedfd7);padding-top:18px}.profile-stats div{display:grid;gap:3px}.profile-stats dt{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#77827d)}.profile-stats dd{margin:0;font-weight:700;color:var(--heading,#173d34)}
-  .profile-editor{margin-top:20px}.profile-editor h2{margin-top:0}.profile-editor form{display:grid;gap:12px}.profile-editor textarea{resize:vertical}.profile-editor button{justify-self:start}.moderation-note,.form-message,.form-error{font-size:.84rem;margin-bottom:0}
+  .profile-editor{margin-top:20px}.profile-editor h2{margin-top:0}.profile-editor form{display:grid;gap:12px}.profile-editor textarea{resize:vertical}.profile-editor button{justify-self:start}.form-message,.form-error{font-size:.84rem;margin-bottom:0}
   .activity{margin-top:40px}.section-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border,#dedfd7);padding-bottom:12px}.section-heading h2{margin:0;font:500 1.7rem/1.1 Georgia,serif;color:var(--heading,#173d34)}.section-heading a{color:var(--accent,#9b5e38);font-weight:700;font-size:.84rem}
   .profile-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#dedfd7);margin-top:16px;overflow-x:auto}.profile-tabs a{position:relative;padding:13px 15px;color:var(--muted,#66766c);font:600 .82rem/1 inherit;white-space:nowrap;text-decoration:none}.profile-tabs a span{margin-left:4px;font-size:.72rem;opacity:.75}.profile-tabs a:hover{color:var(--heading,#173d34)}.profile-tabs a.active{color:var(--heading,#173d34)}.profile-tabs a.active::after{content:'';position:absolute;right:12px;bottom:-1px;left:12px;height:3px;border-radius:3px 3px 0 0;background:var(--accent,#9b5e38)}
   .activity-item{padding:17px 0;border-bottom:1px solid var(--border,#dedfd7)}.activity-item h3{margin:8px 0 0;font:600 1.1rem/1.25 Georgia,serif}.activity-item h3 a{color:var(--heading,#173d34)}.activity-item p{margin:10px 0;white-space:pre-wrap}.timeline-body{line-height:1.5}.timeline-meta{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;color:var(--muted,#77827d);font-size:.76rem}.badge{display:inline-block;padding:3px 7px;border-radius:999px;background:var(--wash,#f0ece4);color:var(--muted,#66766c);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em}.context-link{font-size:.8rem;color:var(--accent,#9b5e38);font-weight:700}.empty-tab{padding:28px 0;border-bottom:1px solid var(--border,#dedfd7)}

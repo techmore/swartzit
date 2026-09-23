@@ -20,6 +20,7 @@ use tower_http::cors::{Any, CorsLayer};
 mod admin;
 mod bookmarks;
 mod imports;
+mod media_store;
 mod moderation;
 mod operations;
 mod views;
@@ -33,6 +34,7 @@ enum ApiError {
     Suspended,
     Missing,
     Invalid(&'static str),
+    Storage(String),
     Database(sqlx::Error),
 }
 impl From<sqlx::Error> for ApiError {
@@ -51,6 +53,13 @@ impl IntoResponse for ApiError {
             ),
             Self::Missing => (StatusCode::NOT_FOUND, "Not found"),
             Self::Invalid(message) => (StatusCode::BAD_REQUEST, message),
+            Self::Storage(error) => {
+                tracing::error!(%error, "media storage request failed");
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Media storage is temporarily unavailable",
+                )
+            }
             Self::Database(error) => {
                 tracing::error!(%error, "database request failed");
                 (
@@ -316,22 +325,92 @@ async fn runner_media(
     State(db): State<PgPool>,
     Path(id): Path<i64>,
 ) -> Result<Response, ApiError> {
+    serve_media(db, id, "original").await
+}
+
+async fn runner_media_variant(
+    State(db): State<PgPool>,
+    Path((id, variant)): Path<(i64, String)>,
+) -> Result<Response, ApiError> {
+    serve_media(db, id, &variant).await
+}
+
+async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, ApiError> {
     if id <= 0 {
         return Err(ApiError::Missing);
     }
-    let row: Option<(Option<Vec<u8>>, String)> = sqlx::query_as(
-        "SELECT content_bytes,content_type FROM media_assets WHERE id=$1",
+    if !matches!(variant, "original" | "thumbnail") {
+        return Err(ApiError::Missing);
+    }
+    let row: Option<(
+        String,
+        Option<Vec<u8>>,
+        i64,
+        Option<String>,
+        String,
+        String,
+        Option<String>,
+        String,
+        serde_json::Value,
+    )> = sqlx::query_as(
+        "SELECT content_hash, content_bytes, byte_size, mime_type, content_type,
+                storage_backend, object_key, status, variants
+         FROM media_assets WHERE id=$1",
     )
     .bind(id)
     .fetch_optional(&db)
     .await?;
-    let Some((Some(bytes), content_type)) = row else {
+    let Some((hash, legacy_bytes, byte_size, mime_type, content_type, provider, object_key, status, variants)) = row else {
         return Err(ApiError::Missing);
     };
+    if status == "deleted" {
+        return Err(ApiError::Missing);
+    }
+    let metadata = media_store::variant_metadata(&variants, variant).unwrap_or_else(|| {
+        media_store::StoredVariant {
+            variant: variant.to_owned(),
+            object_key: if variant == "original" {
+                object_key.clone().unwrap_or_default()
+            } else {
+                String::new()
+            },
+            byte_size: byte_size.max(0) as u64,
+            mime_type: mime_type.clone().unwrap_or_else(|| content_type.clone()),
+            checksum: if variant == "original" {
+                hash.clone()
+            } else {
+                String::new()
+            },
+            external_url: None,
+        }
+    });
+    if variant == "thumbnail" && metadata.object_key.is_empty() {
+        return Err(ApiError::Missing);
+    }
+    let config = media_store::load_config(&db)
+        .await
+        .map_err(ApiError::Storage)?;
+    let bytes = media_store::read_variant(
+        &config,
+        &hash,
+        &provider,
+        (!metadata.object_key.is_empty()).then_some(metadata.object_key.as_str()),
+        variant,
+        legacy_bytes.as_deref(),
+    )
+    .await
+    .map_err(ApiError::Storage)?;
+    if !metadata.checksum.is_empty() && media_store::checksum(&bytes) != metadata.checksum {
+        return Err(ApiError::Storage(format!(
+            "checksum verification failed for media {} {}",
+            id, variant
+        )));
+    }
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .header("content-type", content_type)
+        .header("content-type", metadata.mime_type)
         .header("cache-control", "public, max-age=31536000, immutable")
+        .header("etag", format!("\"{}\"", metadata.checksum))
         .body(Body::from(bytes))
         .map_err(|_| ApiError::Missing)
         .unwrap())
@@ -768,27 +847,10 @@ async fn my_profile(
         .fetch_one(&db)
         .await?;
     let mut payload = profile_payload(&db, &handle, None).await?;
-    let pending: Option<serde_json::Value> = if instance_module_enabled(&db, "moderation").await? {
-        sqlx::query_scalar(
-            "SELECT row_to_json(t) FROM (
-               SELECT id, status, severity, flags, rule_version, created_at, payload
-               FROM moderation_items
-               WHERE kind = 'profile' AND target_id = $1 AND status IN ('pending', 'escalated')
-               ORDER BY id DESC
-               LIMIT 1
-             ) t",
-        )
-        .bind(author_id)
-        .fetch_optional(&db)
-        .await?
-    } else {
-        None
-    };
     if let Some(object) = payload.as_object_mut() {
-        object.insert(
-            "pending_change".into(),
-            pending.unwrap_or(serde_json::Value::Null),
-        );
+        // Profile changes are deliberately outside the publication moderation
+        // queue. Keep the field for API compatibility with older clients.
+        object.insert("pending_change".into(), serde_json::Value::Null);
     }
     Ok(Json(payload))
 }
@@ -808,86 +870,37 @@ async fn update_profile(
     if current == (display_name.clone(), bio.clone(), avatar_url.clone()) {
         return Err(ApiError::Invalid("There are no profile changes to submit"));
     }
-    if !instance_module_enabled(&db, "moderation").await? {
-        sqlx::query(
-            "UPDATE authors
-             SET display_name = $2, bio = $3, avatar_url = NULLIF($4, ''), profile_updated_at = now()
-             WHERE id = $1",
-        )
-        .bind(author_id)
-        .bind(&display_name)
-        .bind(&bio)
-        .bind(&avatar_url)
-        .execute(&db)
-        .await?;
-        log_event(
-            &db,
-            "info",
-            "profile.updated",
-            serde_json::json!({"author_id": author_id, "moderation": "disabled"}),
-        )
-        .await;
-        return Ok(Json(serde_json::json!({
-            "status": "approved",
-            "display_name": display_name,
-            "bio": bio,
-            "avatar_url": avatar_url.as_deref().filter(|value| !value.is_empty()).map_or(serde_json::Value::Null, |value| serde_json::Value::String(value.to_owned()))
-        })));
-    }
-    let pending: bool = sqlx::query_scalar(
-        "SELECT EXISTS(
-           SELECT 1 FROM moderation_items
-           WHERE kind = 'profile' AND target_id = $1 AND status IN ('pending', 'escalated')
-         )",
+    sqlx::query(
+        "UPDATE authors
+         SET display_name = $2, bio = $3, avatar_url = NULLIF($4, ''), profile_updated_at = now()
+         WHERE id = $1",
     )
     .bind(author_id)
-    .fetch_one(&db)
-    .await?;
-    if pending {
-        return Err(ApiError::Invalid(
-            "A profile change is already waiting for moderator review",
-        ));
-    }
-    let analysis = moderation::analyze(&format!("{display_name}\n{bio}"));
-    let flags = flags_json(&analysis);
-    let payload = serde_json::json!({
-        "display_name": display_name,
-        "bio": bio,
-        "avatar_url": avatar_url
-    });
-    let moderation_id: i64 = sqlx::query_scalar(
-        "INSERT INTO moderation_items(
-           kind, target_id, author_id, status, severity, flags, rule_version, payload, urgent
-         ) VALUES ('profile', $1, $1, 'pending', $2, $3, $4, $5, $6)
-         RETURNING id",
-    )
-    .bind(author_id)
-    .bind(&analysis.severity)
-    .bind(flags.clone())
-    .bind(moderation::RULE_VERSION)
-    .bind(payload)
-    .bind(analysis.urgent)
-    .fetch_one(&db)
+    .bind(&display_name)
+    .bind(&bio)
+    .bind(&avatar_url)
+    .execute(&db)
     .await?;
     log_event(
         &db,
         "info",
-        "moderation.submitted",
+        "profile.updated",
         serde_json::json!({
-            "kind": "profile",
-            "moderation_id": moderation_id,
             "author_id": author_id,
-            "severity": analysis.severity,
-            "urgent": analysis.urgent
+            "moderation": "bypassed",
+            "reason": "profile_changes_are_not_reviewed"
         }),
     )
     .await;
     Ok(Json(serde_json::json!({
-        "status": "pending",
-        "moderation_id": moderation_id,
-        "severity": analysis.severity,
-        "flags": flags,
-        "message": "Profile changes are waiting for moderator review."
+        "status": "approved",
+        "moderation_id": null,
+        "severity": "none",
+        "flags": [],
+        "display_name": display_name,
+        "bio": bio,
+        "avatar_url": avatar_url.as_deref().filter(|value| !value.is_empty()).map_or(serde_json::Value::Null, |value| serde_json::Value::String(value.to_owned())),
+        "message": "Profile updated immediately. Profile changes are not sent to moderation review."
     })))
 }
 
@@ -924,7 +937,7 @@ async fn admin_overview(
           (SELECT count(*) FROM media_assets),
           pg_database_size(current_database()),
           (SELECT count(*) FROM system_logs),
-          (SELECT count(*) FROM moderation_items WHERE status IN ('pending', 'escalated'))",
+          (SELECT count(*) FROM moderation_items WHERE kind <> 'profile' AND status IN ('pending', 'escalated'))",
     )
     .fetch_one(&db)
     .await?;
@@ -1223,8 +1236,39 @@ async fn attach_media(
 async fn media(
     State(db): State<PgPool>,
     Path(id): Path<i64>,
-) -> Result<Json<MediaAsset>, ApiError> {
-    Ok(Json(sqlx::query_as::<_, MediaAsset>("SELECT id, content_hash, media_type, byte_size, magnet_uri FROM media_assets WHERE id = $1").bind(id).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let row: Option<(
+        i64,
+        String,
+        String,
+        i64,
+        Option<String>,
+        String,
+        String,
+        serde_json::Value,
+    )> = sqlx::query_as(
+        "SELECT id, content_hash, media_type, byte_size, magnet_uri,
+                COALESCE(NULLIF(mime_type, ''), content_type), storage_backend, variants
+         FROM media_assets WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&db)
+    .await?;
+    let Some((id, content_hash, media_type, byte_size, magnet_uri, mime_type, storage_backend, variants)) = row else {
+        return Err(ApiError::Missing);
+    };
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "content_hash": content_hash,
+        "media_type": media_type,
+        "byte_size": byte_size,
+        "magnet_uri": magnet_uri,
+        "mime_type": mime_type,
+        "storage_backend": storage_backend,
+        "src": format!("/media/{id}"),
+        "original_src": format!("/media/{id}/original"),
+        "thumbnail_src": variants.get("thumbnail").map(|_| format!("/media/{id}/thumbnail")),
+    })))
 }
 async fn create_post(
     State(db): State<PgPool>,
@@ -1951,10 +1995,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/admin/content-runners/media",
             post_method(admin::upload_content_runner_media),
         )
+        .route("/api/admin/media/test", post_method(admin::media_test))
+        .route("/api/admin/media/migrate", post_method(admin::media_migrate))
+        .route("/api/admin/media/verify", post_method(admin::media_verify))
+        .route(
+            "/api/admin/media/cache/clear",
+            post_method(admin::media_clear_cache),
+        )
+        .route(
+            "/api/admin/media/{id}/share",
+            post_method(admin::share_media).delete(admin::unshare_media),
+        )
         .route("/api/admin/imports", post_method(imports::ingest))
         .route("/api/posts/cross-post", post_method(imports::cross_post))
         .route("/profile-images/{id}", get(profile_image))
         .route("/media/{id}", get(runner_media))
+        .route("/media/{id}/{variant}", get(runner_media_variant))
         .route("/api/views", post_method(operations::view))
         .route("/api/posts", post_method(create_post).get(posts))
         .route(
@@ -1974,6 +2030,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/posts/{id}/vote", post_method(vote))
         .route("/api/posts/{id}/views", post_method(views::record))
         .route("/api/reports", post_method(report))
+        .route("/api/media/upload", post_method(admin::upload_media))
         .route("/api/media", post_method(register_media))
         .route("/api/posts/{id}/media", post_method(attach_media))
         .route("/api/media/{id}", get(media))

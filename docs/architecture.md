@@ -23,7 +23,9 @@ be included in this public export format.
 
 ## Portability
 
-Backups contain PostgreSQL data, media manifests, and signing keys. A host can
-restore them into another instance without depending on a vendor account. Media
-records will store content hashes and available replicas so HTTP, IPFS, and
-WebTorrent delivery can evolve independently.
+Backups contain PostgreSQL data, media manifests, and the configured canonical
+filesystem media archive when one exists. A host can restore them into another
+instance without depending on a vendor account. Media records store content
+hashes and available replicas so filesystem, S3-compatible, and optional
+external-share delivery can evolve independently. The local cache is excluded
+from durability guarantees and can always be cleared or rebuilt.

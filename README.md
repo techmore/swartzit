@@ -29,26 +29,30 @@ for crawler jobs, reports, logs, users, and runtime health.
 
 Local accounts have public profile pages at `/u/<handle>` with a display name,
 bio, optional HTTPS avatar, join date, post/comment counts, and approved recent
-activity. Profile changes are reviewed like content, so the active profile is
-not replaced until a moderator approves the change.
+activity. Profile changes publish immediately and are never sent to the
+moderation queue.
 
-New direct posts, cross-posts, source imports, and comments enter the moderation
-queue as `pending`. Swartzit runs lightweight deterministic checks for profanity,
+When publication moderation is enabled, new direct posts, cross-posts, source
+imports, and comments enter the moderation queue as `pending`. Swartzit runs
+lightweight deterministic checks for profanity,
 slurs, obfuscated abuse, harassment, link bursts, repeated text, and threats.
 It stores only structured categories, severity, rule version, and urgency—not
 matched private text. High-severity threat signals are held and surfaced
 urgently for human review; the classifier never silently bans or suspends an
 account.
 
-Administrators can approve, reject, dismiss, suspend, or escalate queue items.
+Administrators can approve, reject, dismiss, suspend, or escalate post/comment
+queue items.
 Every decision is recorded in the moderation audit history. Existing imported
-content remains published during upgrade, while new user content follows the
-review gate. This keeps moderation behavior explicit and makes it possible to
-change the rules without rewriting the original content.
+content remains published during upgrade, while new content covered by the
+publication gate follows the review workflow. This keeps moderation behavior
+explicit and makes it possible to change the rules without rewriting the
+original content.
 
-Publication moderation is an instance module. Administrators can turn off the
-publication gate from **Settings** when an instance wants posts, comments,
-profile changes, imports, and content-runner output to publish immediately.
+Publication moderation is an instance module for posts, comments, imports, and
+content-runner output. Administrators can turn off the publication gate from
+**Settings** when an instance wants those items to publish immediately. Profile
+changes always publish immediately, regardless of this setting.
 Disabling the module bypasses the classifier and preserves the moderation
 tables and historical audit records; reports, account suspension, IP security,
 and operational logs remain available. Existing pending submissions are
@@ -174,7 +178,12 @@ archive under `.local/backups/`. It uses a lock to prevent overlapping dumps and
 keeps the newest seven archives by default. Change the policy with
 `SWARTZIT_BACKUP_RETENTION`. The verification command creates a temporary
 second PostgreSQL container, restores the dump, compares every application table
-against the source counts, and removes only that temporary verification instance.
+against the source counts, validates the optional media archive, and removes only
+that temporary verification instance. Pass either the timestamped `swartzit.dump`
+or the complete `swartzit-<timestamp>-backup.tgz` archive. The media archive is
+kept beside the dump when the configured canonical media directory exists, so a
+database restore and media restore can be validated together without contacting
+Catbox or an S3 provider.
 Keep at least one dump and one `.tgz` archive off the Mac as well; the local
 artifacts are intentionally ignored by Git because they contain private data.
 
@@ -209,6 +218,43 @@ Homebrew changes the package, then refreshes the native menu, backup, and uptime
 monitor LaunchAgents from the new release while preserving their settings. Use
 that command instead of a bare `brew upgrade swartzit` when preserving a
 recovery point matters.
+
+## Media storage and sharing
+
+Swartzit keeps a provider-neutral `media_assets` record and serves stable URLs:
+
+```text
+/media/<id>
+/media/<id>/original
+/media/<id>/thumbnail
+```
+
+The original is canonical; the local cache is disposable. New runner uploads use
+the configured primary provider, while older database-backed blobs remain
+readable until an administrator chooses **Migrate legacy media**. Configure the
+primary in Admin → Settings or with environment variables:
+
+```sh
+SWARTZIT_MEDIA_PRIMARY=filesystem   # filesystem (default) or s3
+SWARTZIT_MEDIA_ROOT="$HOME/Library/Application Support/Swartzit/media"
+SWARTZIT_MEDIA_CACHE_DIR="$HOME/Library/Application Support/Swartzit/cache"
+SWARTZIT_MEDIA_CACHE_MAX_BYTES=5368709120
+SWARTZIT_MEDIA_SHARE=disabled       # disabled (default) or catbox
+```
+
+The S3-compatible adapter accepts `SWARTZIT_S3_ENDPOINT`,
+`SWARTZIT_S3_BUCKET`, `SWARTZIT_S3_REGION`, `SWARTZIT_S3_ACCESS_KEY`,
+`SWARTZIT_S3_SECRET_KEY`, and optional `SWARTZIT_S3_PUBLIC_BASE_URL`. Swartzit
+writes content-addressed objects, records checksums and replicas, and verifies
+the stored bytes before serving them. Switching providers changes new writes;
+the migration action copies old assets and the verification action checks the
+new replica before cleanup.
+
+Catbox is an explicit share/export adapter only. It is disabled by default and
+is never treated as canonical storage, a backup, a CDN, or a streaming origin.
+Configure an account hash with `SWARTZIT_CATBOX_USERHASH` if account-scoped
+deletion is needed. Review Catbox’s current terms before enabling external
+sharing for a hosted or commercial instance.
 
 > Read freely. Participate under a pseudonym. Take your community with you.
 
@@ -501,13 +547,12 @@ recorded as failed; the worker never scrapes a browser login or reports a
 fabricated success. Provider credentials belong in the worker environment, not
 in the job record or repository.
 
-Swartzit stores external media metadata and source URLs rather than silently
-mirroring every image or video. Public assets may be loaded from the provider
-CDN and can later use a bounded LRU cache. Do not cache sessions, admin pages,
-or authenticated responses. A future media cache must support purge/takedown,
-refresh expiring provider URLs, and respect the source license. Torrent or
-IPFS distribution is an optional backend for media that is explicitly
-redistributable; it is not enabled by default.
+Swartzit stores external media metadata and source URLs separately from its
+canonical media store. The bounded LRU cache is enabled only for media objects;
+it never caches sessions, admin pages, or authenticated responses. External
+source media still respects the source license and can be purged independently.
+Torrent or IPFS distribution is an optional future backend for media that is
+explicitly redistributable; it is not enabled by default.
 
 ## Optional JEV finance bridge
 

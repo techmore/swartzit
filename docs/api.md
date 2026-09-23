@@ -27,6 +27,7 @@ Participation endpoints use `Authorization: Bearer <token>`:
 - `POST /api/posts/:id/vote` — set `value` to `-1`, `0`, or `1`
 - `POST /api/reports` — report exactly one post or comment with a reason
 - `POST /api/media` — register a content hash and optional magnet URI
+- `POST /api/media/upload` — authenticated hex upload for an image, video, audio, or application file; returns stable media URLs (5 MiB images, 50 MiB audio, 100 MiB video, 24 MiB other files)
 - `POST /api/posts/:id/media` — attach a registered asset to its author’s post
 - `GET /api/media/:id` — resolve public media metadata
 
@@ -35,5 +36,20 @@ Clients should keep them in a protected credential store and send them only to
 the same Swartzit origin.
 
 Media storage is intentionally separate from posts. Migration `0007_media_assets`
-stores content hashes, media types, sizes, and optional magnet URIs in a
-provider-neutral manifest for future HTTP, IPFS, and WebTorrent delivery.
+stores content hashes, media types, sizes, and optional magnet URIs; migration
+`0034_media_storage` adds the canonical provider, object key, variants, cache
+settings, and replica verification records. Posts reference asset IDs rather
+than provider URLs.
+
+The public delivery endpoints are:
+
+- `GET /media/:id` — original variant (legacy-compatible alias)
+- `GET /media/:id/original` — canonical original
+- `GET /media/:id/thumbnail` — generated image thumbnail when available
+
+Administrator settings are returned from `GET /api/admin/settings` under
+`media`, and can be changed with `POST /api/admin/settings` using
+`media_primary`, `media_cache_enabled`, `media_cache_max_bytes`, and
+`media_share`. The admin maintenance actions are `POST /api/admin/media/test`,
+`/migrate`, `/verify`, `/cache/clear`, and
+`/api/admin/media/:id/share` with `{ "variant": "original" }`.
