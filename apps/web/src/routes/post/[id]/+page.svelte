@@ -68,10 +68,8 @@
     <a class="community-export" href="/api/export?community={data.post.community}" download="swartzit-community-export.json">Export data ↓</a>
   </div>
   <article class="post">
-    {#if data.post.source?.provider !== 'x'}<div class="meta post-author">
-{#if data.post.source?.provider === 'x'}<AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From X</strong> · {data.post.source.source_author}</span>
-{:else}<AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · <a href={'/u/' + data.post.author}>u/{data.post.author}</a></span>{/if}
-</div>{/if}
+    {#if data.post.source?.provider === 'x' || data.post.source?.provider === 'reddit'}<div class="meta post-author"><AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From {data.post.source.provider === 'x' ? 'X' : 'Reddit'}</strong> · {data.post.source.source_author}</span></div>
+    {:else}<div class="meta post-author"><AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · <a href={'/u/' + data.post.author}>u/{data.post.author}</a></span></div>{/if}
     {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}<p>{data.post.body}</p>{/if}
     {#if data.post.source}{#key data.post.id}<SourcePost source={data.post.source} text={data.post.body} />{/key}{/if}
     <div class="post-engagement"><div class="post-actions">{#key data.post.id}<BookmarkButton id={data.post.id} />{/key}
@@ -104,7 +102,7 @@
         </form>
       </section>
     {:else}<p class="join-prompt"><a href="/login">Sign in</a> to join the discussion.</p>{/if}
-    {#if data.post.source}<p class="source-replies-note">Comments here belong to Swartzit. <a href={data.post.source.source_url} target="_blank" rel="noopener noreferrer">See the original X replies ↗</a></p>{/if}
+    {#if data.post.source}<p class="source-replies-note">Comments here belong to Swartzit. <a href={data.post.source.source_url} target="_blank" rel="noopener noreferrer">See the original {data.post.source.provider === 'reddit' ? 'Reddit discussion' : data.post.source.provider === 'x' ? 'X replies' : 'source'} ↗</a></p>{/if}
     {#snippet thread(parentId, depth)}
       {#each children(parentId, commentOrder) as item (item.id)}
         <div style:margin-left={depth > 0 ? '16px' : '0'}>

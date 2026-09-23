@@ -46,8 +46,9 @@ must be reported, never bypassed. Do not send to Signal or enable its old job.
    prevent overlapping publishers; dead-process locks are recovered on next run.
 
 The database deduplicates canonical source URLs and preserves local discussions
-on refresh. Source metrics are snapshots; source reply text is not imported.
-Inline videos stream from video.twimg.com with controls and no autoplay;
+on refresh. Source metrics are snapshots; X reply text is not imported, while
+Reddit cross-posts retain a bounded top-level comment snapshot for context.
+Inline videos stream from video.twimg.com or v.redd.it with controls and no autoplay;
 photos link to their full-size source. This is remote playback, not permanent
 media hosting. Library posting draws from the existing manifest: it does
 not discover new Daddario photos across the internet. No image files are hosted

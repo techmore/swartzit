@@ -30,12 +30,11 @@
     : source.provider === 'x'
       ? clean(text).split(/\r?\n/).map(line => line.trim()).find(line => /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}$/i.test(line))
       : null;
-  $: sourceMetrics = [
-    ['Likes', source.source_likes, '♥'],
-    ['Reposts', source.source_reposts, '↻'],
-    ['Replies', source.source_replies, '💬'],
-    ['Views', source.source_views, '◉']
-  ].filter(([, value]) => value != null);
+  $: sourceMetrics = (source.provider === 'reddit'
+    ? [['Score', source.source_likes, '▲'], ['Comments', source.source_replies, '💬']]
+    : [['Likes', source.source_likes, '♥'], ['Reposts', source.source_reposts, '↻'], ['Replies', source.source_replies, '💬'], ['Views', source.source_views, '◉']])
+    .filter(([, value]) => value != null);
+  $: providerLabel = source.provider === 'x' ? 'X' : source.provider === 'reddit' ? 'Reddit' : 'Wikimedia Commons';
   $: mediaCount = source.media?.length ?? 0;
   $: if (activeMedia >= mediaCount) activeMedia = Math.max(0, mediaCount - 1);
   function moveMedia(delta) {
@@ -73,7 +72,7 @@
     return { destroy: () => { observer.disconnect(); window.removeEventListener('swartzit-autoplay-change', preferenceChanged); } };
   }
 </script>
-<section class="source-post" class:external-x={source.provider === 'x'} aria-label={source.provider === 'x' ? 'Imported X post' : 'Original source'}>
+<section class="source-post" class:external-x={source.provider === 'x'} aria-label={`Imported ${providerLabel} post`}>
   <div class="source-heading">
     {#if source.provider === 'x' && source.profile_image_url}
       <span class="profile-hover" role="button" tabindex="0" aria-label={`Preview ${source.profile_display_name || source.source_author} profile`}>
@@ -88,7 +87,7 @@
     {:else}<span class="source-avatar source-avatar-fallback" aria-hidden="true">{(source.profile_display_name || source.source_author || '?').slice(0, 1).toUpperCase()}</span>
     {/if}
     <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<span class="source-handle">{source.source_author}</span>{#if displayDate}<time datetime={source.published_at || undefined}>{displayDate}</time>{/if}</div>
-    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label="View original on {source.provider === 'x' ? 'X' : 'Wikimedia Commons'}">↗</a></div></div>
+    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a></div></div>
   {#if source.provider === 'x'}
     {#if parsed.text}<p class="source-text">{parsed.text}</p>{/if}
     {#if parsed.quotedText}<blockquote class="quoted-post"><strong>{parsed.quotedAuthor}</strong><p>{parsed.quotedText}</p></blockquote>{/if}
@@ -96,6 +95,7 @@
   {:else}
     {#if source.published_at}<small>Originally published {new Date(source.published_at).toLocaleString()}</small>{/if}
     {#if source.attribution}<p>{source.attribution}</p>{/if}
+    {#if sourceMetrics.length}<div class="source-metrics" aria-label={`${providerLabel} metrics`}><div class="source-metric-items">{#each sourceMetrics as [label, value, icon]}<span title={label}>{icon} {count(value)}</span>{/each}</div><small>Source counts · {new Date(source.observed_at).toLocaleDateString()}</small></div>{/if}
   {/if}
   {#if source.media?.length}
     <div class:carousel-shell={source.media.length > 1} class="media-shell">
@@ -118,6 +118,19 @@
     </div>
     {#if source.media.length > 1}<div class="carousel-status" aria-live="polite"><span>Photo {activeMedia + 1} of {source.media.length}</span><div class="carousel-dots" aria-label="Choose media">{#each source.media as _, index}<button class:active={index === activeMedia} type="button" aria-label={`Show media ${index + 1}`} aria-current={index === activeMedia ? 'true' : undefined} onclick={() => activeMedia = index}></button>{/each}</div></div>{/if}
   {/if}
+  {#if source.provider === 'reddit' && source.source_comments?.length}
+    <details class="source-comments">
+      <summary>Top Reddit comments ({source.source_comments.length})</summary>
+      <div class="source-comment-list">
+        {#each source.source_comments as comment}
+          <article class="source-comment">
+            <div><strong>{comment.author}</strong>{#if comment.score != null}<span>{comment.score} points</span>{/if}{#if comment.created_at}<time datetime={comment.created_at}>{new Date(comment.created_at).toLocaleDateString()}</time>{/if}</div>
+            <p>{comment.body}</p>
+          </article>
+        {/each}
+      </div>
+    </details>
+  {/if}
 </section>
 <style>
   .source-post{border:1px solid var(--border,#c7d0c6);border-radius:12px;background:var(--surface,#fff);padding:14px 16px;margin:14px 0;font-size:.92rem}
@@ -131,6 +144,7 @@
   a{color:var(--link,#215e47);text-decoration:underline}
   small{display:block;color:var(--muted,#66766c);margin:6px 0}
   .source-post p{margin:8px 0}.source-text{font-size:1rem;line-height:1.5;white-space:pre-wrap;color:var(--text,#1d2a27)}.quoted-post{border-left:3px solid var(--border,#c7d0c6);margin:12px 0;padding:8px 12px;background:var(--subtle,#f5f7f3);color:var(--muted,#53615d)}.quoted-post p{margin:4px 0 0;white-space:pre-wrap}.source-metrics{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted,#66766c);margin:10px 0 0!important;font-size:.76rem}.source-metric-items{display:flex;gap:12px}.source-metrics small{font-size:.68rem;margin:0 0 0 auto}
+  .source-comments{margin-top:12px;border-top:1px solid var(--border,#c7d0c6);padding-top:10px}.source-comments summary{cursor:pointer;color:var(--muted,#66766c);font-size:.78rem;font-weight:700}.source-comment-list{display:grid;gap:9px;margin-top:10px}.source-comment{padding:9px 10px;border-left:2px solid var(--border,#c7d0c6);background:var(--subtle,#f5f7f3)}.source-comment>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted,#66766c);font-size:.72rem}.source-comment>div strong{color:var(--heading,#173d34)}.source-comment>div time{margin-left:auto}.source-comment p{margin:5px 0 0!important;white-space:pre-wrap;font-size:.82rem;line-height:1.4}
   .source-images{display:grid;gap:8px;margin:8px 0;max-width:680px}
   .media-shell{position:relative}.carousel-shell{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}.carousel-images{display:block;min-height:220px}.carousel-slide.inactive{display:none}.carousel-button{width:36px;height:36px;border:1px solid var(--border,#c7d0c6);border-radius:50%;background:var(--surface,#fff);color:var(--text,#15251b);font-size:1.8rem;line-height:1;cursor:pointer}.carousel-button:hover{background:var(--subtle,#f0f3ec)}.carousel-status{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:680px;color:var(--muted,#66766c);font-size:.78rem}.carousel-dots{display:flex;gap:5px}.carousel-dots button{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:var(--border,#c7d0c6);cursor:pointer}.carousel-dots button.active{background:var(--link,#215e47);transform:scale(1.25)}
   figure{margin:0;min-width:0} figcaption{margin-top:6px;color:var(--muted,#66766c)}

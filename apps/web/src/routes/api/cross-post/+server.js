@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { parseXStatusUrl, resolveXPost } from '$lib/x-source.mjs';
+import { parseRedditPostUrl, resolveRedditPost } from '$lib/reddit-source.mjs';
 
 const api = (env.API_URL || 'http://127.0.0.1:8080').replace(/\/+$/, '');
 const json = (body, status = 200) => Response.json(body, { status });
@@ -14,7 +15,12 @@ export async function POST({ request }) {
   const url = typeof input.url === 'string' ? input.url.trim() : '';
   const community = typeof input.community === 'string' ? input.community.trim().toLowerCase() : '';
   if (!/^[a-z0-9_]{1,40}$/.test(community)) return json({ error: 'Choose a valid community.' }, 400);
-  try { parseXStatusUrl(url); } catch (error) { return json({ error: error.message }, 400); }
+  let provider = '';
+  try { parseXStatusUrl(url); provider = 'x'; }
+  catch {
+    try { parseRedditPostUrl(url); provider = 'reddit'; }
+    catch { return json({ error: 'Paste a public X or Reddit post link.' }, 400); }
+  }
 
   try {
     const session = await fetch(`${api}/api/me`, { headers: { authorization }, signal: AbortSignal.timeout(5000) });
@@ -24,10 +30,11 @@ export async function POST({ request }) {
   }
 
   let post;
-  try { post = await resolveXPost(url); }
+  try { post = provider === 'x' ? await resolveXPost(url) : await resolveRedditPost(url); }
   catch (error) {
     const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
-    return json({ error: timedOut ? 'X took too long to respond. Try again shortly.' : error.message || 'Could not read that public X post.' }, timedOut ? 504 : 502);
+    const sourceName = provider === 'reddit' ? 'Reddit' : 'X';
+    return json({ error: timedOut ? `${sourceName} took too long to respond. Try again shortly.` : error.message || `Could not read that public ${sourceName} post.` }, timedOut ? 504 : 502);
   }
 
   try {

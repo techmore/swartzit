@@ -1,4 +1,5 @@
 <script>
+  import CommunityPicker from '$lib/CommunityPicker.svelte';
   export let communities = [];
   export let selectedCommunity = '';
   let url = '', community = '', busy = false, error = '', notice = '', existingPost = '';
@@ -40,17 +41,13 @@
 <section class="quick-crosspost" aria-labelledby="crosspost-title">
   <div class="crosspost-heading">
     <div><p class="eyebrow">BRING A SOURCE INTO THE CONVERSATION</p><h2 id="crosspost-title">Share a post</h2></div>
-    <p>Paste a public X link. We’ll bring in its text, quote context, and available media.</p>
+    <p>Paste a public X or Reddit link. We’ll bring in its text, media, source metrics, and available Reddit comments.</p>
   </div>
   <form on:submit={submit}>
     <label class="source-field">Post URL
-      <input type="url" bind:value={url} required maxlength="2048" placeholder="https://x.com/name/status/…" autocomplete="url" />
+      <input type="url" bind:value={url} required maxlength="2048" placeholder="https://x.com/name/status/… or reddit.com/r/…" autocomplete="url" />
     </label>
-    <label class="community-field">Community
-      <select bind:value={community} required>
-        {#each communities as item}<option value={item.slug}>c/{item.slug}</option>{/each}
-      </select>
-    </label>
+    <CommunityPicker communities={communities} bind:value={community} id="crosspost-community" />
     <button type="submit" disabled={busy || !community}>{busy ? 'Fetching post…' : 'Share link'}</button>
   </form>
   <p class="crosspost-note">Original author and source link stay attached. Duplicate links open the existing discussion.</p>
@@ -66,11 +63,13 @@
   .crosspost-heading>p{max-width:360px;margin:0;color:var(--muted,#66766c);font-size:.8rem}
   form{display:grid;grid-template-columns:minmax(0,1fr) 175px auto;align-items:end;gap:10px}
   label{display:grid;gap:5px;color:var(--muted,#66766c);font-size:.76rem;font-weight:650}
-  input,select{width:100%;min-width:0;height:40px;border:1px solid var(--border,#c7ccc3);border-radius:6px;padding:8px 10px;background:var(--page,#f6f4ee);font:inherit;font-size:.86rem}
+  input{width:100%;min-width:0;height:40px;border:1px solid var(--border,#c7ccc3);border-radius:6px;padding:8px 10px;background:var(--page,#f6f4ee);font:inherit;font-size:.86rem}
+  form :global(.community-picker){min-width:0}
+  form :global(.community-picker label){font-size:.76rem}
   form button{height:40px;padding:0 14px;border-radius:6px;white-space:nowrap;font-size:.84rem}
   form button:disabled{opacity:.65;cursor:wait}
   .crosspost-note,.crosspost-feedback{margin:8px 0 0;color:var(--muted,#77827d);font-size:.73rem}
   .crosspost-feedback a{color:var(--link,#215e47);font-weight:700;text-decoration:underline}
   .crosspost-feedback.error{color:var(--error,#a33932)}
-  @media(max-width:700px){.quick-crosspost{margin:0 18px 18px;padding:14px}.crosspost-heading{display:block}.crosspost-heading>p{margin-top:5px}form{grid-template-columns:minmax(0,1fr) auto}.source-field{grid-column:1/-1}.community-field{grid-column:1}.community-field select{max-width:100%}form button{grid-column:2;grid-row:2}}
+  @media(max-width:700px){.quick-crosspost{margin:0 18px 18px;padding:14px}.crosspost-heading{display:block}.crosspost-heading>p{margin-top:5px}form{grid-template-columns:minmax(0,1fr) auto}.source-field{grid-column:1/-1}form :global(.community-picker){grid-column:1}form button{grid-column:2;grid-row:2}}
 </style>

@@ -29,6 +29,7 @@ fn validate_media(media: &Media, provider: &str) -> Result<(), ApiError> {
             | ("commons", "image", Some("upload.wikimedia.org"))
             | ("reddit", "image", Some("i.redd.it"))
             | ("reddit", "image", Some("preview.redd.it"))
+            | ("reddit", "video", Some("v.redd.it"))
     ) || (provider == "x"
         && kind == "video"
         && u.host_str() == Some("video.twimg.com")
@@ -36,10 +37,43 @@ fn validate_media(media: &Media, provider: &str) -> Result<(), ApiError> {
     if !valid || alt.is_some_and(|s| s.len() > 1000) {
         return Err(ApiError::Invalid("Invalid source media"));
     }
-    if let Some(poster) = poster
-        && (kind != "video" || https(poster)?.host_str() != Some("pbs.twimg.com"))
+    if let Some(poster) = poster {
+        let poster_url = https(poster)?;
+        let poster_host = poster_url.host_str().unwrap_or("");
+        let valid_poster = kind == "video"
+            && ((provider == "x" && poster_host == "pbs.twimg.com")
+                || (provider == "reddit"
+                    && matches!(poster_host, "i.redd.it" | "preview.redd.it")));
+        if !valid_poster {
+            return Err(ApiError::Invalid("Invalid video poster"));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct SourceComment {
+    pub author: String,
+    pub body: String,
+    pub score: Option<i64>,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+fn validate_source_comments(comments: &[SourceComment]) -> Result<(), ApiError> {
+    if comments.len() > 50
+        || comments.iter().any(|comment| {
+            comment.author.trim().is_empty()
+                || comment.author.len() > 200
+                || comment.body.trim().is_empty()
+                || comment.body.len() > 5000
+                || comment
+                    .score
+                    .is_some_and(|score| !(0..=9_007_199_254_740_991).contains(&score))
+        })
     {
-        return Err(ApiError::Invalid("Invalid video poster"));
+        return Err(ApiError::Invalid(
+            "Imported source comments exceed allowed bounds",
+        ));
     }
     Ok(())
 }
@@ -62,6 +96,8 @@ pub struct Import {
     pub media: Vec<Media>,
     #[serde(default)]
     pub attribution: String,
+    #[serde(default)]
+    pub source_comments: Vec<SourceComment>,
     pub profile_image_url: Option<String>,
     pub profile_url: Option<String>,
     pub profile_display_name: Option<String>,
@@ -111,13 +147,39 @@ fn canonical(provider: &str, raw: &str) -> Result<String, ApiError> {
             return Ok(u.to_string());
         }
         "reddit"
-            if ["reddit.com", "www.reddit.com"].contains(&u.host_str().unwrap_or(""))
-                && u.path().starts_with('/') =>
+            if ["reddit.com", "www.reddit.com", "old.reddit.com"]
+                .contains(&u.host_str().unwrap_or("")) =>
         {
-            let mut u = u;
-            u.set_query(None);
-            u.set_fragment(None);
-            return Ok(u.to_string());
+            let parts: Vec<_> = u.path().split('/').filter(|s| !s.is_empty()).collect();
+            let is_subreddit_post = parts.len() >= 4
+                && parts[0].eq_ignore_ascii_case("r")
+                && !parts[1].is_empty()
+                && parts[2].eq_ignore_ascii_case("comments")
+                && !parts[3].is_empty()
+                && parts[3].len() <= 16
+                && parts[3].bytes().all(|byte| byte.is_ascii_alphanumeric());
+            let is_global_post = parts.len() >= 2
+                && parts[0].eq_ignore_ascii_case("comments")
+                && !parts[1].is_empty()
+                && parts[1].len() <= 16
+                && parts[1].bytes().all(|byte| byte.is_ascii_alphanumeric());
+            if is_subreddit_post || is_global_post {
+                let mut u = u;
+                u.set_scheme("https").ok();
+                u.set_host(Some("www.reddit.com")).ok();
+                u.set_query(None);
+                u.set_fragment(None);
+                return Ok(u.to_string().trim_end_matches('/').to_owned());
+            }
+        }
+        "reddit" if u.host_str() == Some("redd.it") => {
+            let parts: Vec<_> = u.path().split('/').filter(|s| !s.is_empty()).collect();
+            if parts.len() == 1
+                && parts[0].len() <= 16
+                && parts[0].bytes().all(|byte| byte.is_ascii_alphanumeric())
+            {
+                return Ok(format!("https://www.reddit.com/comments/{}", parts[0]));
+            }
         }
         "rss" => {
             let mut u = u;
@@ -167,6 +229,7 @@ pub async fn ingest(
     for media in &input.media {
         validate_media(media, &input.provider)?;
     }
+    validate_source_comments(&input.source_comments)?;
     if let Some(url) = &input.profile_image_url {
         let u = https(url)?;
         if input.provider != "x"
@@ -258,8 +321,8 @@ pub async fn ingest(
     } else {
         (None, "none".to_owned(), serde_json::json!([]))
     };
-    let changed=sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(post_id) DO UPDATE SET source_author=EXCLUDED.source_author,published_at=COALESCE(EXCLUDED.published_at,external_posts.published_at),observed_at=EXCLUDED.observed_at,source_views=EXCLUDED.source_views,source_likes=EXCLUDED.source_likes,source_reposts=EXCLUDED.source_reposts,source_replies=EXCLUDED.source_replies,media=EXCLUDED.media,attribution=EXCLUDED.attribution,profile_image_url=COALESCE(EXCLUDED.profile_image_url,external_posts.profile_image_url),profile_url=COALESCE(EXCLUDED.profile_url,external_posts.profile_url),profile_display_name=COALESCE(EXCLUDED.profile_display_name,external_posts.profile_display_name),profile_bio=COALESCE(EXCLUDED.profile_bio,external_posts.profile_bio),profile_followers=COALESCE(EXCLUDED.profile_followers,external_posts.profile_followers),profile_following=COALESCE(EXCLUDED.profile_following,external_posts.profile_following),profile_verified=COALESCE(EXCLUDED.profile_verified,external_posts.profile_verified) WHERE EXCLUDED.observed_at>=external_posts.observed_at")
-        .bind(id).bind(&input.provider).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at).bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies).bind(serde_json::json!(input.media)).bind(&input.attribution).bind(&input.profile_image_url).bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio).bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified).execute(&mut *tx).await?.rows_affected()>0;
+    let changed=sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT(post_id) DO UPDATE SET source_author=EXCLUDED.source_author,published_at=COALESCE(EXCLUDED.published_at,external_posts.published_at),observed_at=EXCLUDED.observed_at,source_views=EXCLUDED.source_views,source_likes=EXCLUDED.source_likes,source_reposts=EXCLUDED.source_reposts,source_replies=EXCLUDED.source_replies,media=EXCLUDED.media,source_comments=EXCLUDED.source_comments,attribution=EXCLUDED.attribution,profile_image_url=COALESCE(EXCLUDED.profile_image_url,external_posts.profile_image_url),profile_url=COALESCE(EXCLUDED.profile_url,external_posts.profile_url),profile_display_name=COALESCE(EXCLUDED.profile_display_name,external_posts.profile_display_name),profile_bio=COALESCE(EXCLUDED.profile_bio,external_posts.profile_bio),profile_followers=COALESCE(EXCLUDED.profile_followers,external_posts.profile_followers),profile_following=COALESCE(EXCLUDED.profile_following,external_posts.profile_following),profile_verified=COALESCE(EXCLUDED.profile_verified,external_posts.profile_verified) WHERE EXCLUDED.observed_at>=external_posts.observed_at")
+        .bind(id).bind(&input.provider).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at).bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies).bind(serde_json::json!(input.media)).bind(serde_json::json!(input.source_comments)).bind(&input.attribution).bind(&input.profile_image_url).bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio).bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified).execute(&mut *tx).await?.rows_affected()>0;
     if changed {
         sqlx::query("UPDATE posts SET title=$2,body=$3 WHERE id=$1")
             .bind(id)
@@ -281,9 +344,9 @@ pub async fn cross_post(
     Json(input): Json<Import>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let actor = active_author(&headers, &db).await?;
-    if input.provider != "x" {
+    if !matches!(input.provider.as_str(), "x" | "reddit") {
         return Err(ApiError::Invalid(
-            "Only public X post links are supported right now",
+            "Only public X or Reddit post links are supported",
         ));
     }
     let source = canonical(&input.provider, &input.source_url)?;
@@ -314,8 +377,9 @@ pub async fn cross_post(
         }
     }
     for media in &input.media {
-        validate_media(media, "x")?;
+        validate_media(media, &input.provider)?;
     }
+    validate_source_comments(&input.source_comments)?;
     if let Some(url) = &input.profile_image_url {
         let u = https(url)?;
         if u.host_str() != Some("pbs.twimg.com") || !u.path().contains("/profile_images/") {
@@ -383,10 +447,10 @@ pub async fn cross_post(
     .bind(&input.body)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,'x',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)")
-        .bind(id).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at)
+    sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
+        .bind(id).bind(&input.provider).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at)
         .bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies)
-        .bind(serde_json::json!(input.media)).bind(&input.attribution).bind(&input.profile_image_url)
+        .bind(serde_json::json!(input.media)).bind(serde_json::json!(input.source_comments)).bind(&input.attribution).bind(&input.profile_image_url)
         .bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio)
         .bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified)
         .execute(&mut *tx).await?;
@@ -415,7 +479,7 @@ pub async fn cross_post(
         "info",
         "source.cross_posted",
         serde_json::json!({
-            "actor_id": actor, "post_id": id, "community": community_slug, "provider": "x",
+            "actor_id": actor, "post_id": id, "community": community_slug, "provider": input.provider,
             "moderation_id": moderation_id, "severity": analysis.severity, "urgent": analysis.urgent
         }),
     )
@@ -481,12 +545,32 @@ mod tests {
         assert!(
             validate_media(&Media::Image("https://pbs.twimg.com/photo.jpg".into()), "x").is_ok()
         );
+        let reddit_video = Media::Attachment {
+            kind: "video".into(),
+            src: "https://v.redd.it/clip/DASH_720.mp4?source=fallback".into(),
+            poster: Some("https://preview.redd.it/poster.jpg".into()),
+            alt: None,
+        };
+        assert!(validate_media(&reddit_video, "reddit").is_ok());
+        assert!(validate_media(&reddit_video, "x").is_err());
     }
     #[test]
     fn canonical_identity() {
         assert_eq!(
             canonical("x", "https://twitter.com/person/status/123?s=20").unwrap(),
             "https://x.com/i/status/123"
+        );
+        assert_eq!(
+            canonical(
+                "reddit",
+                "https://old.reddit.com/r/photos/comments/abc123/a-photo?utm_source=x"
+            )
+            .unwrap(),
+            "https://www.reddit.com/r/photos/comments/abc123/a-photo"
+        );
+        assert_eq!(
+            canonical("reddit", "https://redd.it/xyz789").unwrap(),
+            "https://www.reddit.com/comments/xyz789"
         );
         for u in [
             "https://x.com.evil.test/a/status/123",
@@ -495,6 +579,13 @@ mod tests {
             "https://x.com/a/status/no",
         ] {
             assert!(canonical("x", u).is_err());
+        }
+        for u in [
+            "https://www.reddit.com/r/photos",
+            "https://www.reddit.com/r/photos/comments/not%20valid/title",
+            "https://www.reddit.com/user/person",
+        ] {
+            assert!(canonical("reddit", u).is_err());
         }
         assert!(order(Some("score; DROP TABLE posts")).is_err());
     }

@@ -670,13 +670,17 @@ Tor runs on the same host. RSS currently lives on the Rust API only; the website
 proxies `/api/*`. Public exports omit account credentials and do not replace
 PostgreSQL backups.
 
-## Importing public X posts and photo-library sources
+## Importing public X and Reddit posts and photo-library sources
 
 Admins can open **Admin → Imports**, select a prepared JSON file, review the
-batch, and submit it. New imported posts stay hidden until they are approved in
-**Admin → Moderation**. A migration creates `c/x_imports` and the independent
-fan community `c/alexandra_daddario`. Use `--community SLUG` to route a batch
-into another existing community.
+batch, and submit it. Signed-in members can also use the **+** composer to
+search for a community and paste a public X or Reddit post URL. Swartzit keeps
+the canonical source link, source text, trusted source media, and metrics;
+Reddit imports also keep a bounded snapshot of top-level comments. New
+cross-posts stay hidden until they are approved in **Admin → Moderation**. A
+migration creates `c/x_imports` and the independent fan community
+`c/alexandra_daddario`. Use `--community SLUG` to route a batch into another
+existing community.
 
 Prepare a batch from the existing Hermes X mirror archive (no Signal delivery):
 

@@ -1,6 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import Icon from '$lib/Icon.svelte';
+  import ThemeToggle from '$lib/ThemeToggle.svelte';
+  import AutoplayToggle from '$lib/AutoplayToggle.svelte';
   export let compact = false;
   let handle = '', isAdmin = false;
   onMount(async () => {
@@ -13,6 +15,7 @@
   });
 </script>
 <nav class:compact class="session-nav" aria-label="Account and navigation">
+  <span class="preferences" aria-label="Display preferences"><ThemeToggle compact /><AutoplayToggle compact /></span>
   {#if compact}
     <a href="/about" aria-label="About Swartzit" title="About Swartzit"><Icon name="info" /></a>
     <a href="/communities" aria-label="Browse communities" title="Communities"><Icon name="grid" /></a>
@@ -33,6 +36,8 @@
   {/if}
 </nav>
 <style>
+  .preferences{display:flex;align-items:center;gap:2px;margin-right:2px}
+  :global(.preferences button){color:var(--muted,#66766c)}
   .session-nav.compact{display:flex;align-items:center;gap:3px;margin-left:4px}
   .session-nav.compact a{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;color:var(--muted,#66766c);font-size:.8rem}
   .session-nav.compact a:hover,.session-nav.compact a:focus-visible{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
