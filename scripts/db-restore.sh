@@ -93,18 +93,18 @@ if (( LEAVE_STOPPED )); then
   final_status=database-restored
 else
   echo "Starting Swartzit and waiting for health checks."
+  "$LAUNCHER" start >/dev/null 2>&1 || true
   healthy=0
   status_output=""
   for attempt in {1..20}; do
-    "$LAUNCHER" start >/dev/null 2>&1 || true
     if status_output=$("$LAUNCHER" status --json 2>&1); then
       healthy=1
       break
     fi
-    "$LAUNCHER" stop >/dev/null 2>&1 || true
     sleep 1
   done
   if (( ! healthy )); then
+    "$LAUNCHER" stop >/dev/null 2>&1 || true
     echo "Rollback restored the database, but Swartzit did not pass health checks." >&2
     printf '%s\n' "$status_output" >&2
     echo "Pre-rollback backup: $pre_restore_path" >&2

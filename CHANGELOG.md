@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4-20260923T12
+
+- Makes rollback startup resilient to normal web-server startup latency by
+  starting once and polling health instead of repeatedly restarting services.
+
 ## 0.1.3-20260923T12
 
 - Aligns the release archive with the audited Homebrew formula: the installed
