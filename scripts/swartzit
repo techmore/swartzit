@@ -28,6 +28,97 @@ mkdir -p "$STATE_DIR"
 SCRIPT_HOME="$HOME_DIR/scripts"
 [[ -d "$SCRIPT_HOME" ]] || SCRIPT_HOME="$HOME_DIR/libexec"
 
+interface_ip() {
+  local interface="$1"
+  if [[ "$interface" == "loopback" || "$interface" == "localhost" || "$interface" == "lo0" ]]; then
+    echo 127.0.0.1
+    return 0
+  fi
+  ipconfig getifaddr "$interface" 2>/dev/null || \
+    ifconfig "$interface" 2>/dev/null | awk '$1 == "inet" { print $2; exit }'
+}
+
+resolve_network() {
+  NETWORK_MODE="$1"
+  case "$NETWORK_MODE" in
+    local|localhost|loopback|lo0)
+      NETWORK_MODE=loopback
+      NETWORK_LABEL="Loopback"
+      WEB_INTERFACE=lo0
+      WEB_BIND_IP=127.0.0.1
+      ;;
+    lan|wifi)
+      NETWORK_MODE=wifi
+      NETWORK_LABEL="Wi-Fi/LAN"
+      WEB_INTERFACE="${SWARTZIT_WIFI_INTERFACE:-en0}"
+      WEB_BIND_IP="$(interface_ip "$WEB_INTERFACE" || true)"
+      if [[ -z "$WEB_BIND_IP" && "$WEB_INTERFACE" == "en0" ]]; then
+        WEB_INTERFACE=en1
+        WEB_BIND_IP="$(interface_ip "$WEB_INTERFACE" || true)"
+      fi
+      ;;
+    ethernet|eth)
+      NETWORK_MODE=ethernet
+      NETWORK_LABEL="Ethernet"
+      WEB_INTERFACE="${SWARTZIT_ETHERNET_INTERFACE:-en1}"
+      WEB_BIND_IP="$(interface_ip "$WEB_INTERFACE" || true)"
+      ;;
+    vpn)
+      NETWORK_MODE=vpn
+      NETWORK_LABEL="VPN"
+      WEB_INTERFACE=utun
+      WEB_BIND_IP=""
+      if command -v tailscale >/dev/null 2>&1; then
+        WEB_BIND_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+        [[ -n "$WEB_BIND_IP" ]] && WEB_INTERFACE=tailscale
+      fi
+      if [[ -z "$WEB_BIND_IP" ]]; then
+        WEB_BIND_IP="$(ifconfig 2>/dev/null | awk '/^utun[0-9]+:/{iface=$1; sub(":","",iface)} iface && /inet /{print $2; exit}' || true)"
+      fi
+      ;;
+    public)
+      NETWORK_MODE=public
+      NETWORK_LABEL="Public via Caddy"
+      WEB_INTERFACE=loopback
+      WEB_BIND_IP=127.0.0.1
+      ;;
+    en[0-9]|en[0-9][0-9]|utun[0-9]|bridge[0-9])
+      NETWORK_MODE=interface
+      NETWORK_LABEL="Interface $1"
+      WEB_INTERFACE="$1"
+      WEB_BIND_IP="$(interface_ip "$WEB_INTERFACE" || true)"
+      ;;
+    *)
+      echo "Usage: swartzit start [wifi|loopback|ethernet|vpn|public|en0|en1]" >&2
+      return 2
+      ;;
+  esac
+  [[ -n "$WEB_BIND_IP" ]] || { echo "Could not find an IPv4 address for $NETWORK_LABEL." >&2; return 1; }
+}
+
+resolve_api_interface() {
+  API_REQUESTED_INTERFACE="${SWARTZIT_API_INTERFACE:-loopback}"
+  case "$API_REQUESTED_INTERFACE" in
+    local|localhost|loopback|lo0)
+      API_INTERFACE=loopback
+      API_BIND_IP=127.0.0.1
+      ;;
+    wifi|lan)
+      API_INTERFACE="$WEB_INTERFACE"
+      API_BIND_IP="$WEB_BIND_IP"
+      ;;
+    ethernet|eth)
+      API_INTERFACE="${SWARTZIT_ETHERNET_INTERFACE:-en1}"
+      API_BIND_IP="$(interface_ip "$API_INTERFACE" || true)"
+      ;;
+    *)
+      API_INTERFACE="$API_REQUESTED_INTERFACE"
+      API_BIND_IP="$(interface_ip "$API_INTERFACE" || true)"
+      ;;
+  esac
+  [[ -n "$API_BIND_IP" ]] || { echo "Could not find an IPv4 address for API interface $API_REQUESTED_INTERFACE." >&2; return 1; }
+}
+
 case "${1:-status}" in
   version)
     VERSION_FILE="${SWARTZIT_VERSION_FILE:-$SCRIPT_DIR/VERSION}"
@@ -37,17 +128,39 @@ case "${1:-status}" in
     if [[ -f "$VERSION_FILE" ]]; then cat "$VERSION_FILE"; else echo "development"; fi
     ;;
   start)
+    shift
+    NETWORK_REQUESTED="${1:-${SWARTZIT_MODE:-${SWARTZIT_BIND_INTERFACE:-wifi}}}"
+    resolve_network "$NETWORK_REQUESTED"
+    resolve_api_interface
     : "${DATABASE_URL:=postgres://swartzit:swartzit-local-only@127.0.0.1:54329/swartzit}"
-    : "${BIND_ADDR:=127.0.0.1:18080}"
-    : "${API_URL:=http://127.0.0.1:18080}"
-    : "${HOST:=127.0.0.1}"
+    : "${API_PORT:=18080}"
+    : "${BIND_ADDR:=$API_BIND_IP:$API_PORT}"
+    : "${API_URL:=http://$API_BIND_IP:$API_PORT}"
+    : "${HOST:=$WEB_BIND_IP}"
     : "${PORT:=4173}"
-    export DATABASE_URL BIND_ADDR API_URL HOST PORT
+    : "${ORIGIN:=${SWARTZIT_ORIGIN:-http://$WEB_BIND_IP:$PORT}}"
+    export DATABASE_URL BIND_ADDR API_URL HOST PORT ORIGIN SWARTZIT_STATE_DIR="$STATE_DIR"
+    {
+      printf 'API_URL=%q\n' "$API_URL"
+      printf 'PORT=%q\n' "$PORT"
+      printf 'SWARTZIT_LOCAL_URL=%q\n' "http://$HOST:$PORT"
+      printf 'SWARTZIT_NETWORK_MODE=%q\n' "$NETWORK_MODE"
+      printf 'SWARTZIT_NETWORK_LABEL=%q\n' "$NETWORK_LABEL"
+      printf 'SWARTZIT_WEB_INTERFACE=%q\n' "$WEB_INTERFACE"
+      printf 'SWARTZIT_WEB_BIND_IP=%q\n' "$WEB_BIND_IP"
+      printf 'SWARTZIT_API_BIND_INTERFACE=%q\n' "$API_INTERFACE"
+      printf 'SWARTZIT_API_BIND_IP=%q\n' "$API_BIND_IP"
+      printf 'SWARTZIT_CHECK_URL=%q\n' "${SWARTZIT_CHECK_URL:-}"
+      printf 'SWARTZIT_CADDY=%q\n' "${SWARTZIT_CADDY:-0}"
+      printf 'SWARTZIT_STATE_DIR=%q\n' "$STATE_DIR"
+    } > "$STATE_DIR/runtime.env"
     [[ -x "$SERVER" ]] || { echo "Missing Swartzit server: $SERVER" >&2; exit 1; }
     [[ -f "$WEB_BUILD/index.js" ]] || { echo "Missing web build: $WEB_BUILD/index.js" >&2; exit 1; }
     nohup "$SERVER" >"$STATE_DIR/api.log" 2>&1 < /dev/null & echo $! > "$STATE_DIR/api.pid"
     nohup node "$WEB_BUILD" >"$STATE_DIR/web.log" 2>&1 < /dev/null & echo $! > "$STATE_DIR/web.pid"
-    echo "Swartzit started: $HOST:$PORT"
+    echo "Swartzit started: $HOST:$PORT ($NETWORK_LABEL; $WEB_INTERFACE)"
+    echo "Web URL: http://$HOST:$PORT"
+    echo "API bind: $BIND_ADDR ($API_INTERFACE)"
     ;;
   stop)
     for name in api web; do if [[ -f "$STATE_DIR/$name.pid" ]]; then kill "$(cat "$STATE_DIR/$name.pid")" 2>/dev/null || true; rm -f "$STATE_DIR/$name.pid"; fi; done
@@ -64,5 +177,7 @@ case "${1:-status}" in
   rollback) shift; exec "$SCRIPT_HOME/db-restore.sh" "$@" ;;
   update) shift; exec "$SCRIPT_HOME/swartzit-update.sh" "$@" ;;
   monitor) shift; exec "$SCRIPT_HOME/swartzit-monitor.sh" "$@" ;;
-  *) echo 'Usage: swartzit {version|start|stop|status|backup|restore-verify|rollback|update|monitor}' >&2; exit 2 ;;
+  monitor-install) shift; exec "$SCRIPT_HOME/install-mac-monitor.sh" "$@" ;;
+  orchard) shift; exec "$SCRIPT_HOME/swartzit-orchard.sh" "$@" ;;
+  *) echo 'Usage: swartzit {version|start|stop|status|backup|restore-verify|rollback|update|monitor|monitor-install|orchard}' >&2; exit 2 ;;
 esac

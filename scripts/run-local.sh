@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 mkdir -p .local
+export SWARTZIT_STATE_DIR="${SWARTZIT_STATE_DIR:-$ROOT/.local}"
 PORT="${PORT:-4173}"
 MODE="${SWARTZIT_MODE:-${SWARTZIT_BIND_INTERFACE:-${1:-lan}}}"
 
@@ -69,6 +70,32 @@ case "$MODE" in
     exit 2
     ;;
 esac
+case "$MODE" in
+  local|localhost|loopback|lo0)
+    NETWORK_LABEL="Loopback"
+    WEB_INTERFACE=lo0
+    ;;
+  lan|wifi)
+    NETWORK_LABEL="Wi-Fi/LAN"
+    WEB_INTERFACE="$LAN_INTERFACE"
+    ;;
+  ethernet|eth)
+    NETWORK_LABEL="Ethernet"
+    WEB_INTERFACE="$ETHERNET_INTERFACE"
+    ;;
+  vpn)
+    NETWORK_LABEL="VPN"
+    WEB_INTERFACE=utun
+    ;;
+  public)
+    NETWORK_LABEL="Public via Caddy"
+    WEB_INTERFACE=lo0
+    ;;
+  *)
+    NETWORK_LABEL="Interface $MODE"
+    WEB_INTERFACE="$MODE"
+    ;;
+esac
 export DATABASE_URL="${DATABASE_URL:-postgres://swartzit:swartzit-local-only@127.0.0.1:54329/swartzit}"
 API_PORT="${API_PORT:-18080}"
 API_BIND_INTERFACE="${SWARTZIT_API_INTERFACE:-loopback}"
@@ -79,12 +106,20 @@ export API_URL="${API_URL:-http://$API_BIND_IP:$API_PORT}"
 export HOST="${HOST:-$WEB_BIND_IP}"
 export PORT
 export ORIGIN="${ORIGIN:-${SWARTZIT_ORIGIN:-$DEFAULT_ORIGIN}}"
-cat > .local/runtime.env <<EOF
-API_URL=$API_URL
-SWARTZIT_LOCAL_URL=http://$WEB_BIND_IP:$PORT
-SWARTZIT_CHECK_URL=${SWARTZIT_CHECK_URL:-${SWARTZIT_ORIGIN:-}}
-SWARTZIT_CADDY=${SWARTZIT_CADDY:-0}
-EOF
+{
+  printf 'API_URL=%q\n' "$API_URL"
+  printf 'PORT=%q\n' "$PORT"
+  printf 'SWARTZIT_LOCAL_URL=%q\n' "http://$WEB_BIND_IP:$PORT"
+  printf 'SWARTZIT_NETWORK_MODE=%q\n' "$MODE"
+  printf 'SWARTZIT_NETWORK_LABEL=%q\n' "$NETWORK_LABEL"
+  printf 'SWARTZIT_WEB_INTERFACE=%q\n' "$WEB_INTERFACE"
+  printf 'SWARTZIT_WEB_BIND_IP=%q\n' "$WEB_BIND_IP"
+  printf 'SWARTZIT_API_BIND_INTERFACE=%q\n' "$API_BIND_INTERFACE"
+  printf 'SWARTZIT_API_BIND_IP=%q\n' "$API_BIND_IP"
+  printf 'SWARTZIT_CHECK_URL=%q\n' "${SWARTZIT_CHECK_URL:-${SWARTZIT_ORIGIN:-}}"
+  printf 'SWARTZIT_CADDY=%q\n' "${SWARTZIT_CADDY:-0}"
+  printf 'SWARTZIT_STATE_DIR=%q\n' "$SWARTZIT_STATE_DIR"
+} > .local/runtime.env
 API_LOG=.local/api.log
 WEB_LOG=.local/web.log
 if command -v container >/dev/null; then

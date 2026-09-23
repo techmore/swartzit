@@ -2,8 +2,8 @@
 
 The prototype is a server-rendered, text-first discussion service. Public
 reading does not require an account. Accounts, posting, voting, uploads, and
-federation will be added behind explicit policies for pseudonyms, moderation,
-replication, and migration.
+moderation operate behind explicit policies for pseudonyms, replication, and
+migration; federation remains future work.
 
 ## Runtime
 

@@ -27,10 +27,12 @@ pub async fn record(
     let hash = Sha256::digest(input.visit_id.to_ascii_lowercase().as_bytes()).to_vec();
     let mut tx = db.begin().await?;
     // Lock the parent first: all milestones for a post use one consistent order.
-    let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM posts WHERE id=$1 FOR UPDATE")
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM posts WHERE id=$1 AND moderation_status='approved' FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
     if exists.is_none() {
         return Err(ApiError::Missing);
     }

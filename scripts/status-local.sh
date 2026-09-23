@@ -17,6 +17,7 @@ if [[ -f "$STATE_DIR/runtime.env" ]]; then
 fi
 api="${API_URL:-http://127.0.0.1:18080}"
 web_url="${SWARTZIT_LOCAL_URL:-http://127.0.0.1:${PORT:-4173}}"
+web_port="${PORT:-4173}"
 public_url="${SWARTZIT_CHECK_URL:-${SWARTZIT_ORIGIN:-}}"
 db_container="${SWARTZIT_DB_CONTAINER:-swartzit-db}"
 db_user="${SWARTZIT_DB_USER:-swartzit}"
@@ -30,8 +31,33 @@ if command -v container >/dev/null 2>&1 && container exec "$db_container" pg_isr
 if [[ -f "$STATE_DIR/caddy.pid" ]] && kill -0 "$(cat "$STATE_DIR/caddy.pid")" 2>/dev/null; then caddy_status=running; elif [[ "${SWARTZIT_CADDY:-0}" == 1 ]]; then caddy_status=down; fi
 if [[ -f "$STATE_DIR/worker.pid" ]] && kill -0 "$(cat "$STATE_DIR/worker.pid")" 2>/dev/null; then worker_status=running; elif [[ -f "$STATE_DIR/worker.last-run" ]]; then worker_status=last-run; fi
 if [[ -n "$public_url" ]]; then check_http "$public_url" && public_status=ready || public_status=down; fi
+pulse_file="${SWARTZIT_PULSE_FILE:-$STATE_DIR/uptime-pulse.json}"
+pulse_json='{}'
+[[ -f "$pulse_file" ]] && pulse_json=$(<"$pulse_file")
+pulse_status=$(node -e 'try { console.log(JSON.parse(process.argv[1]).status ?? "unknown") } catch { console.log("unknown") }' "$pulse_json" 2>/dev/null || echo unknown)
+network_mode="${SWARTZIT_NETWORK_MODE:-${SWARTZIT_BIND_INTERFACE:-}}"
+network_label="${SWARTZIT_NETWORK_LABEL:-}"
+web_interface="${SWARTZIT_WEB_INTERFACE:-}"
+web_bind_ip="${SWARTZIT_WEB_BIND_IP:-}"
+api_interface="${SWARTZIT_API_BIND_INTERFACE:-${SWARTZIT_API_INTERFACE:-loopback}}"
+api_bind_ip="${SWARTZIT_API_BIND_IP:-}"
+if [[ -z "$network_mode" ]]; then
+  if [[ "$web_url" == *127.0.0.1* || "$web_url" == *localhost* ]]; then
+    network_mode=loopback
+    network_label="Loopback"
+    web_interface=lo0
+    web_bind_ip=127.0.0.1
+  else
+    network_mode=unknown
+    network_label="Unknown"
+  fi
+fi
+[[ -n "$network_label" ]] || network_label="$network_mode"
+[[ -n "$web_interface" ]] || web_interface=unknown
+[[ -n "$web_bind_ip" ]] || web_bind_ip=unknown
+[[ -n "$api_bind_ip" ]] || api_bind_ip=unknown
 if (( json )); then
-  node -e 'console.log(JSON.stringify({api:process.argv[1],web:process.argv[2],database:process.argv[3],caddy:process.argv[4],worker:process.argv[5],public:process.argv[6],checked_at:new Date().toISOString()}))' "$api_status" "$web_status" "$database_status" "$caddy_status" "$worker_status" "$public_status"
+  node -e 'let pulse={}; try { pulse=JSON.parse(process.argv[14]) } catch {} console.log(JSON.stringify({api:process.argv[1],web:process.argv[2],database:process.argv[3],caddy:process.argv[4],worker:process.argv[5],public:process.argv[6],network:{mode:process.argv[7],label:process.argv[8],web_interface:process.argv[9],web_bind_ip:process.argv[10],web_url:process.argv[11],api_interface:process.argv[12],api_bind_ip:process.argv[13]},pulse,checked_at:new Date().toISOString()}))' "$api_status" "$web_status" "$database_status" "$caddy_status" "$worker_status" "$public_status" "$network_mode" "$network_label" "$web_interface" "$web_bind_ip" "$web_url" "$api_interface" "$api_bind_ip" "$pulse_json"
 else
   printf 'Swartzit status (%s)\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
   printf '  API:       %s (%s)\n' "$api_status" "$api"
@@ -40,8 +66,13 @@ else
   printf '  Caddy:     %s\n' "$caddy_status"
   printf '  Worker:    %s\n' "$worker_status"
   [[ "$public_status" == not-configured ]] || printf '  Public:    %s (%s)\n' "$public_status" "$public_url"
+  printf '  Network:   %s (%s)\n' "$network_label" "$network_mode"
+  printf '  Web bind:  %s (%s)\n' "$web_bind_ip:$web_port" "$web_interface"
+  printf '  API bind:  %s (%s)\n' "$api_bind_ip" "$api_interface"
+  printf '  Pulse:     %s (%s)\n' "$pulse_status" "$pulse_file"
 fi
 healthy=0
 [[ "$api_status" == ready && "$web_status" == ready && "$database_status" == ready ]] || healthy=1
 [[ "$public_status" == not-configured || "$public_status" == ready ]] || healthy=1
+[[ "$pulse_status" == unknown || "$pulse_status" == up ]] || healthy=1
 exit "$healthy"

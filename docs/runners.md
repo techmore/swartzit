@@ -9,7 +9,7 @@ web process.
 | `scripts/run-local.sh` | Mac | PostgreSQL, API, LAN web server, optional Caddy | `bash scripts/run-local.sh` |
 | `scripts/swartzit-worker.mjs` | Linux/Incus | Claims enabled admin crawler jobs and records run results | systemd timer |
 | `scripts/hermes-content-sync.mjs` | Local Hermes machine | Publishes collector JSON from an inbox, leaving failures for retry | `node scripts/hermes-content-sync.mjs --inbox .local/hermes/inbox` |
-| `scripts/scheduled-imports.mjs` | Local or hosted | **The only publisher**; validates, enriches, deduplicates, and imports | called by the runners |
+| `scripts/scheduled-imports.mjs` | Local or hosted | **The only source submitter**; validates, enriches, deduplicates, and sends imports to the moderation gate | called by the runners |
 | Codex content-sync heartbeat | Mac + signed-in Brave | Collects Following/For You X posts and runs the bounded Daddario check | Codex automation |
 | `scripts/x-faith-runner.mjs` | Opt-in worker job | Produces a ranked, reviewed X/Reddit faith batch | run manually or from a reviewed job |
 | `scripts/cache-profile-images.mjs` | After imports | Copies public X avatars into the local profile cache | worker maintenance step |
@@ -23,8 +23,9 @@ They are not independent schedulers.
 
 1. Collectors write a fresh normalized JSON batch. They do not write directly to
    the database.
-2. `scheduled-imports.mjs` is the only code path that publishes. Its per-job
-   lock and canonical source URL deduplication make retries safe.
+2. `scheduled-imports.mjs` is the only code path that submits source content to
+   the API. Its per-job lock and canonical source URL deduplication make retries
+   safe; newly created posts remain hidden until moderator approval.
 3. A failed batch stays available for retry and never advances a Daddario
    checkpoint. Missing metrics remain `null`; a runner must not guess them.
 4. Browser collection belongs on the Mac/Codex side. Hosted Linux jobs use the

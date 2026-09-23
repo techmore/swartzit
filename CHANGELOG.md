@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5-20260923T13
+
+- Adds public user profiles with editable metadata and recent activity views.
+- Adds deterministic moderation signals, review actions, audit history, and
+  timed suspensions while keeping threat detection advisory for humans.
+- Adds uptime pulse recording, configurable public checks, richer local health
+  status, and a native macOS menu-bar indicator with network details.
+- Expands the Homebrew package with the monitor, pulse, Orchard integration,
+  and persistent update/recovery tooling.
+
 ## 0.1.4-20260923T12
 
 - Makes rollback startup resilient to normal web-server startup latency by
@@ -46,6 +56,6 @@ search, RSS, public export, pseudonymous accounts, expiring sessions, session
 revocation, text posts, threaded comments, voting, subscriptions, reports, and
 content-addressed media manifests.
 
-Still being designed: ActivityPub federation, moderator roles and queues,
-account migration and import, byte upload processing, peer-assisted media
-delivery, and a polished browser comment/vote experience.
+Still being designed: ActivityPub federation, account migration and import, byte
+upload processing, peer-assisted media delivery, and a polished browser
+comment/vote experience.

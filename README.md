@@ -25,6 +25,27 @@ for crawler jobs, reports, logs, users, and runtime health.
 
 ![About Swartzit](docs/screenshots/about.png)
 
+### Profiles and moderation
+
+Local accounts have public profile pages at `/u/<handle>` with a display name,
+bio, optional HTTPS avatar, join date, post/comment counts, and approved recent
+activity. Profile changes are reviewed like content, so the active profile is
+not replaced until a moderator approves the change.
+
+New direct posts, cross-posts, source imports, and comments enter the moderation
+queue as `pending`. Swartzit runs lightweight deterministic checks for profanity,
+slurs, obfuscated abuse, harassment, link bursts, repeated text, and threats.
+It stores only structured categories, severity, rule version, and urgency—not
+matched private text. High-severity threat signals are held and surfaced
+urgently for human review; the classifier never silently bans or suspends an
+account.
+
+Administrators can approve, reject, dismiss, suspend, or escalate queue items.
+Every decision is recorded in the moderation audit history. Existing imported
+content remains published during upgrade, while new user content follows the
+review gate. This keeps moderation behavior explicit and makes it possible to
+change the rules without rewriting the original content.
+
 ## Homebrew installation
 
 The repository includes a formula at `Formula/swartzit.rb`. The pinned release
@@ -57,7 +78,22 @@ On macOS, install the small native status companion so end users can see at a gl
 bash scripts/install-mac-status.sh
 ```
 
-The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
+The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. It also shows the active network mode, interface, and bound address—for example `Wi-Fi/LAN · en0 · 10.x.x.x`. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
+
+`swartzit start` defaults the web UI to the detected Wi-Fi interface (`en0`,
+falling back to `en1`) while keeping the API on loopback. Choose another mode
+explicitly when needed:
+
+```sh
+swartzit start wifi
+swartzit start loopback
+swartzit start ethernet
+swartzit start vpn
+SWARTZIT_API_INTERFACE=wifi swartzit start wifi  # expose the API too
+```
+
+The menu item follows the current runtime state, so it reports when the web UI
+is Wi-Fi-bound even if the API remains private.
 
 The public tap is pinned to the timestamped release archive. Users can install
 the current release with:
@@ -304,13 +340,35 @@ SWARTZIT_CHECK_URL=https://stoverparc.org/ \
   SWARTZIT_CHECK_INTERVAL=300 bash scripts/install-mac-monitor.sh
 ```
 
+The monitor writes an atomic `uptime-pulse.json` under the persistent Swartzit
+state directory. It records the latest result, latency, consecutive failures,
+last success/failure, and a short recent history. The admin **Settings** tab
+shows that pulse separately from local API/database health, so a running Mac is
+not mistaken for a reachable public app. The packaged equivalents are:
+
+```sh
+swartzit monitor --once                 # check once and update the pulse
+swartzit monitor-install                # install/reinstall the macOS LaunchAgent
+swartzit status --json                  # local components plus the latest pulse
+```
+
+Orchard is an optional native macOS companion for inspecting Apple containers.
+The admin **Settings** tab stores its module toggle in the database; disabling
+it removes the Orchard controls and native menu actions without uninstalling
+Orchard or changing existing containers. When enabled, install it with
+`brew install orchard`, or use **Open Orchard** and **Install Orchard with
+Homebrew…** from the native Swartzit menu item. Orchard manages the container
+runtime; Swartzit still serves the API/web processes and the pulse checks the
+configured public URL. The integration is isolated so it can be replaced by
+another container companion later.
+
 `status-local.sh` reports API, web, PostgreSQL, Caddy, worker, and (when
 configured) public URL state. The API defaults to loopback even when the web
 interface is bound to Wi-Fi or Ethernet; set `SWARTZIT_API_INTERFACE` only when
 you intentionally want the API exposed on another interface.
 
-This is a local prototype. Federation, full community migration/import, media
-transfer, and moderator workflows are not implemented yet.
+This is a local prototype. Federation, full community migration/import, and
+media transfer are not implemented yet.
 
 ## Production VPS deployment
 
@@ -540,9 +598,10 @@ PostgreSQL backups.
 ## Importing public X posts and photo-library sources
 
 Admins can open **Admin → Imports**, select a prepared JSON file, review the
-batch, and publish it. A migration creates `c/x_imports` and the independent fan
-community `c/alexandra_daddario`. Use `--community SLUG` to route a batch into
-another existing community.
+batch, and submit it. New imported posts stay hidden until they are approved in
+**Admin → Moderation**. A migration creates `c/x_imports` and the independent
+fan community `c/alexandra_daddario`. Use `--community SLUG` to route a batch
+into another existing community.
 
 Prepare a batch from the existing Hermes X mirror archive (no Signal delivery):
 

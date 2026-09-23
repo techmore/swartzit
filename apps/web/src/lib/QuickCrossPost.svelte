@@ -23,6 +23,9 @@
       if (result.already_shared) {
         existingPost = result.public_id;
         notice = `That source is already shared in c/${result.community}.`;
+      } else if (result.status === 'pending') {
+        url = '';
+        notice = result.message || 'The shared post is waiting for moderator review.';
       } else {
         window.location.assign(`/post/${result.public_id}`);
       }
@@ -52,7 +55,7 @@
   </form>
   <p class="crosspost-note">Original author and source link stay attached. Duplicate links open the existing discussion.</p>
   {#if error}<p class="crosspost-feedback error" role="alert">{error}</p>{/if}
-  {#if notice}<p class="crosspost-feedback" role="status">{notice} <a href={'/post/' + existingPost}>Open it →</a></p>{/if}
+  {#if notice}<p class="crosspost-feedback" role="status">{notice}{#if existingPost} <a href={'/post/' + existingPost}>Open it →</a>{/if}</p>{/if}
 </section>
 
 <style>

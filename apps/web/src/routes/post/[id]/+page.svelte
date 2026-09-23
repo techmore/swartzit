@@ -30,13 +30,15 @@
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Please try again.');
       await invalidateAll();
-      return true;
+      return result;
     } catch (error) { message = error.message || 'Could not reach Swartzit.'; return false; }
     finally { busy = false; }
   }
   async function comment() {
-    if (await send(`/api/posts/${data.post.id}/comments`, { body, parent_id: parent })) {
+    const result = await send(`/api/posts/${data.post.id}/comments`, { body, parent_id: parent });
+    if (result) {
       body = ''; parent = null;
+      message = result.status === 'pending' ? (result.message ?? 'Your comment is waiting for moderator review.') : '';
     }
   }
   $: visibleComments = showAllComments ? data.comments : data.comments.slice(0, 50);
@@ -68,7 +70,7 @@
   <article class="post">
     {#if data.post.source?.provider !== 'x'}<div class="meta post-author">
 {#if data.post.source?.provider === 'x'}<AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From X</strong> · {data.post.source.source_author}</span>
-{:else}<AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · u/{data.post.author}</span>{/if}
+{:else}<AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · <a href={'/u/' + data.post.author}>u/{data.post.author}</a></span>{/if}
 </div>{/if}
     {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}<p>{data.post.body}</p>{/if}
     {#if data.post.source}{#key data.post.id}<SourcePost source={data.post.source} text={data.post.body} />{/key}{/if}
@@ -107,7 +109,7 @@
       {#each children(parentId, commentOrder) as item (item.id)}
         <div style:margin-left={depth > 0 ? '16px' : '0'}>
           <article id={'comment-' + item.id}>
-            <div class="meta comment-author"><AuthorAvatar handle={item.author} size="small" /><span>u/{item.author} · {new Date(item.created_at).toLocaleDateString()}</span></div>
+            <div class="meta comment-author"><AuthorAvatar handle={item.author} size="small" /><span><a href={'/u/' + item.author}>u/{item.author}</a> · {new Date(item.created_at).toLocaleDateString()}</span></div>
             <p>{item.body}</p>
             {#if token}<a href="#reply" on:click={() => parent = item.id}>Reply</a>{/if}
           </article>

@@ -2,8 +2,8 @@
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
   import ImportPanel from '$lib/ImportPanel.svelte';
-  const tabs = ['Overview', 'Users', 'Content', 'Reports', 'Security', 'Server', 'Analytics', 'Logs', 'Imports', 'Crawler Jobs'];
-  let tab = 'Overview', overview = null, rows = [], trend = [], jobs = [], runs = [], loading = true, error = '', notice = '';
+  const tabs = ['Overview', 'Users', 'Content', 'Reports', 'Moderation', 'Security', 'Settings', 'Server', 'Analytics', 'Logs', 'Imports', 'Crawler Jobs'];
+  let tab = 'Overview', overview = null, rows = [], trend = [], jobs = [], runs = [], moderationHistory = [], uptime = null, settings = null, loading = true, error = '', notice = '';
   let jobName = '', jobProvider = 'reddit', jobSource = '', jobCommunity = '', jobInterval = 900, jobMax = 10, jobMode = 'review';
   let search = '', level = '', kind = 'posts', cursors = [], before = null, paused = false, refreshed = null, busy = false, security = null, blockIp = '', blockReason = '', blockExpiry = '';
   let generation = 0;
@@ -22,21 +22,24 @@
     try {
       const params = new URLSearchParams({ q: search, level, kind });
       if (before) params.set('before', before);
-      const endpoint = { Users: 'users', Content: 'content', Reports: 'reports', Logs: 'logs' }[tab];
-      const [stats, items, daily, scheduled, history, securityData] = await Promise.all([
+      const endpoint = { Users: 'users', Content: 'content', Reports: 'reports', Moderation: 'moderation', Logs: 'logs' }[tab];
+      const [stats, items, daily, scheduled, history, securityData, uptimeData, settingsData, moderationHistoryData] = await Promise.all([
         api('overview'), endpoint ? api(endpoint + '?' + params) : Promise.resolve([]),
         tab === 'Analytics' ? api('analytics') : Promise.resolve([]),
         tab === 'Crawler Jobs' ? api('crawler-jobs') : Promise.resolve([]),
         tab === 'Crawler Jobs' ? api('crawler-runs') : Promise.resolve([]),
-        tab === 'Security' ? api('security') : Promise.resolve(null)
+        tab === 'Security' ? api('security') : Promise.resolve(null),
+        tab === 'Settings' ? api('uptime') : Promise.resolve(null),
+        tab === 'Settings' ? api('settings') : Promise.resolve(null),
+        tab === 'Moderation' ? api('moderation-history') : Promise.resolve([])
       ]);
       if (version !== generation) return;
-      overview = stats; rows = items; trend = daily; jobs = scheduled; runs = history; security = tab === 'Security' ? securityData : null; error = ''; refreshed = new Date();
-    } catch (e) { if (version === generation) { error = e.message; overview = null; rows = []; trend = []; jobs = []; runs = []; } }
+      overview = stats; rows = items; trend = daily; jobs = scheduled; runs = history; moderationHistory = tab === 'Moderation' ? moderationHistoryData : []; security = tab === 'Security' ? securityData : null; uptime = tab === 'Settings' ? uptimeData : null; settings = tab === 'Settings' ? settingsData : null; error = ''; refreshed = new Date();
+    } catch (e) { if (version === generation) { error = e.message; overview = null; rows = []; trend = []; jobs = []; runs = []; moderationHistory = []; uptime = null; settings = null; } }
     finally { if (version === generation) loading = false; }
   }
   function selectTab(next) {
-    tab = next; search = ''; level = ''; before = null; cursors = []; rows = []; notice = ''; loading = true;
+    tab = next; search = ''; level = ''; kind = next === 'Moderation' ? '' : 'posts'; before = null; cursors = []; rows = []; notice = ''; loading = true;
     history.replaceState(null, '', '/admin?tab=' + next.toLowerCase());
     refresh();
   }
@@ -68,9 +71,37 @@
     try { await api('crawler-jobs/' + id, 'DELETE'); notice = 'Crawler job deleted.'; await refresh(); }
     catch (e) { notice = e.message; } finally { busy = false; }
   }
+  async function toggleOrchard(enabled) {
+    busy = true; notice = '';
+    try {
+      await api('settings', 'POST', { orchard_enabled: enabled });
+      notice = enabled ? 'Orchard integration enabled.' : 'Orchard integration disabled. Orchard was not uninstalled.';
+      await refresh();
+    } catch (e) { notice = e.message; }
+    finally { busy = false; }
+  }
+  async function moderationAction(id, decision) {
+    const labels = { approve: 'Approve and publish this item?', reject: 'Reject and keep this item hidden?', dismiss: 'Dismiss the flags and publish this item?', suspend: 'Reject this item and suspend the author for 24 hours?', escalate: 'Escalate this item for urgent review?' };
+    if (!window.confirm(labels[decision])) return;
+    busy = true; notice = '';
+    try {
+      await api('moderation/' + id, 'POST', { action: decision, duration_minutes: decision === 'suspend' ? 1440 : undefined });
+      notice = decision === 'escalate' ? 'Item escalated for urgent human review.' : 'Moderation decision saved and audited.';
+      await refresh();
+    } catch (e) { notice = e.message; } finally { busy = false; }
+  }
+  async function copyOrchardInstall() {
+    try {
+      await navigator.clipboard.writeText('brew install orchard');
+      notice = 'Copied the Orchard Homebrew command.';
+    } catch {
+      notice = 'Copy unavailable. Run: brew install orchard';
+    }
+  }
   onMount(() => {
     const requested = new URLSearchParams(location.search).get('tab');
     tab = tabs.find(t => t.toLowerCase() === requested) ?? 'Overview';
+    if (tab === 'Moderation') kind = '';
     refresh();
     const timer = setInterval(() => { if (!paused && !loading && !busy && !document.hidden) refresh(); }, 10000);
     return () => { clearInterval(timer); generation++; };
@@ -95,9 +126,10 @@
         <div><span>Discussions</span><strong>{number(overview.posts)}</strong><small>Across {overview.communities} communities</small></div>
         <div><span>Comments</span><strong>{number(overview.comments)}</strong><small>Public conversation</small></div>
         <div><span>Open reports</span><strong>{number(overview.open_reports)}</strong><button onclick={() => selectTab('Reports')}>Review reports →</button></div>
+        <div><span>Moderation queue</span><strong>{number(overview.pending_moderation)}</strong><small>Pending or escalated</small><button onclick={() => selectTab('Moderation')}>Review queue →</button></div>
       </section>
       <div class="admin-columns"><section class="panel"><h3>Instance pulse</h3><dl><dt>API requests since restart</dt><dd>{number(overview.runtime.requests)}</dd><dt>Server errors since restart</dt><dd>{number(overview.runtime.server_errors)}</dd><dt>Database size</dt><dd>{size(overview.database_size_bytes)}</dd><dt>API started</dt><dd>{date(overview.started_at)}</dd></dl><button onclick={() => selectTab('Server')}>Inspect server →</button></section>
-      <section class="panel"><h3>Administration</h3><p>Browse accounts and revoke sessions, inspect public content, resolve reports, or investigate recent requests.</p><p class="muted">Role changes and password recovery remain host-side commands. Content removal and suspension are not available in this version.</p><button onclick={() => selectTab('Logs')}>Open log explorer →</button></section></div>
+      <section class="panel"><h3>Administration</h3><p>Browse accounts, review new submissions, resolve reports, inspect public content, or investigate recent requests.</p><p class="muted">Role changes and password recovery remain host-side commands. Moderation decisions are human-reviewed and audited.</p><button onclick={() => selectTab('Logs')}>Open log explorer →</button></section></div>
     {:else if tab === 'Imports'}
       <ImportPanel />
     {:else if tab === 'Crawler Jobs'}
@@ -120,11 +152,58 @@
         {:else}<table><thead><tr><th>Job</th><th>Source</th><th>Schedule</th><th>Status</th><th>Actions</th></tr></thead><tbody>{#each jobs as job}<tr><td><strong>{job.name}</strong><small>{job.provider} · {job.mode}</small></td><td>{job.source}<small>{job.community ? '→ c/' + job.community : 'No destination community'}</small></td><td>Every {Math.round(job.interval_seconds / 60)} min<small>Next {date(job.next_run_at)}</small></td><td><span class="badge">{job.enabled ? job.last_status : 'paused'}</span>{#if job.latest_run}<small>{job.latest_run.imported_count} imported · {date(job.latest_run.finished_at || job.latest_run.started_at)}</small>{/if}{#if job.last_error}<small>{job.last_error}</small>{/if}</td><td><button disabled={busy} onclick={() => action('crawler-jobs/' + job.id + '/run-now', 'Queue this crawler job immediately?')}>Run now</button><button disabled={busy} onclick={() => action('crawler-jobs/' + job.id + '/toggle', (job.enabled ? 'Pause' : 'Enable') + ' this crawler job?')}>{job.enabled ? 'Pause' : 'Enable'}</button><button disabled={busy} onclick={() => removeJob(job.id)}>Delete</button></td></tr>{/each}</tbody></table>{/if}
       </div>
       {#if runs.length}<section class="panel table-wrap crawler-history"><h3>Recent run history</h3><p class="muted">The worker records every claim, import count, and provider error. Newest first.</p><table><thead><tr><th>Job</th><th>Started</th><th>Finished</th><th>Status</th><th>Imported</th><th>Error</th></tr></thead><tbody>{#each runs.slice(0, 25) as run}<tr><td><strong>{run.name}</strong><small>Run #{run.id}</small></td><td>{date(run.started_at)}</td><td>{date(run.finished_at)}</td><td><span class={'badge ' + run.status}>{run.status}</span></td><td>{number(run.imported_count)}</td><td>{run.error ?? '—'}</td></tr>{/each}</tbody></table></section>{/if}
+    {:else if tab === 'Moderation'}
+      <section class="panel">
+        <h3>Human review queue</h3>
+        <p class="muted">All direct user posts, comments, and profile changes wait here before publication. Flags are deterministic advisory signals; threat flags are urgent but never auto-ban anyone.</p>
+        <form class="admin-toolbar" onsubmit={(e) => { e.preventDefault(); filter(); }}>
+          <input aria-label="Search moderation queue" placeholder="Search handles or content…" bind:value={search} maxlength="200" />
+          <select aria-label="Moderation type" bind:value={kind} onchange={filter}><option value="">All types</option><option value="post">Posts</option><option value="comment">Comments</option><option value="profile">Profiles</option></select>
+          <button>Filter queue</button>
+        </form>
+      </section>
+      <section class="panel table-wrap">
+        {#if rows.length === 0}<div class="admin-empty"><h3>Queue is clear</h3><p>No pending or escalated submissions match this filter.</p></div>
+        {:else}<table class="moderation-table"><thead><tr><th>Submission</th><th>Author</th><th>Content</th><th>Signals</th><th>Actions</th></tr></thead><tbody>
+          {#each rows as item}
+            <tr class:urgent={item.urgent}>
+              <td><strong>{item.kind}</strong><small>{item.status}{item.urgent ? ' · urgent' : ''}</small><small>{date(item.created_at)}</small></td>
+              <td><a href={'/u/' + item.author}>u/{item.author}</a>{#if item.community}<small>c/{item.community}</small>{/if}</td>
+              <td>{#if item.title}<strong>{item.title}</strong>{/if}<p class="content-body">{item.body || 'Profile fields submitted for review.'}</p></td>
+              <td>{#if item.flags?.length}{#each item.flags as flag}<span class="badge">{flag.category} · {flag.severity}</span>{/each}{:else}<span class="muted">No rule flags</span>{/if}<small>Rules {item.rule_version}</small></td>
+              <td class="moderation-actions"><button disabled={busy} onclick={() => moderationAction(item.id, 'approve')}>Approve</button><button disabled={busy} onclick={() => moderationAction(item.id, 'dismiss')}>Dismiss + publish</button><button disabled={busy} onclick={() => moderationAction(item.id, 'reject')}>Reject</button><button disabled={busy} onclick={() => moderationAction(item.id, 'suspend')}>Suspend 24h</button><button disabled={busy} onclick={() => moderationAction(item.id, 'escalate')}>Escalate</button></td>
+            </tr>
+          {/each}
+        </tbody></table>{/if}
+      </section>
+      {#if moderationHistory.length}<section class="panel table-wrap"><h3>Recent moderation decisions</h3><p class="muted">Actions are retained separately from the content so reviewers can audit who decided what.</p><table><thead><tr><th>Time</th><th>Action</th><th>Item</th><th>Actor</th><th>Subject</th></tr></thead><tbody>{#each moderationHistory.slice(0, 25) as item}<tr><td>{date(item.created_at)}</td><td><span class="badge">{item.action}</span><small>{item.from_status} → {item.to_status}</small></td><td>{item.kind} #{item.moderation_item_id}</td><td>u/{item.actor}</td><td>u/{item.subject}</td></tr>{/each}</tbody></table></section>{/if}
     {:else if tab === 'Security'}
       <section class="panel"><h3>Request security</h3><p class="muted">Activity is keyed by a one-way IP hash. Raw addresses are not retained. Proxy-aware tracking is <strong>{security?.proxy_trust_enabled ? 'enabled' : 'disabled'}</strong>; set <code>TRUST_PROXY=true</code> only when Caddy or another trusted reverse proxy is in front of this API.</p>
         <form class="inline-form" onsubmit={blockAddress}><label>Address to block<input bind:value={blockIp} placeholder="203.0.113.42" inputmode="numeric" required /></label><label>Reason<input bind:value={blockReason} maxlength="500" placeholder="abuse or automated flooding" /></label><label>Expires (optional)<input type="datetime-local" bind:value={blockExpiry} /></label><button disabled={busy}>Block address</button></form></section>
         <section class="panel table-wrap"><h3>Active blocks</h3>{#if security?.blocks?.length}<table><thead><tr><th>Hash</th><th>Reason</th><th>Expires</th><th>Action</th></tr></thead><tbody>{#each security.blocks as item}<tr><td><code>{item.ip_hash.slice(0,16)}…</code></td><td>{item.reason || '—'}</td><td>{date(item.expires_at)}</td><td><button disabled={busy} onclick={() => action('security/' + item.id, 'Remove this address block?', 'DELETE')}>Unblock</button></td></tr>{/each}</tbody></table>{:else}<p class="muted">No active blocks.</p>{/if}</section>
       <section class="panel table-wrap"><h3>Recent activity · 24 hours</h3>{#if security?.activity?.length}<table><thead><tr><th>Hash</th><th>Requests</th><th>Errors</th><th>Last seen</th></tr></thead><tbody>{#each security.activity as item}<tr><td><code>{item.ip_hash.slice(0,16)}…</code></td><td>{number(item.requests)}</td><td>{number(item.errors)}</td><td>{date(item.last_seen)}</td></tr>{/each}</tbody></table>{:else}<p class="muted">No proxy-derived activity yet.</p>{/if}</section>
+    {:else if tab === 'Settings'}
+      <div class="admin-columns">
+        <section class="panel">
+          <h3>Optional integration · Orchard</h3>
+          <p><label><input type="checkbox" checked={settings?.modules?.orchard?.enabled !== false} onchange={(event) => toggleOrchard(event.currentTarget.checked)} disabled={busy} /> Enable Orchard integration</label></p>
+          {#if settings?.modules?.orchard?.enabled !== false}
+            <p>Orchard is a native macOS interface for Apple’s container runtime. It is a useful companion for Swartzit’s PostgreSQL container, but it does not publish the Swartzit web server or prove that the public origin is reachable.</p>
+            <p class="muted">Install it with Homebrew, then use Orchard’s dashboard to inspect the container runtime. Swartzit still owns the API, web process, reverse proxy, and uptime check.</p>
+            <div class="admin-toolbar"><button onclick={copyOrchardInstall}>Copy <code>brew install orchard</code></button><a href="orchard://dashboard">Open Orchard ↗</a><a href="https://github.com/andrew-waters/orchard" target="_blank" rel="noreferrer">Orchard project ↗</a></div>
+            <p class="muted">The native menu item also exposes <code>swartzit orchard install --yes</code>. Package installation remains explicit because it changes the host.</p>
+          {:else}
+            <p class="muted">Orchard integration is disabled. Swartzit will hide Orchard controls from the native menu and this panel; it will not uninstall Orchard or change existing containers.</p>
+          {/if}
+        </section>
+        <section class="panel">
+          <h3>Uptime pulse</h3>
+          <div class="metrics"><div><span>Latest result</span><strong class="pulse-value">{uptime?.pulse?.status ?? 'unknown'}</strong><small>{date(uptime?.pulse?.checked_at)}</small></div><div><span>Latency</span><strong>{uptime?.pulse?.latency_ms != null ? uptime.pulse.latency_ms + ' ms' : '—'}</strong><small>Latest public check</small></div><div><span>Failures in a row</span><strong>{number(uptime?.pulse?.consecutive_failures)}</strong><small>Resets on success</small></div></div>
+          <dl><dt>Checked URL</dt><dd><code>{uptime?.pulse?.url || uptime?.configuration?.url || 'Not configured'}</code></dd><dt>Schedule</dt><dd>{uptime?.configuration?.interval_seconds ? 'Every ' + uptime.configuration.interval_seconds + ' seconds' : 'Not configured'}</dd><dt>Last success</dt><dd>{date(uptime?.pulse?.last_up_at)}</dd><dt>Last failure</dt><dd>{date(uptime?.pulse?.last_down_at)}</dd></dl>
+          <p class="muted">This is the answer to “is the app serving?”: the monitor requests the configured URL from outside the local process and records the result in persistent state. A healthy database alone is not enough.</p>
+          <p><code>swartzit monitor-install</code> installs the native macOS LaunchAgent. Change <code>SWARTZIT_CHECK_URL</code>, <code>SWARTZIT_CHECK_INTERVAL</code>, or <code>SWARTZIT_CHECK_TIMEOUT</code> and reinstall it to apply.</p>
+        </section>
+      </div>
     {:else if tab === 'Server'}
       <section class="metrics"><div><span>Database</span><strong>Connected</strong><small>Overview query succeeded</small></div><div><span>Storage</span><strong>{size(overview.database_size_bytes)}</strong><small>PostgreSQL database</small></div><div><span>Connection pool</span><strong>{overview.runtime.db_connections} / 5</strong><small>{overview.runtime.db_idle} idle connections</small></div><div><span>In-flight requests</span><strong>{overview.runtime.in_flight}</strong><small>Includes admin polling</small></div></section>
       <section class="panel"><h3>Runtime</h3><dl><dt>Started</dt><dd>{date(overview.started_at)}</dd><dt>Host load · 1 / 5 / 15 minutes</dt><dd>{overview.runtime.host_load?.map(v => v.toFixed(2)).join(' / ') ?? 'Unavailable'}</dd><dt>Average API handler latency</dt><dd>{overview.runtime.mean_latency_ms.toFixed(1)} ms</dd><dt>Server errors</dt><dd>{overview.runtime.server_errors}</dd><dt>Unexpired sign-ins</dt><dd>{overview.active_sessions}</dd><dt>Retained operational events</dt><dd>{overview.log_entries} / 1,000</dd></dl><p class="muted">Host load covers the entire machine. Runtime metrics reset on restart. Unexpired sign-ins do not represent online people.</p></section>

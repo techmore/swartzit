@@ -20,11 +20,12 @@ class Swartzit < Formula
     end
 
     bin.install "scripts/swartzit"
-    libexec.install "VERSION", "apps/web/build"
+    libexec.install "VERSION", "apps/web/build", "apps/web/static/swartzit-icon.png"
     libexec.install "scripts/status-local.sh", "scripts/db-backup.sh",
       "scripts/db-restore-verify.sh", "scripts/db-restore.sh",
       "scripts/swartzit-update.sh",
-      "scripts/swartzit-monitor.sh"
+      "scripts/swartzit-monitor.sh", "scripts/install-mac-monitor.sh",
+      "scripts/record-uptime-pulse.mjs", "scripts/swartzit-orchard.sh"
     etc.install ".env.example" => "swartzit.env.example"
   end
 

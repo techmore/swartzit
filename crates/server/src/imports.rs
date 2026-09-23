@@ -197,6 +197,13 @@ pub async fn ingest(
     {
         return Err(ApiError::Invalid("Invalid profile metadata"));
     }
+    let analysis = analyze_user_content(
+        &db,
+        actor,
+        &format!("{}\n{}", input.title.trim(), input.body),
+    )
+    .await?;
+    let analysis_flags = flags_json(&analysis);
     let mut tx = db.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(&source)
@@ -212,11 +219,13 @@ pub async fn ingest(
             .bind(&source)
             .fetch_optional(&mut *tx)
             .await?;
+    let created = existing.is_none();
     let id = if let Some(id) = existing {
         id
     } else {
         sqlx::query_scalar(
-            "INSERT INTO posts(community_id,author_id,title,body) VALUES($1,$2,$3,$4) RETURNING id",
+            "INSERT INTO posts(community_id,author_id,title,body,moderation_status)
+             VALUES($1,$2,$3,$4,'pending') RETURNING id",
         )
         .bind(community)
         .bind(actor)
@@ -224,6 +233,30 @@ pub async fn ingest(
         .bind(&input.body)
         .fetch_one(&mut *tx)
         .await?
+    };
+    let (moderation_id, moderation_severity, moderation_flags) = if created {
+        let moderation_id: i64 = sqlx::query_scalar(
+            "INSERT INTO moderation_items(
+               kind, target_id, author_id, status, severity, flags, rule_version, urgent
+             ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
+             RETURNING id",
+        )
+        .bind(id)
+        .bind(actor)
+        .bind(&analysis.severity)
+        .bind(analysis_flags.clone())
+        .bind(moderation::RULE_VERSION)
+        .bind(analysis.urgent)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+            .bind(id)
+            .bind(moderation_id)
+            .execute(&mut *tx)
+            .await?;
+        (Some(moderation_id), analysis.severity, analysis_flags)
+    } else {
+        (None, "none".to_owned(), serde_json::json!([]))
     };
     let changed=sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(post_id) DO UPDATE SET source_author=EXCLUDED.source_author,published_at=COALESCE(EXCLUDED.published_at,external_posts.published_at),observed_at=EXCLUDED.observed_at,source_views=EXCLUDED.source_views,source_likes=EXCLUDED.source_likes,source_reposts=EXCLUDED.source_reposts,source_replies=EXCLUDED.source_replies,media=EXCLUDED.media,attribution=EXCLUDED.attribution,profile_image_url=COALESCE(EXCLUDED.profile_image_url,external_posts.profile_image_url),profile_url=COALESCE(EXCLUDED.profile_url,external_posts.profile_url),profile_display_name=COALESCE(EXCLUDED.profile_display_name,external_posts.profile_display_name),profile_bio=COALESCE(EXCLUDED.profile_bio,external_posts.profile_bio),profile_followers=COALESCE(EXCLUDED.profile_followers,external_posts.profile_followers),profile_following=COALESCE(EXCLUDED.profile_following,external_posts.profile_following),profile_verified=COALESCE(EXCLUDED.profile_verified,external_posts.profile_verified) WHERE EXCLUDED.observed_at>=external_posts.observed_at")
         .bind(id).bind(&input.provider).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at).bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies).bind(serde_json::json!(input.media)).bind(&input.attribution).bind(&input.profile_image_url).bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio).bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified).execute(&mut *tx).await?.rows_affected()>0;
@@ -236,9 +269,9 @@ pub async fn ingest(
             .await?;
     }
     tx.commit().await?;
-    log_event(&db,"info","admin.source_import",serde_json::json!({"actor_id":actor,"post_id":id,"created":existing.is_none(),"updated":changed})).await;
+    log_event(&db,"info","admin.source_import",serde_json::json!({"actor_id":actor,"post_id":id,"created":created,"updated":changed,"moderation_id":moderation_id,"status":if created {"pending"} else {"existing"}})).await;
     Ok(Json(
-        serde_json::json!({"id":id,"created":existing.is_none(),"updated":changed}),
+        serde_json::json!({"id":id,"created":created,"updated":changed,"status":if created {"pending"} else {"existing"},"moderation_id":moderation_id,"severity":moderation_severity,"flags":moderation_flags}),
     ))
 }
 
@@ -247,7 +280,7 @@ pub async fn cross_post(
     headers: HeaderMap,
     Json(input): Json<Import>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let actor = authenticated_author(&headers, &db).await?;
+    let actor = active_author(&headers, &db).await?;
     if input.provider != "x" {
         return Err(ApiError::Invalid(
             "Only public X post links are supported right now",
@@ -311,6 +344,13 @@ pub async fn cross_post(
     }
 
     let community_slug = input.community.trim().to_ascii_lowercase();
+    let analysis = analyze_user_content(
+        &db,
+        actor,
+        &format!("{}\n{}", input.title.trim(), input.body),
+    )
+    .await?;
+    let flags = flags_json(&analysis);
     let mut tx = db.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(&source)
@@ -334,9 +374,15 @@ pub async fn cross_post(
         .await?;
     let community_id = community_id.ok_or(ApiError::Invalid("Community not found"))?;
     let (id, public_id): (i64, String) = sqlx::query_as(
-        "INSERT INTO posts(community_id,author_id,title,body) VALUES($1,$2,$3,$4) RETURNING id,public_id"
-    ).bind(community_id).bind(actor).bind(input.title.trim()).bind(&input.body)
-        .fetch_one(&mut *tx).await?;
+        "INSERT INTO posts(community_id,author_id,title,body,moderation_status)
+         VALUES($1,$2,$3,$4,'pending') RETURNING id,public_id",
+    )
+    .bind(community_id)
+    .bind(actor)
+    .bind(input.title.trim())
+    .bind(&input.body)
+    .fetch_one(&mut *tx)
+    .await?;
     sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,'x',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)")
         .bind(id).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at)
         .bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies)
@@ -344,13 +390,33 @@ pub async fn cross_post(
         .bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio)
         .bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified)
         .execute(&mut *tx).await?;
+    let moderation_id: i64 = sqlx::query_scalar(
+        "INSERT INTO moderation_items(
+           kind, target_id, author_id, status, severity, flags, rule_version, urgent
+         ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
+         RETURNING id",
+    )
+    .bind(id)
+    .bind(actor)
+    .bind(&analysis.severity)
+    .bind(flags.clone())
+    .bind(moderation::RULE_VERSION)
+    .bind(analysis.urgent)
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+        .bind(id)
+        .bind(moderation_id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     log_event(
         &db,
         "info",
         "source.cross_posted",
         serde_json::json!({
-            "actor_id": actor, "post_id": id, "community": community_slug, "provider": "x"
+            "actor_id": actor, "post_id": id, "community": community_slug, "provider": "x",
+            "moderation_id": moderation_id, "severity": analysis.severity, "urgent": analysis.urgent
         }),
     )
     .await;
@@ -358,7 +424,10 @@ pub async fn cross_post(
         StatusCode::CREATED,
         Json(serde_json::json!({
             "id": id, "public_id": public_id, "created": true,
-            "already_shared": false, "community": community_slug
+            "already_shared": false, "community": community_slug,
+            "status": "pending", "moderation_id": moderation_id,
+            "severity": analysis.severity, "flags": flags,
+            "message": "The shared post is waiting for moderator review."
         })),
     ))
 }

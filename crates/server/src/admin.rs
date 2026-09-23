@@ -48,7 +48,7 @@ pub async fn users(
     Query(f): Query<Filter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    rows(&db, "SELECT row_to_json(t) FROM (SELECT a.id,a.handle,a.is_admin,a.created_at,(a.password_hash IS NOT NULL) AS registered,(SELECT count(*) FROM posts WHERE author_id=a.id) AS posts,(SELECT count(*) FROM comments WHERE author_id=a.id) AS comments,(SELECT count(*) FROM sessions WHERE author_id=a.id AND expires_at>now()) AS sessions FROM authors a WHERE strpos(lower(a.handle),lower($1))>0 AND ($2::bigint IS NULL OR a.id<$2) ORDER BY a.id DESC LIMIT 50) t", &f.search()?,f.before).await
+    rows(&db, "SELECT row_to_json(t) FROM (SELECT a.id,a.handle,a.is_admin,a.created_at,a.suspended_until,(a.password_hash IS NOT NULL) AS registered,(SELECT count(*) FROM posts WHERE author_id=a.id AND moderation_status='approved') AS posts,(SELECT count(*) FROM comments WHERE author_id=a.id AND moderation_status='approved') AS comments,(SELECT count(*) FROM sessions WHERE author_id=a.id AND expires_at>now()) AS sessions FROM authors a WHERE strpos(lower(a.handle),lower($1))>0 AND ($2::bigint IS NULL OR a.id<$2) ORDER BY a.id DESC LIMIT 50) t", &f.search()?,f.before).await
 }
 pub async fn revoke(
     State(db): State<PgPool>,
@@ -151,7 +151,336 @@ pub async fn analytics(
     headers: HeaderMap,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT d::date AS day,(SELECT count(*) FROM authors WHERE password_hash IS NOT NULL AND (created_at AT TIME ZONE 'UTC')::date=d::date) AS users,(SELECT count(*) FROM posts WHERE (created_at AT TIME ZONE 'UTC')::date=d::date) AS posts,(SELECT count(*) FROM comments WHERE (created_at AT TIME ZONE 'UTC')::date=d::date) AS comments FROM generate_series((now() AT TIME ZONE 'UTC')::date-13,(now() AT TIME ZONE 'UTC')::date,interval '1 day') d ORDER BY d) t").fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT d::date AS day,(SELECT count(*) FROM authors WHERE password_hash IS NOT NULL AND (created_at AT TIME ZONE 'UTC')::date=d::date) AS users,(SELECT count(*) FROM posts WHERE moderation_status='approved' AND (created_at AT TIME ZONE 'UTC')::date=d::date) AS posts,(SELECT count(*) FROM comments WHERE moderation_status='approved' AND (created_at AT TIME ZONE 'UTC')::date=d::date) AS comments FROM generate_series((now() AT TIME ZONE 'UTC')::date-13,(now() AT TIME ZONE 'UTC')::date,interval '1 day') d ORDER BY d) t").fetch_all(&db).await?))
+}
+
+#[derive(FromRow)]
+struct ModerationTarget {
+    kind: String,
+    target_id: i64,
+    author_id: i64,
+    status: String,
+    payload: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+pub struct ModerationDecision {
+    action: String,
+    note: Option<String>,
+    duration_minutes: Option<i64>,
+}
+
+pub async fn moderation(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Query(f): Query<Filter>,
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    require_admin(&headers, &db).await?;
+    let kind = match f.kind.as_deref().unwrap_or("").trim() {
+        "" | "all" => "",
+        "posts" | "post" => "post",
+        "comments" | "comment" => "comment",
+        "profiles" | "profile" => "profile",
+        _ => return Err(ApiError::Invalid("Unknown moderation type")),
+    };
+    Ok(Json(sqlx::query_scalar(
+        "SELECT row_to_json(t) FROM (
+           SELECT mi.id, mi.kind, mi.target_id, mi.status, mi.severity, mi.flags,
+                  mi.rule_version, mi.urgent, mi.created_at, a.handle AS author,
+                  CASE WHEN mi.kind = 'profile' THEN '' ELSE COALESCE(p.title, '') END AS title,
+                  CASE
+                    WHEN mi.kind = 'profile'
+                      THEN concat_ws(E'\\n', NULLIF(mi.payload->>'display_name', ''), NULLIF(mi.payload->>'bio', ''))
+                    ELSE COALESCE(p.body, cm.body, '')
+                  END AS body,
+                  c.slug AS community,
+                  CASE WHEN mi.kind = 'profile' THEN mi.payload ELSE NULL::jsonb END AS profile
+           FROM moderation_items mi
+           JOIN authors a ON a.id = mi.author_id
+           LEFT JOIN posts p ON mi.kind = 'post' AND p.id = mi.target_id
+           LEFT JOIN comments cm ON mi.kind = 'comment' AND cm.id = mi.target_id
+           LEFT JOIN communities c ON c.id = p.community_id
+           WHERE mi.status IN ('pending', 'escalated')
+             AND ($1 = '' OR strpos(lower(
+               a.handle || ' ' || COALESCE(p.title, '') || ' ' ||
+               COALESCE(p.body, cm.body, '') || ' ' || COALESCE(mi.payload::text, '')
+             ), lower($1)) > 0)
+             AND ($2 = '' OR mi.kind = $2)
+             AND ($3::bigint IS NULL OR mi.id < $3)
+           ORDER BY mi.urgent DESC, mi.created_at ASC, mi.id ASC
+           LIMIT 50
+         ) t",
+    )
+    .bind(f.search()?)
+    .bind(kind)
+    .bind(f.before)
+    .fetch_all(&db)
+    .await?))
+}
+
+pub async fn moderation_history(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    require_admin(&headers, &db).await?;
+    Ok(Json(
+        sqlx::query_scalar(
+            "SELECT row_to_json(t) FROM (
+           SELECT ma.id, ma.moderation_item_id, ma.action, ma.from_status, ma.to_status,
+                  ma.note, ma.detail, ma.created_at, actor.handle AS actor,
+                  mi.kind, subject.handle AS subject
+           FROM moderation_actions ma
+           JOIN moderation_items mi ON mi.id = ma.moderation_item_id
+           JOIN authors actor ON actor.id = ma.actor_id
+           JOIN authors subject ON subject.id = mi.author_id
+           ORDER BY ma.id DESC
+           LIMIT 100
+         ) t",
+        )
+        .fetch_all(&db)
+        .await?,
+    ))
+}
+
+pub async fn decide_moderation(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(input): Json<ModerationDecision>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let action = input.action.trim().to_ascii_lowercase();
+    if !["approve", "reject", "dismiss", "suspend", "escalate"].contains(&action.as_str()) {
+        return Err(ApiError::Invalid("Unknown moderation action"));
+    }
+    let note = input.note.unwrap_or_default().trim().to_owned();
+    if note.len() > 1000 {
+        return Err(ApiError::Invalid("Moderation note is too long"));
+    }
+    let duration_minutes = input.duration_minutes.unwrap_or(1440);
+    if action == "suspend" && !(1..=43_200).contains(&duration_minutes) {
+        return Err(ApiError::Invalid(
+            "Suspension duration must be between 1 minute and 30 days",
+        ));
+    }
+    let mut tx = db.begin().await?;
+    let item: ModerationTarget = sqlx::query_as(
+        "SELECT kind, target_id, author_id, status, payload
+         FROM moderation_items
+         WHERE id = $1
+         FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApiError::Missing)?;
+    if !["pending", "escalated"].contains(&item.status.as_str()) {
+        return Err(ApiError::Invalid(
+            "This moderation item has already been decided",
+        ));
+    }
+    let from_status = item.status.clone();
+    let to_status = match action.as_str() {
+        "escalate" => "escalated",
+        "approve" => "approved",
+        "dismiss" => "dismissed",
+        "reject" | "suspend" => "rejected",
+        _ => unreachable!(),
+    };
+    let publishes = matches!(action.as_str(), "approve" | "dismiss");
+    if action == "escalate" {
+        // Escalation keeps the content hidden and asks for urgent human review.
+        sqlx::query(
+            "UPDATE moderation_items
+             SET status = 'escalated', urgent = TRUE, reviewed_by = $2,
+                 reviewed_at = now(), review_note = $3
+             WHERE id = $1",
+        )
+        .bind(id)
+        .bind(actor)
+        .bind(&note)
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        if item.kind == "post" {
+            sqlx::query(
+                "UPDATE posts
+                 SET moderation_status = $2, moderation_reviewed_by = $3,
+                     moderation_reviewed_at = now()
+                 WHERE id = $1",
+            )
+            .bind(item.target_id)
+            .bind(if publishes { "approved" } else { "rejected" })
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+        } else if item.kind == "comment" {
+            sqlx::query(
+                "UPDATE comments
+                 SET moderation_status = $2, moderation_reviewed_by = $3,
+                     moderation_reviewed_at = now()
+                 WHERE id = $1",
+            )
+            .bind(item.target_id)
+            .bind(if publishes { "approved" } else { "rejected" })
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+        } else if item.kind == "profile" && publishes {
+            let display_name = item
+                .payload
+                .get("display_name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let bio = item
+                .payload
+                .get("bio")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let avatar_url = item
+                .payload
+                .get("avatar_url")
+                .and_then(serde_json::Value::as_str);
+            sqlx::query(
+                "UPDATE authors
+                 SET display_name = $2, bio = $3, avatar_url = $4, profile_updated_at = now()
+                 WHERE id = $1",
+            )
+            .bind(item.author_id)
+            .bind(display_name)
+            .bind(bio)
+            .bind(avatar_url)
+            .execute(&mut *tx)
+            .await?;
+        }
+        if action == "suspend" {
+            let until = Utc::now() + chrono::Duration::minutes(duration_minutes);
+            sqlx::query(
+                "UPDATE authors
+                 SET suspended_until = GREATEST(COALESCE(suspended_until, now()), $2),
+                     suspension_reason = $3
+                 WHERE id = $1",
+            )
+            .bind(item.author_id)
+            .bind(until)
+            .bind(if note.is_empty() {
+                "Moderator suspension"
+            } else {
+                &note
+            })
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query(
+            "UPDATE moderation_items
+             SET status = $2, reviewed_by = $3, reviewed_at = now(), review_note = $4
+             WHERE id = $1",
+        )
+        .bind(id)
+        .bind(to_status)
+        .bind(actor)
+        .bind(&note)
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query(
+        "INSERT INTO moderation_actions(
+           moderation_item_id, actor_id, action, from_status, to_status, note, detail
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(id)
+    .bind(actor)
+    .bind(&action)
+    .bind(&from_status)
+    .bind(to_status)
+    .bind(&note)
+    .bind(serde_json::json!({
+        "duration_minutes": if action == "suspend" { Some(duration_minutes) } else { None::<i64> },
+        "urgent": item.kind == "profile" && item.status == "escalated"
+    }))
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    log_event(
+        &db,
+        if action == "escalate" || action == "suspend" {
+            "warn"
+        } else {
+            "info"
+        },
+        "moderation.action",
+        serde_json::json!({
+            "moderation_id": id,
+            "actor_id": actor,
+            "kind": item.kind,
+            "action": action,
+            "from_status": from_status,
+            "to_status": to_status
+        }),
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "action": action,
+        "status": to_status
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateSettings {
+    orchard_enabled: Option<bool>,
+}
+
+pub async fn settings(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin(&headers, &db).await?;
+    let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
+    Ok(Json(serde_json::json!({
+        "modules": {
+            "orchard": {
+                "enabled": orchard_enabled
+            }
+        }
+    })))
+}
+
+pub async fn update_settings(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<UpdateSettings>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let Some(orchard_enabled) = input.orchard_enabled else {
+        return Err(ApiError::Invalid(
+            "No supported module setting was provided",
+        ));
+    };
+    sqlx::query(
+        "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
+         VALUES ('orchard', $1, $2, now())
+         ON CONFLICT (module_key) DO UPDATE
+         SET enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = now()",
+    )
+    .bind(orchard_enabled)
+    .bind(actor)
+    .execute(&db)
+    .await?;
+    log_event(
+        &db,
+        "info",
+        "admin.module_toggled",
+        serde_json::json!({"actor_id": actor, "module": "orchard", "enabled": orchard_enabled}),
+    )
+    .await;
+    Ok(Json(serde_json::json!({
+        "modules": {
+            "orchard": {
+                "enabled": orchard_enabled
+            }
+        }
+    })))
 }
 
 #[derive(Deserialize)]

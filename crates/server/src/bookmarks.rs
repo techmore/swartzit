@@ -149,9 +149,10 @@ pub async fn save(
 ) -> Result<StatusCode, ApiError> {
     let uid = owner(&h, &db).await?;
     // The composite foreign key enforces ownership even during concurrent folder changes.
-    let result=sqlx::query("INSERT INTO bookmarks(author_id,post_id,folder_id) VALUES ($1,$2,$3) ON CONFLICT(author_id,post_id) DO UPDATE SET folder_id=excluded.folder_id").bind(uid).bind(id).bind(input.folder_id).execute(&db).await;
+    let result=sqlx::query("INSERT INTO bookmarks(author_id,post_id,folder_id) SELECT $1,$2,$3 WHERE EXISTS (SELECT 1 FROM posts WHERE id=$2 AND moderation_status='approved') ON CONFLICT(author_id,post_id) DO UPDATE SET folder_id=excluded.folder_id").bind(uid).bind(id).bind(input.folder_id).execute(&db).await;
     match result {
-        Ok(_) => Ok(StatusCode::NO_CONTENT),
+        Ok(result) if result.rows_affected() == 1 => Ok(StatusCode::NO_CONTENT),
+        Ok(_) => Err(ApiError::Missing),
         Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => Err(ApiError::Missing),
         Err(e) => Err(e.into()),
     }
@@ -179,7 +180,7 @@ pub async fn list(
     if !(1..=100000).contains(&page) {
         return Err(ApiError::Invalid("Invalid page"));
     }
-    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=$1 AND ($2::bigint IS NULL OR b.folder_id=$2) AND (NOT $3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET $4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
+    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=$1 AND p.moderation_status='approved' AND ($2::bigint IS NULL OR b.folder_id=$2) AND (NOT $3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET $4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
     let has_more = rows.len() > 50;
     rows.truncate(50);
     Ok(Json(serde_json::json!({"items":rows,"has_more":has_more})))
@@ -213,7 +214,7 @@ mod tests {
         .fetch_one(&db)
         .await
         .unwrap();
-        let post:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title) VALUES ($1,$2,'Saved discussion') RETURNING id").bind(c).bind(a).fetch_one(&db).await.unwrap();
+        let post:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES ($1,$2,'Saved discussion','approved') RETURNING id").bind(c).bind(a).fetch_one(&db).await.unwrap();
         assert!(matches!(
             list(
                 State(db.clone()),
