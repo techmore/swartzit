@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.15-20260923T16
+
+- Rebinds Caddy whenever the macOS menu changes Swartzit's web interface, so
+  the reverse-proxy upstream follows Wi-Fi, Ethernet, loopback, and WireGuard.
+- Verifies that the Caddy LaunchAgent is actually serving HTTPS after a reload
+  and reports a visible failure instead of leaving a stale public route.
+- Reports LaunchAgent-managed Caddy as running in local status output.
+
 ## 0.1.14-20260923T15
 
 - Refreshes the native macOS menu companion with the shared Swartzit icon,

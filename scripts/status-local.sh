@@ -38,7 +38,14 @@ else
 fi
 check_http "$web_url/" && web_status=ready || true
 if command -v container >/dev/null 2>&1 && container exec "$db_container" pg_isready -U "$db_user" >/dev/null 2>&1; then database_status=ready; fi
-if [[ -f "$STATE_DIR/caddy.pid" ]] && kill -0 "$(cat "$STATE_DIR/caddy.pid")" 2>/dev/null; then caddy_status=running; elif [[ "${SWARTZIT_CADDY:-0}" == 1 ]]; then caddy_status=down; fi
+caddy_agent="org.stoverparc.swartzit-caddy"
+if command -v launchctl >/dev/null 2>&1 && launchctl print "gui/$(id -u)/$caddy_agent" >/dev/null 2>&1; then
+  caddy_status=running
+elif [[ -f "$STATE_DIR/caddy.pid" ]] && kill -0 "$(cat "$STATE_DIR/caddy.pid")" 2>/dev/null; then
+  caddy_status=running
+elif [[ "${SWARTZIT_CADDY:-0}" == 1 ]]; then
+  caddy_status=down
+fi
 if [[ -f "$STATE_DIR/worker.pid" ]] && kill -0 "$(cat "$STATE_DIR/worker.pid")" 2>/dev/null; then worker_status=running; elif [[ -f "$STATE_DIR/worker.last-run" ]]; then worker_status=last-run; fi
 if [[ -n "$public_url" ]]; then check_http "$public_url" && public_status=ready || public_status=down; fi
 pulse_file="${SWARTZIT_PULSE_FILE:-$STATE_DIR/uptime-pulse.json}"

@@ -33,6 +33,43 @@ agent_loaded() {
   launchctl print "$agent_target" >/dev/null 2>&1
 }
 
+agent_pid() {
+  launchctl print "$agent_target" 2>/dev/null | awk '$1 == "pid" && $2 == "=" { print $3; exit }'
+}
+
+agent_running() {
+  local pid
+  pid="$(agent_pid)"
+  [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
+}
+
+caddy_probe_ip() {
+  case "$CADDY_BIND_IP" in
+    0.0.0.0|::|\[::\]) echo 127.0.0.1 ;;
+    *) echo "$CADDY_BIND_IP" ;;
+  esac
+}
+
+caddy_listening() {
+  local probe_ip status
+  probe_ip="$(caddy_probe_ip)"
+  status="$(curl -ksS --connect-timeout 1 --max-time 2 \
+    --resolve "$CADDY_DOMAIN:443:$probe_ip" \
+    -o /dev/null -w '%{http_code}' "https://$CADDY_DOMAIN/" 2>/dev/null || true)"
+  [[ "$status" =~ ^[1-5][0-9][0-9]$ ]]
+}
+
+wait_for_agent() {
+  for _ in {1..25}; do
+    if agent_running && caddy_listening; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo "Caddy LaunchAgent did not become healthy: $agent_label" >&2
+  return 1
+}
+
 pid_alive() {
   [[ -f "$CADDY_PID" ]] || return 1
   local pid
@@ -85,6 +122,11 @@ start_direct() {
   fi
   nohup "$CADDY_BIN" run --config "$CADDY_CONFIG" --adapter caddyfile >"$CADDY_LOG" 2>&1 < /dev/null &
   echo $! > "$CADDY_PID"
+  for _ in {1..25}; do
+    pid_alive && break
+    sleep 0.2
+  done
+  pid_alive || { echo "Caddy failed to start; see $CADDY_LOG" >&2; return 1; }
   echo "Caddy started: https://$CADDY_DOMAIN on $CADDY_BIND_IP:443 -> $CADDY_UPSTREAM"
 }
 
@@ -102,6 +144,7 @@ case "${1:-status}" in
   start)
     if agent_loaded; then
       launchctl kickstart -k "$agent_target"
+      wait_for_agent
       echo "Caddy LaunchAgent restarted: https://$CADDY_DOMAIN on $CADDY_BIND_IP:443 -> $CADDY_UPSTREAM"
     else
       start_direct
@@ -120,6 +163,7 @@ case "${1:-status}" in
     validate >/dev/null
     if agent_loaded; then
       launchctl kickstart -k "$agent_target"
+      wait_for_agent
       echo "Caddy refreshed: https://$CADDY_DOMAIN on $CADDY_BIND_IP:443 -> $CADDY_UPSTREAM"
     else
       stop_direct

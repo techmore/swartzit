@@ -98,7 +98,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         pulseItem.isEnabled = false
         menu.addItem(pulseItem)
         bindingRootItem = menuItem("Bind interface", nil, icon: "arrow.triangle.2.circlepath")
-        bindingRootItem.toolTip = "Hot-reload the web server on an available macOS interface. The API remains loopback-only by default."
+        bindingRootItem.toolTip = "Restart Swartzit and refresh Caddy for an available macOS interface. The API remains loopback-only by default."
         bindingMenu = NSMenu()
         bindingRootItem.submenu = bindingMenu
         let checkingBindings = menuItem("Checking available interfaces…", nil, icon: "ellipsis.circle")
@@ -408,7 +408,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         bindingInProgress = true
         bindingRootItem.isEnabled = false
         for row in bindingRows { row.isEnabled = false }
-        summaryItem.title = "Swartzit  ·  Restarting…"
+        summaryItem.title = "Swartzit  ·  Rebinding web + Caddy…"
         summaryItem.image = symbol("arrow.clockwise.circle.fill")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -418,7 +418,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                 self.bindingRootItem.isEnabled = true
                 if result.code != 0 {
                     let alert = NSAlert()
-                    alert.messageText = "Could not bind Swartzit to \(binding)."
+                    alert.messageText = "Could not bind Swartzit and refresh Caddy for \(binding)."
                     alert.informativeText = String(data: result.data ?? Data(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "The restart command failed."
                     alert.alertStyle = .warning
                     alert.addButton(withTitle: "OK")

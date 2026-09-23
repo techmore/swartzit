@@ -96,7 +96,10 @@ The status item checks the API, web UI, database, optional Caddy/public URL, and
 Use **Bind interface** in the menu to choose an active loopback, Wi-Fi/LAN,
 USB/Thunderbolt Ethernet adapter, WireGuard/VPN tunnel, or concrete macOS
 interface. Swartzit stops and restarts its API and web processes with the
-selected web binding, then rechecks health; the API remains loopback-only unless
+selected web binding, rewrites Caddy's upstream to that same interface, reloads
+Caddy, and then rechecks health. If Caddy is installed/configured, a failed
+Caddy refresh makes the menu action fail visibly instead of leaving HTTPS on a
+stale upstream. The API remains loopback-only unless
 `SWARTZIT_API_INTERFACE` was explicitly configured. A generic VPN option is
 also retained for automatically selecting the first active tunnel.
 The same options are available to scripts with:
