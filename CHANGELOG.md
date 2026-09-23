@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6-20260923T14
+
+- Keeps the native macOS menu companion synchronized with Homebrew upgrades.
+- Adds the installed package version to status output and the menu item.
+- Refreshes the persistent menu binary, icon, and LaunchAgent after updates.
+
 ## 0.1.5-20260923T13
 
 - Adds public user profiles with editable metadata and recent activity views.
