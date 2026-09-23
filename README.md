@@ -85,15 +85,15 @@ The benchmark creates and removes its own PostgreSQL database, exercises fresh
 
 ### macOS menu-bar status
 
-On macOS, install the small native status companion so end users can see at a glance whether Swartzit is running. It refreshes every 30 seconds and provides icon-assisted Open, Refresh, Start, Stop, and hot-reloadable web-interface binding actions:
+On macOS, install the small native status companion so end users can see at a glance whether Swartzit is running. It refreshes every 30 seconds and provides a compact status card, Open/Refresh actions, responsive Start/Stop controls, and hot-reloadable web-interface binding actions:
 
 ```bash
 bash scripts/install-mac-status.sh
 ```
 
-The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Its first rows explicitly show `Swartzit · Up` or `Down`, the network binding (for example `Wi-Fi/LAN · Web en0 10.x.x.x · API loopback 127.0.0.1`), the server uptime, and the latest configurable uptime pulse. It uses the same Swartzit icon as the web app/favicon, shows native macOS symbols for actions and network types, runs as a per-user LaunchAgent, and does not store application data in the menu-bar app.
+The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Open the menu to see a calm `Running`, `Stopped`, or `Unavailable` status card; `Network`, `Recent activity`, and `Server details` keep diagnostics available without turning the dropdown into a wall of status rows. It uses the same Swartzit icon as the web app/favicon, shows native macOS symbols for actions and network types, runs as a per-user LaunchAgent, and does not store application data in the menu-bar app.
 
-Use **Bind interface** in the menu to choose an active loopback, Wi-Fi/LAN,
+Use **Network** in the menu to choose an active loopback, Wi-Fi/LAN,
 USB/Thunderbolt Ethernet adapter, WireGuard/VPN tunnel, or concrete macOS
 interface. Swartzit stops and restarts its API and web processes with the
 selected web binding, rewrites Caddy's upstream to that same interface, reloads
@@ -422,7 +422,7 @@ SWARTZIT_CADDY=1 SWARTZIT_DOMAIN=stoverparc.org \
 swartzit status
 ```
 
-The menu item's **Bind web interface** action keeps this upstream synchronized
+The menu's **Network** action keeps this upstream synchronized
 when switching between Wi-Fi, Ethernet, and WireGuard. The public server or
 router must forward TCP 80 and 443 through the WireGuard path to
 `192.168.3.250`.

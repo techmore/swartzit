@@ -48,22 +48,92 @@ struct ActivityWindow: Decodable { let label: String; let users: Int; let posts:
 struct ActivityFeatures: Decodable { let orchard_enabled: Bool? }
 struct Activity: Decodable { let windows: [ActivityWindow]; let features: ActivityFeatures? }
 
+final class StatusHeaderView: NSView {
+    private let iconView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "Swartzit")
+    private let statusLabel = NSTextField(labelWithString: "Checking…")
+    private let detailLabel = NSTextField(labelWithString: "Checking local services")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 72))
+
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.contentTintColor = .controlAccentColor
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.widthAnchor.constraint(equalToConstant: 30).isActive = true
+        iconView.heightAnchor.constraint(equalToConstant: 30).isActive = true
+
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        statusLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        statusLabel.textColor = .secondaryLabelColor
+        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.lineBreakMode = .byTruncatingTail
+        detailLabel.maximumNumberOfLines = 1
+
+        let titleRow = NSStackView(views: [titleLabel, statusLabel])
+        titleRow.orientation = .horizontal
+        titleRow.spacing = 7
+        titleRow.alignment = .centerY
+
+        let copy = NSStackView(views: [titleRow, detailLabel])
+        copy.orientation = .vertical
+        copy.spacing = 3
+        copy.alignment = .leading
+        copy.translatesAutoresizingMaskIntoConstraints = false
+
+        let content = NSStackView(views: [iconView, copy])
+        content.orientation = .horizontal
+        content.spacing = 11
+        content.alignment = .centerY
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            content.topAnchor.constraint(equalTo: topAnchor, constant: 11),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -11)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(status: String, detail: String, symbol: String, tint: NSColor) {
+        iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        iconView.contentTintColor = tint
+        statusLabel.stringValue = status
+        statusLabel.textColor = tint
+        detailLabel.stringValue = detail
+    }
+}
+
 final class StatusApp: NSObject, NSApplicationDelegate {
     private var item: NSStatusItem!
     private var menu: NSMenu!
     private var summaryItem: NSMenuItem!
-    private var activitySeparator: NSMenuItem!
+    private var statusHeaderView: StatusHeaderView!
     private var activityRows: [NSMenuItem] = []
-    private var orchardItems: [NSMenuItem] = []
+    private var activityRootItem: NSMenuItem!
+    private var activityMenu: NSMenu!
+    private var orchardRootItem: NSMenuItem!
+    private var orchardMenu: NSMenu!
     private var checkNowItem: NSMenuItem!
+    private var startItem: NSMenuItem!
+    private var stopItem: NSMenuItem!
     private var versionItem: NSMenuItem!
     private var networkItem: NSMenuItem!
     private var uptimeItem: NSMenuItem!
     private var pulseItem: NSMenuItem!
-    private var bindingRootItem: NSMenuItem!
-    private var bindingMenu: NSMenu!
-    private var bindingRows: [NSMenuItem] = []
+    private var detailsRootItem: NSMenuItem!
+    private var detailsMenu: NSMenu!
+    private var networkRootItem: NSMenuItem!
+    private var networkMenu: NSMenu!
+    private var networkRows: [NSMenuItem] = []
     private var bindingInProgress = false
+    private var serviceInProgress = false
     private var currentOpenURL: String?
     private var timer: Timer?
     private var command: String { ProcessInfo.processInfo.environment["SWARTZIT_COMMAND"] ?? "swartzit" }
@@ -81,43 +151,60 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         }
         item.button?.setAccessibilityLabel("Swartzit")
         menu = NSMenu()
+        menu.autoenablesItems = false
+
+        statusHeaderView = StatusHeaderView()
         summaryItem = menuItem("Swartzit  ·  Checking…", nil)
         summaryItem.isEnabled = false
-        summaryItem.image = loadMenuIcon()
+        summaryItem.view = statusHeaderView
         menu.addItem(summaryItem)
-        versionItem = menuItem("Release  ·  Checking…", nil, icon: "info.circle")
-        versionItem.isEnabled = false
-        menu.addItem(versionItem)
-        networkItem = menuItem("Network  ·  Checking…", nil, icon: "network")
-        networkItem.isEnabled = false
-        menu.addItem(networkItem)
-        uptimeItem = menuItem("Uptime  ·  Checking…", nil, icon: "clock")
-        uptimeItem.isEnabled = false
-        menu.addItem(uptimeItem)
-        pulseItem = menuItem("Pulse  ·  Checking…", nil, icon: "dot.radiowaves.left.and.right")
-        pulseItem.isEnabled = false
-        menu.addItem(pulseItem)
-        bindingRootItem = menuItem("Bind interface", nil, icon: "arrow.triangle.2.circlepath")
-        bindingRootItem.toolTip = "Restart Swartzit and refresh Caddy for an available macOS interface. The API remains loopback-only by default."
-        bindingMenu = NSMenu()
-        bindingRootItem.submenu = bindingMenu
-        let checkingBindings = menuItem("Checking available interfaces…", nil, icon: "ellipsis.circle")
-        checkingBindings.isEnabled = false
-        bindingMenu.addItem(checkingBindings)
-        menu.addItem(bindingRootItem)
-        let activityHeader = menuItem("Recent activity", nil, icon: "chart.bar.fill")
-        activityHeader.isEnabled = false
-        menu.addItem(activityHeader)
-        activitySeparator = .separator()
-        menu.addItem(activitySeparator)
-        renderActivity(nil)
+
         menu.addItem(.separator())
         add("Open Swartzit", #selector(openSwartzit), icon: "arrow.up.forward.app")
         checkNowItem = add("Refresh status", #selector(checkNow), icon: "arrow.clockwise")
-        add("Start service", #selector(startSwartzit), icon: "play.fill")
-        add("Stop service", #selector(stopSwartzit), icon: "stop.fill")
         menu.addItem(.separator())
-        add("Quit", #selector(quit), icon: "power")
+        startItem = add("Start service", #selector(startSwartzit), icon: "play.fill")
+        stopItem = add("Stop service", #selector(stopSwartzit), icon: "stop.fill")
+        stopItem.isEnabled = false
+
+        networkItem = menuItem("Network  ·  Checking…", nil, icon: "network")
+        networkItem.isEnabled = false
+        networkRootItem = menuItem("Network", nil, icon: "network")
+        networkRootItem.toolTip = "Inspect the active network binding or choose another available macOS interface."
+        networkMenu = NSMenu()
+        networkRootItem.submenu = networkMenu
+        networkMenu.addItem(networkItem)
+        networkMenu.addItem(.separator())
+        let checkingBindings = menuItem("Checking available interfaces…", nil, icon: "ellipsis.circle")
+        checkingBindings.isEnabled = false
+        networkMenu.addItem(checkingBindings)
+        menu.addItem(networkRootItem)
+
+        activityRootItem = menuItem("Recent activity", nil, icon: "chart.bar.fill")
+        activityMenu = NSMenu()
+        activityRootItem.submenu = activityMenu
+        menu.addItem(activityRootItem)
+        renderActivity(nil)
+
+        detailsRootItem = menuItem("Server details", nil, icon: "info.circle")
+        detailsMenu = NSMenu()
+        detailsRootItem.submenu = detailsMenu
+        versionItem = menuItem("Release  ·  Checking…", nil, icon: "info.circle")
+        uptimeItem = menuItem("Uptime  ·  Checking…", nil, icon: "clock")
+        pulseItem = menuItem("Pulse  ·  Checking…", nil, icon: "dot.radiowaves.left.and.right")
+        for detail in [versionItem!, uptimeItem!, pulseItem!] {
+            detail.isEnabled = false
+            detailsMenu.addItem(detail)
+        }
+        menu.addItem(detailsRootItem)
+
+        orchardRootItem = menuItem("Orchard", nil, icon: "square.grid.2x2")
+        orchardMenu = NSMenu()
+        orchardRootItem.submenu = orchardMenu
+        menu.addItem(orchardRootItem)
+
+        menu.addItem(.separator())
+        add("Quit Swartzit Status", #selector(quit), icon: "power")
         setOrchardEnabled(true)
         item.menu = menu
         checkNow()
@@ -151,31 +238,14 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         return image
     }
 
-    private func loadMenuIcon() -> NSImage? {
-        guard let icon = loadIcon() else { return nil }
-        icon.size = NSSize(width: 16, height: 16)
-        icon.isTemplate = false
-        return icon
-    }
-
     private func setOrchardEnabled(_ enabled: Bool) {
         if enabled {
-            guard orchardItems.isEmpty else { return }
-            let entries = [
-                menuItem("Open Orchard", #selector(openOrchard), icon: "square.grid.2x2"),
-                menuItem("Install Orchard with Homebrew…", #selector(installOrchard), icon: "arrow.down.circle")
-            ]
-            let checkNowIndex = menu.index(of: checkNowItem)
-            guard checkNowIndex != NSNotFound else { return }
-            for (offset, entry) in entries.enumerated() {
-                menu.insertItem(entry, at: checkNowIndex + offset)
-            }
-            orchardItems = entries
+            orchardRootItem.isHidden = false
+            guard orchardMenu.numberOfItems == 0 else { return }
+            orchardMenu.addItem(menuItem("Open Orchard", #selector(openOrchard), icon: "square.grid.2x2"))
+            orchardMenu.addItem(menuItem("Install Orchard with Homebrew…", #selector(installOrchard), icon: "arrow.down.circle"))
         } else {
-            for entry in orchardItems {
-                menu.removeItem(entry)
-            }
-            orchardItems.removeAll(keepingCapacity: true)
+            orchardRootItem.isHidden = true
         }
     }
 
@@ -189,24 +259,48 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                 let localUp = health?.status == "up" || (health?.api == "ready" && health?.web == "ready" && health?.database == "ready")
                 let publicDown = health?.public == "down"
                 let pulseDown = health?.pulse?.status == "down"
+                let headerStatus: String
+                let headerDetail: String
+                let headerSymbol: String
+                let headerTint: NSColor
+                if health == nil {
+                    headerStatus = "Unavailable"
+                    headerDetail = "Can’t reach the local status service"
+                    headerSymbol = "questionmark.circle.fill"
+                    headerTint = .systemOrange
+                } else if !localUp {
+                    headerStatus = "Stopped"
+                    headerDetail = "Start service to bring Swartzit online"
+                    headerSymbol = "xmark.circle.fill"
+                    headerTint = .systemRed
+                } else if publicDown || pulseDown {
+                    headerStatus = "Running"
+                    headerDetail = "Local server healthy · Public endpoint needs attention"
+                    headerSymbol = "exclamationmark.triangle.fill"
+                    headerTint = .systemOrange
+                } else {
+                    headerStatus = "Running"
+                    headerDetail = "Local server healthy · Public endpoint available"
+                    headerSymbol = "checkmark.circle.fill"
+                    headerTint = .systemGreen
+                }
                 if self.item.button?.image == nil {
                     self.item.button?.title = localUp ? "● Swartzit" : "○ Swartzit"
                 }
-                self.summaryItem.title = health == nil
-                    ? "Swartzit  ·  Unavailable"
-                    : (localUp
-                        ? (publicDown ? "Swartzit  ·  Up · Public down" : (pulseDown ? "Swartzit  ·  Up · Pulse down" : "Swartzit  ·  Up"))
-                        : "Swartzit  ·  Down")
-                self.summaryItem.image = self.symbol(health == nil
-                    ? "questionmark.circle.fill"
-                    : (localUp && !publicDown && !pulseDown ? "checkmark.circle.fill" : (localUp ? "exclamationmark.triangle.fill" : "xmark.circle.fill")))
+                if !self.serviceInProgress && !self.bindingInProgress {
+                    self.statusHeaderView.update(status: headerStatus, detail: headerDetail, symbol: headerSymbol, tint: headerTint)
+                    self.summaryItem.title = "Swartzit  ·  \(headerStatus)"
+                }
                 self.summaryItem.toolTip = self.summary(health)
                 self.item.button?.toolTip = self.summary(health)
-                self.item.button?.setAccessibilityLabel(localUp ? "Swartzit up" : "Swartzit down")
+                self.item.button?.setAccessibilityLabel("Swartzit \(headerStatus.lowercased())")
                 self.versionItem.title = "Release  ·  \(health?.version ?? "unknown")"
                 self.networkItem.title = self.networkTitle(health?.network)
                 self.uptimeItem.title = self.uptimeTitle(health?.uptime)
                 self.pulseItem.title = self.pulseTitle(health?.pulse, publicStatus: health?.public)
+                self.startItem.isEnabled = !self.serviceInProgress && !self.bindingInProgress && !localUp
+                self.stopItem.isEnabled = !self.serviceInProgress && !self.bindingInProgress && localUp
+                self.networkRootItem.isEnabled = !self.serviceInProgress && !self.bindingInProgress
                 if let webURL = health?.network?.web_url, !webURL.isEmpty {
                     self.currentOpenURL = webURL
                 }
@@ -249,27 +343,25 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     }
 
     private func renderBindings(_ options: [BindingOption], current network: Network?) {
-        for row in bindingRows {
-            bindingMenu.removeItem(row)
-        }
-        bindingRows.removeAll(keepingCapacity: true)
-        bindingMenu.removeAllItems()
-
         let currentMode = network?.mode
         let currentInterface = network?.web_interface
-        bindingRootItem.title = "Bind interface  ·  \(currentInterface ?? "unknown")"
+        networkRootItem.title = currentInterface.map { "Network  ·  \($0)" } ?? "Network"
+        networkMenu.removeAllItems()
+        networkRows.removeAll(keepingCapacity: true)
+        networkMenu.addItem(networkItem)
+        networkMenu.addItem(.separator())
 
         guard !options.isEmpty else {
             let unavailable = menuItem("No active IPv4 interfaces found", nil, icon: "exclamationmark.triangle")
             unavailable.isEnabled = false
-            bindingMenu.addItem(unavailable)
+            networkMenu.addItem(unavailable)
             return
         }
 
         let note = menuItem("Current  ·  \(currentInterface ?? "unknown")", nil, icon: "checkmark.circle")
         note.isEnabled = false
-        bindingMenu.addItem(note)
-        bindingMenu.addItem(.separator())
+        networkMenu.addItem(note)
+        networkMenu.addItem(.separator())
         for option in options {
             let row = menuItem("\(option.label)  ·  \(option.interface)  ·  \(option.ip)", #selector(selectBinding(_:)), icon: bindingIcon(for: option))
             row.representedObject = option.id
@@ -277,15 +369,13 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             if option.id == currentMode || (currentMode == "interface" && option.interface == currentInterface) {
                 row.state = .on
             }
-            bindingMenu.addItem(row)
-            bindingRows.append(row)
+            networkMenu.addItem(row)
+            networkRows.append(row)
         }
     }
 
     private func renderActivity(_ activity: Activity?) {
-        for row in activityRows {
-            menu.removeItem(row)
-        }
+        activityMenu.removeAllItems()
         activityRows.removeAll(keepingCapacity: true)
 
         let titles: [String]
@@ -297,17 +387,13 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                 return "\(label)  ·  \(window.users) users  ·  \(window.posts) posts  ·  \(window.comments) comments"
             }
         } else {
-            titles = ["Activity unavailable"]
+            titles = ["No recent activity to show"]
         }
 
-        let separatorIndex = menu.index(of: activitySeparator)
-        guard separatorIndex != NSNotFound else {
-            return
-        }
-        for (offset, title) in titles.enumerated() {
+        for title in titles {
             let row = menuItem(title, nil, icon: "chart.bar.fill")
             row.isEnabled = false
-            menu.insertItem(row, at: separatorIndex + offset)
+            activityMenu.addItem(row)
             activityRows.append(row)
         }
     }
@@ -398,24 +484,36 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             let result = self.run(["orchard", "install", "--yes"])
             DispatchQueue.main.async {
                 self.summaryItem.title = result.code == 0 ? "Swartzit  ·  Orchard installed" : "Swartzit  ·  Orchard install failed"
-                self.summaryItem.image = self.symbol(result.code == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                self.statusHeaderView.update(
+                    status: result.code == 0 ? "Installed" : "Install failed",
+                    detail: result.code == 0 ? "Orchard is ready to use" : "Could not install Orchard with Homebrew",
+                    symbol: result.code == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    tint: result.code == 0 ? .systemGreen : .systemOrange
+                )
                 self.checkNow()
             }
         }
     }
     @objc private func selectBinding(_ sender: NSMenuItem) {
-        guard !bindingInProgress, let binding = sender.representedObject as? String else { return }
+        guard !bindingInProgress, !serviceInProgress, let binding = sender.representedObject as? String else { return }
         bindingInProgress = true
-        bindingRootItem.isEnabled = false
-        for row in bindingRows { row.isEnabled = false }
+        networkRootItem.isEnabled = false
+        startItem.isEnabled = false
+        stopItem.isEnabled = false
+        for row in networkRows { row.isEnabled = false }
         summaryItem.title = "Swartzit  ·  Rebinding web + Caddy…"
-        summaryItem.image = symbol("arrow.clockwise.circle.fill")
+        statusHeaderView.update(
+            status: "Updating…",
+            detail: "Rebinding web and refreshing Caddy",
+            symbol: "arrow.clockwise.circle.fill",
+            tint: .systemOrange
+        )
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let result = self.run(["restart", binding])
             DispatchQueue.main.async {
                 self.bindingInProgress = false
-                self.bindingRootItem.isEnabled = true
+                self.networkRootItem.isEnabled = !self.serviceInProgress
                 if result.code != 0 {
                     let alert = NSAlert()
                     alert.messageText = "Could not bind Swartzit and refresh Caddy for \(binding)."
@@ -428,8 +526,46 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             }
         }
     }
-    @objc private func startSwartzit() { _ = run(["start"]); checkNow() }
-    @objc private func stopSwartzit() { _ = run(["stop"]); checkNow() }
+
+    private func runService(_ arguments: [String], label: String) {
+        guard !serviceInProgress, !bindingInProgress else { return }
+        serviceInProgress = true
+        startItem.isEnabled = false
+        stopItem.isEnabled = false
+        networkRootItem.isEnabled = false
+        statusHeaderView.update(
+            status: "Working…",
+            detail: label,
+            symbol: "arrow.clockwise.circle.fill",
+            tint: .systemOrange
+        )
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.run(arguments)
+            DispatchQueue.main.async {
+                self.serviceInProgress = false
+                if result.code != 0 {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not \(arguments.first ?? "update") Swartzit."
+                    let output = String(data: result.data ?? Data(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    alert.informativeText = (output?.isEmpty == false ? output : nil) ?? "The service command failed."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+                self.checkNow()
+            }
+        }
+    }
+
+    @objc private func startSwartzit() {
+        runService(["start"], label: "Starting local services")
+    }
+
+    @objc private func stopSwartzit() {
+        runService(["stop"], label: "Stopping local services")
+    }
+
     @objc private func quit() { NSApplication.shared.terminate(nil) }
 }
 
