@@ -1,4 +1,5 @@
 use super::*;
+use axum::body::Bytes;
 
 #[derive(Deserialize)]
 pub struct CreateCrawlerJob {
@@ -1783,6 +1784,67 @@ pub struct RunnerMediaUpload {
     content_type: String,
 }
 
+const RUNNER_IMAGE_MAX_BYTES: usize = 5_242_880;
+
+fn runner_media_content_type(headers: &HeaderMap) -> Result<String, ApiError> {
+    let content_type = headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(
+        content_type.as_str(),
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+    ) {
+        return Err(ApiError::Invalid(
+            "Runner media must be a supported image type",
+        ));
+    }
+    Ok(content_type)
+}
+
+async fn store_content_runner_media(
+    db: &PgPool,
+    content_type: &str,
+    bytes: &[u8],
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if bytes.is_empty() || bytes.len() > RUNNER_IMAGE_MAX_BYTES {
+        return Err(ApiError::Invalid(
+            "Runner images must be between 1 byte and 5 MB",
+        ));
+    }
+    let digest = media_store::checksum(bytes);
+    let config = media_store::load_config(db)
+        .await
+        .map_err(ApiError::Storage)?;
+    let stored = media_store::store_asset(&config, &digest, content_type, bytes)
+        .await
+        .map_err(ApiError::Storage)?;
+    let row = persist_stored_asset(
+        db,
+        "image",
+        content_type,
+        bytes,
+        &digest,
+        &stored,
+        &config.secondary_provider,
+    )
+    .await?;
+    Ok(Json(serde_json::json!({
+        "id": row.0,
+        "src": format!("/media/{}", row.0),
+        "original_src": format!("/media/{}/original", row.0),
+        "thumbnail_src": row.3.get("thumbnail").map(|_| format!("/media/{}/thumbnail", row.0)),
+        "kind": "image",
+        "content_type": row.1,
+        "storage_backend": row.2,
+    })))
+}
+
 #[derive(FromRow)]
 struct MediaSource {
     id: i64,
@@ -2152,7 +2214,7 @@ pub async fn upload_content_runner_media(
         ));
     }
     if input.data_hex.is_empty()
-        || input.data_hex.len() > 10_485_760
+        || input.data_hex.len() > RUNNER_IMAGE_MAX_BYTES * 2
         || input.data_hex.len() % 2 != 0
     {
         return Err(ApiError::Invalid(
@@ -2161,37 +2223,21 @@ pub async fn upload_content_runner_media(
     }
     let bytes = hex::decode(input.data_hex.trim())
         .map_err(|_| ApiError::Invalid("Runner media is not valid hexadecimal data"))?;
-    if bytes.is_empty() || bytes.len() > 5_242_880 {
-        return Err(ApiError::Invalid(
-            "Runner images must be between 1 byte and 5 MB",
-        ));
-    }
-    let digest = media_store::checksum(&bytes);
-    let config = media_store::load_config(&db)
-        .await
-        .map_err(ApiError::Storage)?;
-    let stored = media_store::store_asset(&config, &digest, &content_type, &bytes)
-        .await
-        .map_err(ApiError::Storage)?;
-    let row = persist_stored_asset(
-        &db,
-        "image",
-        &content_type,
-        &bytes,
-        &digest,
-        &stored,
-        &config.secondary_provider,
-    )
-    .await?;
-    Ok(Json(serde_json::json!({
-        "id": row.0,
-        "src": format!("/media/{}", row.0),
-        "original_src": format!("/media/{}/original", row.0),
-        "thumbnail_src": row.3.get("thumbnail").map(|_| format!("/media/{}/thumbnail", row.0)),
-        "kind": "image",
-        "content_type": row.1,
-        "storage_backend": row.2,
-    })))
+    store_content_runner_media(&db, &content_type, &bytes).await
+}
+
+/// Binary companion to the legacy JSON/hex endpoint above. Hex doubles the
+/// request body and makes otherwise valid Draw Things output cross small
+/// reverse-proxy limits. The worker prefers this endpoint and falls back to
+/// the legacy contract for older servers.
+pub async fn upload_content_runner_media_raw(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin(&headers, &db).await?;
+    let content_type = runner_media_content_type(&headers)?;
+    store_content_runner_media(&db, &content_type, &body).await
 }
 
 #[derive(FromRow)]

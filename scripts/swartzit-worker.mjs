@@ -23,7 +23,18 @@ const exec = (cmd, args, opts={}) => new Promise(resolve => {
 const api=process.env.API_URL??'http://127.0.0.1:18080';
 const handle=process.env.SCHEDULER_HANDLE, password=process.env.SCHEDULER_PASSWORD;
 if(!handle||!password) throw Error('SCHEDULER_HANDLE and SCHEDULER_PASSWORD are required');
-async function call(path,method='GET',body){const r=await fetch(api+path,{method,headers:{'content-type':'application/json',authorization:'Bearer '+token},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)}); if(!r.ok) throw Error(`${path}: HTTP ${r.status}`); return r.status===204?null:r.json();}
+async function responseValue(path, response) {
+  const text = await response.text();
+  let value = null;
+  try { value = text ? JSON.parse(text) : null; } catch { value = null; }
+  if (!response.ok) {
+    const detail = value?.error || value?.message || text.trim().replace(/\s+/g, ' ').slice(0, 300);
+    throw Error(`${path}: HTTP ${response.status}${detail ? ` — ${detail}` : ''}`);
+  }
+  return response.status === 204 ? null : value;
+}
+async function call(path,method='GET',body){const r=await fetch(api+path,{method,headers:{'content-type':'application/json',authorization:'Bearer '+token},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)}); return responseValue(path,r);}
+async function callBinary(path, contentType, body) { const r = await fetch(api + path, {method:'POST',headers:{'content-type':contentType,authorization:'Bearer '+token},body,signal:AbortSignal.timeout(30000)}); return responseValue(path,r); }
 const token=(await (async()=>{const r=await fetch(api+'/api/sessions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({handle,password})}); if(!r.ok) throw Error('scheduler login failed'); return (await r.json()).token;})());
 const skipCrawlers=process.env.SWARTZIT_WORKER_SKIP_CRAWLERS === '1';
 let jobs=skipCrawlers ? [] : await call('/api/admin/crawler-jobs'); let processed=0;
@@ -64,7 +75,15 @@ async function uploadRunnerMedia(file) {
   const info = await stat(file);
   if (info.size < 1 || info.size > 5_242_880) throw Error('Runner images must be between 1 byte and 5 MB');
   const bytes = await readFile(file);
-  return call('/api/admin/content-runners/media', 'POST', {data_hex: bytes.toString('hex'), content_type: contentType});
+  try {
+    return await callBinary('/api/admin/content-runners/media/raw', contentType, bytes);
+  } catch (error) {
+    // Keep workers compatible with a pre-raw-upload API during rolling
+    // upgrades. A real upload error is preserved; only an absent endpoint
+    // falls back to the older JSON/hex contract.
+    if (!/HTTP (404|405)\b/.test(error.message)) throw error;
+    return call('/api/admin/content-runners/media', 'POST', {data_hex: bytes.toString('hex'), content_type: contentType});
+  }
 }
 async function materializeRunnerMedia(media, dryRun) {
   if (!Array.isArray(media)) return [];

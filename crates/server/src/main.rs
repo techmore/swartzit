@@ -2209,6 +2209,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // larger limit scoped to the admin runner-media endpoint.
                 .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
+        .route(
+            "/api/admin/content-runners/media/raw",
+            post_method(admin::upload_content_runner_media_raw)
+                .layer(DefaultBodyLimit::max(6 * 1024 * 1024)),
+        )
         .route("/api/admin/media/test", post_method(admin::media_test))
         .route(
             "/api/admin/media/migrate",

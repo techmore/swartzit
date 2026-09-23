@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.17-20260923T18
+
+- Makes runner duplication explicit: copied definitions open at the editor,
+  scroll into view, receive a collision-safe draft name, and remain disabled
+  until saved and tested.
+- Shows the actual latest runner failure directly on the card with a targeted
+  retry action and operator guidance for common host and upload failures.
+- Adds a bounded binary Draw Things media-upload endpoint, keeps the legacy
+  hex endpoint for rolling upgrades, and records upstream error details instead
+  of reducing upload failures to an opaque HTTP status.
+
 ## 0.1.16-20260923T17
 
 - Adds the content-runner release surface for X cross-posting and Draw Things,

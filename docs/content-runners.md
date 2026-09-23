@@ -102,7 +102,12 @@ uploaded to Swartzit’s provider-neutral media store and displayed at `/media/{
 (with `/media/{id}/thumbnail` available for generated previews); the
 post body and `generation_config` source metadata include the prompt, model,
 LoRAs, dimensions, steps, CFG, and seed so a successful recipe can be reused.
-Images are limited to 5 MB and PNG, JPEG, WebP, and GIF.
+Images are limited to 5 MB and PNG, JPEG, WebP, and GIF. The worker uploads
+generated images over the binary runner-media endpoint so the request does not
+double in size through hexadecimal JSON encoding. During a rolling upgrade it
+can fall back to the legacy JSON endpoint; keep `API_URL` pointed at the
+worker's private Swartzit API (for example `http://127.0.0.1:18080`) rather
+than the public web origin so a web proxy cannot impose a smaller upload limit.
 
 For example, a designer recipe is stored like this:
 
