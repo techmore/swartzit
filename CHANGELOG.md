@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.20-20260923T18
+
+- Keeps the update health gate strict for API, web, database, and public HTTPS
+  while allowing the persisted uptime pulse to be stale during startup before
+  the refreshed monitor performs its first check.
+
 ## 0.1.19-20260923T18
 
 - Waits for macOS LaunchAgent services to converge after an upgrade instead of

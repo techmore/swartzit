@@ -35,11 +35,31 @@ write_update_status() {
 
 wait_for_healthy_services() {
   local last_output=''
+  local status_json=''
   # The macOS web LaunchAgent can take a few seconds to load a new SvelteKit
   # bundle after Homebrew replaces its keg. A single immediate status call
   # turns that normal convergence window into a false failed update.
   for _ in {1..30}; do
     if last_output=$("$LAUNCHER" status 2>&1); then
+      printf '%s\n' "$last_output"
+      return 0
+    fi
+    # A restart can also leave the persisted public pulse stale until the
+    # monitor agent performs its first probe. Require the actual services and
+    # public endpoint to be ready, but let the finishing monitor refresh clear
+    # that startup-only stale state.
+    status_json=$("$LAUNCHER" status --json 2>/dev/null || true)
+    if [[ -n "$status_json" ]] && node -e '
+      try {
+        const value = JSON.parse(process.argv[1]);
+        const pulse = value.pulse?.status ?? "unknown";
+        const publicReady = value.public === "ready" || value.public === "not-configured";
+        const pulseAcceptable = pulse === "up" || pulse === "unknown" || pulse === "stale";
+        process.exit(value.status === "up" && value.api === "ready" && value.web === "ready" && value.database === "ready" && publicReady && pulseAcceptable ? 0 : 1);
+      } catch {
+        process.exit(1);
+      }
+    ' "$status_json"; then
       printf '%s\n' "$last_output"
       return 0
     fi
