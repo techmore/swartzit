@@ -260,13 +260,23 @@ pub async fn ingest(
     {
         return Err(ApiError::Invalid("Invalid profile metadata"));
     }
-    let analysis = analyze_user_content(
-        &db,
-        actor,
-        &format!("{}\n{}", input.title.trim(), input.body),
-    )
-    .await?;
-    let analysis_flags = flags_json(&analysis);
+    let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let (moderation_severity, analysis_flags, moderation_urgent) = if moderation_enabled {
+        let analysis = analyze_user_content(
+            &db,
+            actor,
+            &format!("{}\n{}", input.title.trim(), input.body),
+        )
+        .await?;
+        (
+            analysis.severity.clone(),
+            flags_json(&analysis),
+            analysis.urgent,
+        )
+    } else {
+        ("none".to_owned(), serde_json::json!([]), false)
+    };
+    let publication_status = if moderation_enabled { "pending" } else { "approved" };
     let mut tx = db.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(&source)
@@ -288,36 +298,41 @@ pub async fn ingest(
     } else {
         sqlx::query_scalar(
             "INSERT INTO posts(community_id,author_id,title,body,moderation_status)
-             VALUES($1,$2,$3,$4,'pending') RETURNING id",
+             VALUES($1,$2,$3,$4,$5) RETURNING id",
         )
         .bind(community)
         .bind(actor)
         .bind(input.title.trim())
         .bind(&input.body)
+        .bind(publication_status)
         .fetch_one(&mut *tx)
         .await?
     };
     let (moderation_id, moderation_severity, moderation_flags) = if created {
-        let moderation_id: i64 = sqlx::query_scalar(
-            "INSERT INTO moderation_items(
-               kind, target_id, author_id, status, severity, flags, rule_version, urgent
-             ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
-             RETURNING id",
-        )
-        .bind(id)
-        .bind(actor)
-        .bind(&analysis.severity)
-        .bind(analysis_flags.clone())
-        .bind(moderation::RULE_VERSION)
-        .bind(analysis.urgent)
-        .fetch_one(&mut *tx)
-        .await?;
-        sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+        if moderation_enabled {
+            let moderation_id: i64 = sqlx::query_scalar(
+                "INSERT INTO moderation_items(
+                   kind, target_id, author_id, status, severity, flags, rule_version, urgent
+                 ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
+                 RETURNING id",
+            )
             .bind(id)
-            .bind(moderation_id)
-            .execute(&mut *tx)
+            .bind(actor)
+            .bind(&moderation_severity)
+            .bind(analysis_flags.clone())
+            .bind(moderation::RULE_VERSION)
+            .bind(moderation_urgent)
+            .fetch_one(&mut *tx)
             .await?;
-        (Some(moderation_id), analysis.severity, analysis_flags)
+            sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+                .bind(id)
+                .bind(moderation_id)
+                .execute(&mut *tx)
+                .await?;
+            (Some(moderation_id), moderation_severity, analysis_flags)
+        } else {
+            (None, moderation_severity, analysis_flags)
+        }
     } else {
         (None, "none".to_owned(), serde_json::json!([]))
     };
@@ -332,9 +347,9 @@ pub async fn ingest(
             .await?;
     }
     tx.commit().await?;
-    log_event(&db,"info","admin.source_import",serde_json::json!({"actor_id":actor,"post_id":id,"created":created,"updated":changed,"moderation_id":moderation_id,"status":if created {"pending"} else {"existing"}})).await;
+    log_event(&db,"info","admin.source_import",serde_json::json!({"actor_id":actor,"post_id":id,"created":created,"updated":changed,"moderation_id":moderation_id,"status":if created {publication_status} else {"existing"},"moderation":if moderation_enabled {"enabled"} else {"disabled"}})).await;
     Ok(Json(
-        serde_json::json!({"id":id,"created":created,"updated":changed,"status":if created {"pending"} else {"existing"},"moderation_id":moderation_id,"severity":moderation_severity,"flags":moderation_flags}),
+        serde_json::json!({"id":id,"created":created,"updated":changed,"status":if created {publication_status} else {"existing"},"moderation_id":moderation_id,"severity":moderation_severity,"flags":moderation_flags}),
     ))
 }
 
@@ -408,13 +423,23 @@ pub async fn cross_post(
     }
 
     let community_slug = input.community.trim().to_ascii_lowercase();
-    let analysis = analyze_user_content(
-        &db,
-        actor,
-        &format!("{}\n{}", input.title.trim(), input.body),
-    )
-    .await?;
-    let flags = flags_json(&analysis);
+    let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let (severity, flags, urgent) = if moderation_enabled {
+        let analysis = analyze_user_content(
+            &db,
+            actor,
+            &format!("{}\n{}", input.title.trim(), input.body),
+        )
+        .await?;
+        (
+            analysis.severity.clone(),
+            flags_json(&analysis),
+            analysis.urgent,
+        )
+    } else {
+        ("none".to_owned(), serde_json::json!([]), false)
+    };
+    let publication_status = if moderation_enabled { "pending" } else { "approved" };
     let mut tx = db.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(&source)
@@ -439,12 +464,13 @@ pub async fn cross_post(
     let community_id = community_id.ok_or(ApiError::Invalid("Community not found"))?;
     let (id, public_id): (i64, String) = sqlx::query_as(
         "INSERT INTO posts(community_id,author_id,title,body,moderation_status)
-         VALUES($1,$2,$3,$4,'pending') RETURNING id,public_id",
+         VALUES($1,$2,$3,$4,$5) RETURNING id,public_id",
     )
     .bind(community_id)
     .bind(actor)
     .bind(input.title.trim())
     .bind(&input.body)
+    .bind(publication_status)
     .fetch_one(&mut *tx)
     .await?;
     sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
@@ -454,25 +480,30 @@ pub async fn cross_post(
         .bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio)
         .bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified)
         .execute(&mut *tx).await?;
-    let moderation_id: i64 = sqlx::query_scalar(
-        "INSERT INTO moderation_items(
-           kind, target_id, author_id, status, severity, flags, rule_version, urgent
-         ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
-         RETURNING id",
-    )
-    .bind(id)
-    .bind(actor)
-    .bind(&analysis.severity)
-    .bind(flags.clone())
-    .bind(moderation::RULE_VERSION)
-    .bind(analysis.urgent)
-    .fetch_one(&mut *tx)
-    .await?;
-    sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+    let moderation_id = if moderation_enabled {
+        let moderation_id: i64 = sqlx::query_scalar(
+            "INSERT INTO moderation_items(
+               kind, target_id, author_id, status, severity, flags, rule_version, urgent
+             ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
+             RETURNING id",
+        )
         .bind(id)
-        .bind(moderation_id)
-        .execute(&mut *tx)
+        .bind(actor)
+        .bind(&severity)
+        .bind(flags.clone())
+        .bind(moderation::RULE_VERSION)
+        .bind(urgent)
+        .fetch_one(&mut *tx)
         .await?;
+        sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+            .bind(id)
+            .bind(moderation_id)
+            .execute(&mut *tx)
+            .await?;
+        Some(moderation_id)
+    } else {
+        None
+    };
     tx.commit().await?;
     log_event(
         &db,
@@ -480,7 +511,8 @@ pub async fn cross_post(
         "source.cross_posted",
         serde_json::json!({
             "actor_id": actor, "post_id": id, "community": community_slug, "provider": input.provider,
-            "moderation_id": moderation_id, "severity": analysis.severity, "urgent": analysis.urgent
+            "moderation_id": moderation_id, "severity": severity, "urgent": urgent,
+            "moderation": if moderation_enabled { "enabled" } else { "disabled" }
         }),
     )
     .await;
@@ -489,9 +521,9 @@ pub async fn cross_post(
         Json(serde_json::json!({
             "id": id, "public_id": public_id, "created": true,
             "already_shared": false, "community": community_slug,
-            "status": "pending", "moderation_id": moderation_id,
-            "severity": analysis.severity, "flags": flags,
-            "message": "The shared post is waiting for moderator review."
+            "status": publication_status, "moderation_id": moderation_id,
+            "severity": severity, "flags": flags,
+            "message": if moderation_enabled { "The shared post is waiting for moderator review." } else { "The shared post is published." }
         })),
     ))
 }

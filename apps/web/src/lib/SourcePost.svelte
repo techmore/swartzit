@@ -34,7 +34,8 @@
     ? [['Score', source.source_likes, '▲'], ['Comments', source.source_replies, '💬']]
     : [['Likes', source.source_likes, '♥'], ['Reposts', source.source_reposts, '↻'], ['Replies', source.source_replies, '💬'], ['Views', source.source_views, '◉']])
     .filter(([, value]) => value != null);
-  $: providerLabel = source.provider === 'x' ? 'X' : source.provider === 'reddit' ? 'Reddit' : 'Wikimedia Commons';
+  $: providerLabel = source.provider === 'x' ? 'X' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'runner' ? 'Generated runner' : 'Wikimedia Commons';
+  $: generationConfig = source.generation_config && typeof source.generation_config === 'object' ? source.generation_config : null;
   $: mediaCount = source.media?.length ?? 0;
   $: if (activeMedia >= mediaCount) activeMedia = Math.max(0, mediaCount - 1);
   function moveMedia(delta) {
@@ -87,7 +88,7 @@
     {:else}<span class="source-avatar source-avatar-fallback" aria-hidden="true">{(source.profile_display_name || source.source_author || '?').slice(0, 1).toUpperCase()}</span>
     {/if}
     <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<span class="source-handle">{source.source_author}</span>{#if displayDate}<time datetime={source.published_at || undefined}>{displayDate}</time>{/if}</div>
-    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a></div></div>
+    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a></div></div>
   {#if source.provider === 'x'}
     {#if parsed.text}<p class="source-text">{parsed.text}</p>{/if}
     {#if parsed.quotedText}<blockquote class="quoted-post"><strong>{parsed.quotedAuthor}</strong><p>{parsed.quotedText}</p></blockquote>{/if}
@@ -95,6 +96,7 @@
   {:else}
     {#if source.published_at}<small>Originally published {new Date(source.published_at).toLocaleString()}</small>{/if}
     {#if source.attribution}<p>{source.attribution}</p>{/if}
+    {#if source.provider === 'runner' && generationConfig && Object.keys(generationConfig).length}<details class="generation-details"><summary>Generation settings · reuse this recipe</summary><pre>{JSON.stringify(generationConfig, null, 2)}</pre></details>{/if}
     {#if sourceMetrics.length}<div class="source-metrics" aria-label={`${providerLabel} metrics`}><div class="source-metric-items">{#each sourceMetrics as [label, value, icon]}<span title={label}>{icon} {count(value)}</span>{/each}</div><small>Source counts · {new Date(source.observed_at).toLocaleDateString()}</small></div>{/if}
   {/if}
   {#if source.media?.length}
@@ -140,6 +142,7 @@
   .profile-hover{position:relative;display:flex;align-items:center;outline:none}.profile-hover:focus-visible .source-avatar{box-shadow:0 0 0 3px var(--link,#215e47)}
   .profile-card{position:absolute;z-index:5;top:42px;left:0;width:280px;padding:14px;border:1px solid var(--border,#89a28c);border-radius:10px;background:var(--surface,#fff);box-shadow:0 8px 24px #0003;visibility:hidden;opacity:0;transform:translateY(-4px);transition:opacity .12s,transform .12s,visibility .12s;pointer-events:none}
   .profile-hover:hover .profile-card,.profile-hover:focus-within .profile-card,.profile-hover:focus .profile-card{visibility:visible;opacity:1;transform:translateY(0);pointer-events:auto}
+  .generation-details{margin:10px 0;padding:8px 10px;border:1px solid var(--border,#c7d0c6);border-radius:8px;background:var(--subtle,#f0f3ec)}.generation-details summary{cursor:pointer;font-weight:700;color:var(--link,#215e47)}.generation-details pre{margin:8px 0 0;overflow:auto;font-size:.72rem;white-space:pre-wrap}
   .profile-card-heading{display:flex;gap:10px;align-items:center}.profile-card-heading img{width:44px;height:44px;border-radius:50%;object-fit:cover}.profile-card-heading small{margin:2px 0 0}.profile-card p{font-size:.9rem;line-height:1.35}.profile-stats{display:flex;gap:12px;font-size:.8rem;color:var(--muted,#66766c)}.verified{display:inline-grid;place-items:center;width:16px;height:16px;margin-left:4px;border-radius:50%;background:var(--link,#215e47);color:white;font-size:.7rem}
   a{color:var(--link,#215e47);text-decoration:underline}
   small{display:block;color:var(--muted,#66766c);margin:6px 0}

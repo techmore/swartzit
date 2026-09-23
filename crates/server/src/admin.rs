@@ -21,6 +21,7 @@ pub struct CreateContentRunner {
     author: String,
     community: String,
     interval_seconds: i32,
+    days_of_week: Option<serde_json::Value>,
     priority: Option<i32>,
     timeout_seconds: Option<i32>,
     max_attempts: Option<i32>,
@@ -41,6 +42,7 @@ pub struct UpdateContentRunner {
     author: Option<String>,
     community: Option<String>,
     interval_seconds: Option<i32>,
+    days_of_week: Option<serde_json::Value>,
     priority: Option<i32>,
     timeout_seconds: Option<i32>,
     max_attempts: Option<i32>,
@@ -470,6 +472,7 @@ pub async fn decide_moderation(
 pub struct UpdateSettings {
     orchard_enabled: Option<bool>,
     content_runners_enabled: Option<bool>,
+    moderation_enabled: Option<bool>,
 }
 
 pub async fn settings(
@@ -479,6 +482,7 @@ pub async fn settings(
     require_admin(&headers, &db).await?;
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
+    let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
     Ok(Json(serde_json::json!({
         "modules": {
             "orchard": {
@@ -486,6 +490,9 @@ pub async fn settings(
             },
             "content_runners": {
                 "enabled": content_runners_enabled
+            },
+            "moderation": {
+                "enabled": moderation_enabled
             }
         }
     })))
@@ -497,7 +504,10 @@ pub async fn update_settings(
     Json(input): Json<UpdateSettings>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    if input.orchard_enabled.is_none() && input.content_runners_enabled.is_none() {
+    if input.orchard_enabled.is_none()
+        && input.content_runners_enabled.is_none()
+        && input.moderation_enabled.is_none()
+    {
         return Err(ApiError::Invalid(
             "No supported module setting was provided",
         ));
@@ -536,8 +546,27 @@ pub async fn update_settings(
         )
         .await;
     }
+    if let Some(enabled) = input.moderation_enabled {
+        sqlx::query(
+            "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
+             VALUES ('moderation', $1, $2, now())
+             ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=now()",
+        )
+        .bind(enabled)
+        .bind(actor)
+        .execute(&db)
+        .await?;
+        log_event(
+            &db,
+            "info",
+            "admin.module_toggled",
+            serde_json::json!({"actor_id": actor, "module": "moderation", "enabled": enabled}),
+        )
+        .await;
+    }
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
+    let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
     Ok(Json(serde_json::json!({
         "modules": {
             "orchard": {
@@ -545,6 +574,9 @@ pub async fn update_settings(
             },
             "content_runners": {
                 "enabled": content_runners_enabled
+            },
+            "moderation": {
+                "enabled": moderation_enabled
             }
         }
     })))
@@ -843,6 +875,126 @@ fn validate_runner_command(command: &serde_json::Value) -> Result<(), ApiError> 
     Ok(())
 }
 
+fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiError> {
+    let Some(config) = command.as_object() else {
+        return Err(ApiError::Invalid("Draw Things configuration must be an object"));
+    };
+    let string_field = |key: &str, required: bool| -> Result<(), ApiError> {
+        match config.get(key) {
+            Some(value) if value.as_str().is_some_and(|value| {
+                !value.trim().is_empty() && value.len() <= 4096 && !value.contains('\0')
+            }) => Ok(()),
+            Some(_) => Err(ApiError::Invalid("Draw Things text setting is invalid")),
+            None if required => Err(ApiError::Invalid("Draw Things is missing a required setting")),
+            None => Ok(()),
+        }
+    };
+    string_field("executable", true)?;
+    string_field("model", true)?;
+    string_field("models_dir", false)?;
+    string_field("output_path", false)?;
+    string_field("title_prefix", false)?;
+    let bounded_u64 = |key: &str, min: u64, max: u64| -> Result<(), ApiError> {
+        if let Some(value) = config.get(key) {
+            if value.as_u64().is_none_or(|value| !(min..=max).contains(&value)) {
+                return Err(ApiError::Invalid("Draw Things numeric setting is invalid"));
+            }
+        }
+        Ok(())
+    };
+    bounded_u64("width", 64, 4096)?;
+    bounded_u64("height", 64, 4096)?;
+    bounded_u64("steps", 1, 200)?;
+    bounded_u64("posts_per_run", 1, 8)?;
+    if let Some(value) = config.get("cfg") {
+        if value.as_f64().is_none_or(|value| !value.is_finite() || !(0.0..=50.0).contains(&value)) {
+            return Err(ApiError::Invalid("Draw Things CFG setting is invalid"));
+        }
+    }
+    if let Some(value) = config.get("seed") {
+        if !(value.is_null() || value.as_i64().is_some_and(|seed| seed >= 0)) {
+            return Err(ApiError::Invalid("Draw Things seed setting is invalid"));
+        }
+    }
+    if let Some(loras) = config.get("loras") {
+        let Some(loras) = loras.as_array() else {
+            return Err(ApiError::Invalid("Draw Things LoRAs must be an array"));
+        };
+        if loras.len() > 16 {
+            return Err(ApiError::Invalid("Draw Things supports at most 16 LoRAs"));
+        }
+        for lora in loras {
+            let Some(lora) = lora.as_object() else {
+                return Err(ApiError::Invalid("Each Draw Things LoRA must be an object"));
+            };
+            if lora.get("file").and_then(serde_json::Value::as_str).is_none_or(|file| {
+                file.trim().is_empty() || file.len() > 4096 || file.contains('\0')
+            }) {
+                return Err(ApiError::Invalid("Each Draw Things LoRA needs a file"));
+            }
+            if lora.get("version").and_then(serde_json::Value::as_str).is_none_or(|version| {
+                version.trim().is_empty() || version.len() > 64
+            }) {
+                return Err(ApiError::Invalid("Each Draw Things LoRA needs a version"));
+            }
+            if lora.get("weight").and_then(serde_json::Value::as_f64).is_none_or(|weight| {
+                !weight.is_finite() || !(-5.0..=5.0).contains(&weight)
+            }) {
+                return Err(ApiError::Invalid("Each Draw Things LoRA needs a valid weight"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_runner_definition(kind: &str, command: &serde_json::Value) -> Result<(), ApiError> {
+    match kind {
+        "draw_things" => validate_draw_things_config(command),
+        "command" | "cross_post" => validate_runner_command(command),
+        _ => Err(ApiError::Invalid("Invalid runner type")),
+    }
+}
+
+fn validate_days_of_week(days: &serde_json::Value) -> Result<(), ApiError> {
+    let Some(days) = days.as_array() else {
+        return Err(ApiError::Invalid("Runner days must be an array"));
+    };
+    if days.is_empty() || days.len() > 7 {
+        return Err(ApiError::Invalid("Choose at least one runner day"));
+    }
+    let mut seen = [false; 8];
+    for day in days {
+        let Some(day) = day.as_u64().filter(|day| (1..=7).contains(day)) else {
+            return Err(ApiError::Invalid("Runner days must use ISO weekdays 1-7"));
+        };
+        if seen[day as usize] {
+            return Err(ApiError::Invalid("Runner days cannot repeat"));
+        }
+        seen[day as usize] = true;
+    }
+    Ok(())
+}
+
+#[derive(FromRow)]
+struct ExistingContentRunner {
+    name: String,
+    kind: String,
+    command: serde_json::Value,
+    prompt: String,
+    author: String,
+    interval_seconds: i32,
+    days_of_week: serde_json::Value,
+    priority: i32,
+    timeout_seconds: i32,
+    max_attempts: i32,
+    retry_backoff_seconds: i32,
+    failure_threshold: i32,
+    retention_days: i32,
+    environment_keys: serde_json::Value,
+    capture_output: bool,
+    max_log_bytes: i32,
+}
+
 fn validate_runner_policy(
     interval_seconds: i32,
     priority: i32,
@@ -892,7 +1044,7 @@ fn validate_environment_keys(keys: &serde_json::Value) -> Result<(), ApiError> {
     Ok(())
 }
 
-const RUNNER_SELECT: &str = "SELECT row_to_json(t) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.priority,r.enabled,r.state,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT row_to_json(x) FROM (SELECT id,status,attempt,config_version,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
+const RUNNER_SELECT: &str = "SELECT row_to_json(t) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.days_of_week,r.priority,r.enabled,r.state,r.test_requested,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT row_to_json(x) FROM (SELECT id,status,attempt,config_version,dry_run,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
 
 pub async fn content_runners(
     State(db): State<PgPool>,
@@ -937,12 +1089,18 @@ pub async fn create_content_runner(
     let backoff = input.retry_backoff_seconds.unwrap_or(60);
     let threshold = input.failure_threshold.unwrap_or(3);
     let retention = input.retention_days.unwrap_or(30);
+    let days_of_week = input
+        .days_of_week
+        .unwrap_or_else(|| serde_json::json!([1, 2, 3, 4, 5, 6, 7]));
     let environment_keys = input
         .environment_keys
         .unwrap_or_else(|| serde_json::json!([]));
     let capture_output = input.capture_output.unwrap_or(true);
     let max_log_bytes = input.max_log_bytes.unwrap_or(20000);
-    if name.is_empty() || name.len() > 80 || !["command", "cross_post"].contains(&kind) {
+    if name.is_empty()
+        || name.len() > 80
+        || !["command", "cross_post", "draw_things"].contains(&kind)
+    {
         return Err(ApiError::Invalid("Invalid runner name or type"));
     }
     validate_runner_policy(
@@ -954,6 +1112,7 @@ pub async fn create_content_runner(
         threshold,
         retention,
     )?;
+    validate_days_of_week(&days_of_week)?;
     validate_environment_keys(&environment_keys)?;
     if !(1024..=20000).contains(&max_log_bytes) {
         return Err(ApiError::Invalid(
@@ -971,12 +1130,12 @@ pub async fn create_content_runner(
         .await?
         .ok_or(ApiError::Invalid("Community not found"))?;
     let command = input.command.unwrap_or_else(|| serde_json::json!([]));
-    validate_runner_command(&command)?;
+    validate_runner_definition(kind, &command)?;
     let prompt = input.prompt.unwrap_or_default();
     if prompt.len() > 20000 {
         return Err(ApiError::Invalid("Prompt is too long"));
     }
-    let row=sqlx::query_scalar::<_,serde_json::Value>("INSERT INTO content_runners(name,kind,command,prompt,author_id,community_id,interval_seconds,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING row_to_json(content_runners.*)").bind(name).bind(kind).bind(command).bind(prompt.trim()).bind(author_id).bind(community_id).bind(input.interval_seconds).bind(priority).bind(timeout).bind(attempts).bind(backoff).bind(threshold).bind(retention).bind(environment_keys).bind(capture_output).bind(max_log_bytes).bind(actor).fetch_one(&db).await.map_err(|e|if matches!(&e,sqlx::Error::Database(d) if d.constraint()==Some("content_runners_name_key")){ApiError::Invalid("A runner with that name already exists")}else{ApiError::Database(e)})?;
+    let row=sqlx::query_scalar::<_,serde_json::Value>("INSERT INTO content_runners(name,kind,command,prompt,author_id,community_id,interval_seconds,days_of_week,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING row_to_json(content_runners.*)").bind(name).bind(kind).bind(command).bind(prompt.trim()).bind(author_id).bind(community_id).bind(input.interval_seconds).bind(days_of_week).bind(priority).bind(timeout).bind(attempts).bind(backoff).bind(threshold).bind(retention).bind(environment_keys).bind(capture_output).bind(max_log_bytes).bind(actor).fetch_one(&db).await.map_err(|e|if matches!(&e,sqlx::Error::Database(d) if d.constraint()==Some("content_runners_name_key")){ApiError::Invalid("A runner with that name already exists")}else{ApiError::Database(e)})?;
     log_event(
         &db,
         "info",
@@ -994,48 +1153,37 @@ pub async fn update_content_runner(
     Json(input): Json<UpdateContentRunner>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let existing: Option<(String,String,serde_json::Value,String,String,i32,i32,i32,i32,i32,i32,i32,serde_json::Value,bool,i32)>=sqlx::query_as("SELECT name,kind,command,prompt,(SELECT handle FROM authors WHERE id=author_id),interval_seconds,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes FROM content_runners WHERE id=$1 AND state<>'archived'").bind(id).fetch_optional(&db).await?;
-    let Some((
-        old_name,
-        old_kind,
-        old_command,
-        old_prompt,
-        old_author,
-        old_interval,
-        old_priority,
-        old_timeout,
-        old_attempts,
-        old_backoff,
-        old_threshold,
-        old_retention,
-        old_environment_keys,
-        old_capture_output,
-        old_max_log_bytes,
-    )) = existing
+    let existing: Option<ExistingContentRunner>=sqlx::query_as("SELECT name,kind,command,prompt,(SELECT handle FROM authors WHERE id=author_id) AS author,interval_seconds,days_of_week,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes FROM content_runners WHERE id=$1 AND state<>'archived'").bind(id).fetch_optional(&db).await?;
+    let Some(existing) = existing
     else {
         return Err(ApiError::Missing);
     };
-    let name = input.name.as_deref().unwrap_or(&old_name).trim();
-    let kind = input.kind.as_deref().unwrap_or(&old_kind).trim();
-    let prompt = input.prompt.as_deref().unwrap_or(&old_prompt);
-    let interval = input.interval_seconds.unwrap_or(old_interval);
-    let priority = input.priority.unwrap_or(old_priority);
-    let timeout = input.timeout_seconds.unwrap_or(old_timeout);
-    let attempts = input.max_attempts.unwrap_or(old_attempts);
-    let backoff = input.retry_backoff_seconds.unwrap_or(old_backoff);
-    let threshold = input.failure_threshold.unwrap_or(old_threshold);
-    let retention = input.retention_days.unwrap_or(old_retention);
-    let command = input.command.unwrap_or(old_command);
-    let environment_keys = input.environment_keys.unwrap_or(old_environment_keys);
-    let capture_output = input.capture_output.unwrap_or(old_capture_output);
-    let max_log_bytes = input.max_log_bytes.unwrap_or(old_max_log_bytes);
-    if name.is_empty() || name.len() > 80 || !["command", "cross_post"].contains(&kind) {
+    let name = input.name.as_deref().unwrap_or(&existing.name).trim();
+    let kind = input.kind.as_deref().unwrap_or(&existing.kind).trim();
+    let prompt = input.prompt.as_deref().unwrap_or(&existing.prompt);
+    let interval = input.interval_seconds.unwrap_or(existing.interval_seconds);
+    let days_of_week = input.days_of_week.unwrap_or(existing.days_of_week);
+    let priority = input.priority.unwrap_or(existing.priority);
+    let timeout = input.timeout_seconds.unwrap_or(existing.timeout_seconds);
+    let attempts = input.max_attempts.unwrap_or(existing.max_attempts);
+    let backoff = input.retry_backoff_seconds.unwrap_or(existing.retry_backoff_seconds);
+    let threshold = input.failure_threshold.unwrap_or(existing.failure_threshold);
+    let retention = input.retention_days.unwrap_or(existing.retention_days);
+    let command = input.command.unwrap_or(existing.command);
+    let environment_keys = input.environment_keys.unwrap_or(existing.environment_keys);
+    let capture_output = input.capture_output.unwrap_or(existing.capture_output);
+    let max_log_bytes = input.max_log_bytes.unwrap_or(existing.max_log_bytes);
+    if name.is_empty()
+        || name.len() > 80
+        || !["command", "cross_post", "draw_things"].contains(&kind)
+    {
         return Err(ApiError::Invalid("Invalid runner name or type"));
     }
     validate_runner_policy(
         interval, priority, timeout, attempts, backoff, threshold, retention,
     )?;
-    validate_runner_command(&command)?;
+    validate_days_of_week(&days_of_week)?;
+    validate_runner_definition(kind, &command)?;
     validate_environment_keys(&environment_keys)?;
     if !(1024..=20000).contains(&max_log_bytes) {
         return Err(ApiError::Invalid(
@@ -1053,7 +1201,7 @@ pub async fn update_content_runner(
             .ok_or(ApiError::Invalid("Author not found"))?
     } else {
         sqlx::query_scalar::<_, i64>("SELECT id FROM authors WHERE handle=$1")
-            .bind(&old_author)
+            .bind(&existing.author)
             .fetch_one(&db)
             .await?
     };
@@ -1069,7 +1217,7 @@ pub async fn update_content_runner(
             .fetch_one(&db)
             .await?
     };
-    let row=sqlx::query_scalar::<_,serde_json::Value>("UPDATE content_runners SET name=$2,kind=$3,command=$4,prompt=$5,author_id=$6,community_id=$7,interval_seconds=$8,priority=$9,timeout_seconds=$10,max_attempts=$11,retry_backoff_seconds=$12,failure_threshold=$13,retention_days=$14,environment_keys=$15,capture_output=$16,max_log_bytes=$17,config_version=config_version+1,updated_by=$18,updated_at=now() WHERE id=$1 RETURNING row_to_json(content_runners.*)").bind(id).bind(name).bind(kind).bind(command).bind(prompt.trim()).bind(author_id).bind(community_id).bind(interval).bind(priority).bind(timeout).bind(attempts).bind(backoff).bind(threshold).bind(retention).bind(environment_keys).bind(capture_output).bind(max_log_bytes).bind(actor).fetch_one(&db).await.map_err(|e|if matches!(&e,sqlx::Error::Database(d) if d.constraint()==Some("content_runners_name_key")){ApiError::Invalid("A runner with that name already exists")}else{ApiError::Database(e)})?;
+    let row=sqlx::query_scalar::<_,serde_json::Value>("UPDATE content_runners SET name=$2,kind=$3,command=$4,prompt=$5,author_id=$6,community_id=$7,interval_seconds=$8,days_of_week=$9,priority=$10,timeout_seconds=$11,max_attempts=$12,retry_backoff_seconds=$13,failure_threshold=$14,retention_days=$15,environment_keys=$16,capture_output=$17,max_log_bytes=$18,config_version=config_version+1,updated_by=$19,updated_at=now() WHERE id=$1 RETURNING row_to_json(content_runners.*)").bind(id).bind(name).bind(kind).bind(command).bind(prompt.trim()).bind(author_id).bind(community_id).bind(interval).bind(days_of_week).bind(priority).bind(timeout).bind(attempts).bind(backoff).bind(threshold).bind(retention).bind(environment_keys).bind(capture_output).bind(max_log_bytes).bind(actor).fetch_one(&db).await.map_err(|e|if matches!(&e,sqlx::Error::Database(d) if d.constraint()==Some("content_runners_name_key")){ApiError::Invalid("A runner with that name already exists")}else{ApiError::Database(e)})?;
     log_event(&db,"info","admin.content_runner_updated",serde_json::json!({"actor_id":actor,"runner_id":id,"config_version":row.get("config_version").and_then(|v|v.as_i64())})).await;
     Ok(Json(row))
 }
@@ -1119,6 +1267,40 @@ pub async fn run_content_runner_now(
         &db,
         "info",
         "admin.content_runner_run_requested",
+        serde_json::json!({"actor_id":actor,"runner_id":id}),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Queue one host-side execution that records output but never publishes a
+/// post. A draft runner may be tested without changing its lifecycle state.
+pub async fn test_content_runner(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    if !instance_module_enabled(&db, "content_runners").await? {
+        return Err(ApiError::Invalid(
+            "Enable Content Runners in Settings before testing one",
+        ));
+    }
+    let n = sqlx::query(
+        "UPDATE content_runners SET test_requested=TRUE,last_error=NULL,updated_by=$2,updated_at=now() WHERE id=$1 AND state<>'archived'",
+    )
+    .bind(id)
+    .bind(actor)
+    .execute(&db)
+    .await?
+    .rows_affected();
+    if n == 0 {
+        return Err(ApiError::Missing);
+    }
+    log_event(
+        &db,
+        "info",
+        "admin.content_runner_test_requested",
         serde_json::json!({"actor_id":actor,"runner_id":id}),
     )
     .await;
@@ -1177,7 +1359,7 @@ pub async fn content_runner_runs(
     Query(filter): Query<RunnerRunFilter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT r.id,r.runner_id,c.name,r.status,r.attempt,r.config_version,r.started_at,r.finished_at,r.post_id,r.error,r.exit_code,r.duration_ms,r.timed_out,r.retry_at,r.stdout,r.stderr,r.detail FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE ($1::bigint IS NULL OR r.runner_id=$1) ORDER BY r.id DESC LIMIT 200) t").bind(filter.runner_id).fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT r.id,r.runner_id,c.name,r.status,r.attempt,r.config_version,r.dry_run,r.started_at,r.finished_at,r.post_id,r.error,r.exit_code,r.duration_ms,r.timed_out,r.retry_at,r.stdout,r.stderr,r.detail FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE ($1::bigint IS NULL OR r.runner_id=$1) ORDER BY r.id DESC LIMIT 200) t").bind(filter.runner_id).fetch_all(&db).await?))
 }
 
 pub async fn replay_content_runner(
@@ -1218,6 +1400,7 @@ struct ClaimedContentRunner {
     current_attempt: i32,
     config_version: i32,
     state: String,
+    test_requested: bool,
     environment_keys: serde_json::Value,
     capture_output: bool,
     max_log_bytes: i32,
@@ -1235,7 +1418,7 @@ pub async fn claim_content_runner(
     sqlx::query("SELECT pg_advisory_xact_lock(90127431)")
         .execute(&mut *tx)
         .await?;
-    let r:Option<ClaimedContentRunner>=sqlx::query_as("SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.priority,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.current_attempt,r.config_version,r.state,r.environment_keys,r.capture_output,r.max_log_bytes FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id CROSS JOIN instance_modules m WHERE r.id=$1 AND r.enabled AND r.state IN ('enabled','retrying') AND r.next_run_at<=now() AND m.module_key='content_runners' AND m.enabled AND NOT EXISTS (SELECT 1 FROM content_runner_runs active WHERE active.status='running') FOR UPDATE SKIP LOCKED").bind(id).fetch_optional(&mut *tx).await?;
+    let r:Option<ClaimedContentRunner>=sqlx::query_as("SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.priority,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.current_attempt,r.config_version,r.state,r.test_requested,r.environment_keys,r.capture_output,r.max_log_bytes FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id CROSS JOIN instance_modules m WHERE r.id=$1 AND m.module_key='content_runners' AND m.enabled AND ( (r.test_requested AND r.state<>'archived') OR (r.enabled AND r.state IN ('enabled','retrying') AND r.next_run_at<=now() AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.days_of_week) day WHERE day::int=EXTRACT(ISODOW FROM now())::int) ) ) AND NOT EXISTS (SELECT 1 FROM content_runner_runs active WHERE active.status='running') FOR UPDATE SKIP LOCKED").bind(id).fetch_optional(&mut *tx).await?;
     let Some(r) = r else {
         return Err(ApiError::Invalid(
             "Runner is disabled, not due, archived, or already running",
@@ -1246,11 +1429,11 @@ pub async fn claim_content_runner(
     } else {
         1
     };
-    let run_id:i64=sqlx::query_scalar("INSERT INTO content_runner_runs(runner_id,status,attempt,config_version) VALUES($1,'running',$2,$3) RETURNING id").bind(r.id).bind(attempt).bind(r.config_version).fetch_one(&mut *tx).await?;
-    sqlx::query("UPDATE content_runners SET last_run_at=now(),last_status='running',last_error=NULL,current_attempt=$2,next_run_at=now()+make_interval(secs=>interval_seconds),updated_at=now() WHERE id=$1").bind(r.id).bind(attempt).execute(&mut *tx).await?;
+    let run_id:i64=sqlx::query_scalar("INSERT INTO content_runner_runs(runner_id,status,attempt,config_version,dry_run) VALUES($1,'running',$2,$3,$4) RETURNING id").bind(r.id).bind(attempt).bind(r.config_version).bind(r.test_requested).fetch_one(&mut *tx).await?;
+    sqlx::query("UPDATE content_runners SET test_requested=FALSE,last_run_at=now(),last_status=CASE WHEN $3 THEN 'testing' ELSE 'running' END,last_error=NULL,current_attempt=$2,next_run_at=CASE WHEN $3 THEN next_run_at ELSE now()+make_interval(secs=>interval_seconds) END,updated_at=now() WHERE id=$1").bind(r.id).bind(attempt).bind(r.test_requested).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(
-        serde_json::json!({"run_id":run_id,"id":r.id,"name":r.name,"kind":r.kind,"command":r.command,"prompt":r.prompt,"author":r.author,"community":r.community,"interval_seconds":r.interval_seconds,"priority":r.priority,"timeout_seconds":r.timeout_seconds,"max_attempts":r.max_attempts,"retry_backoff_seconds":r.retry_backoff_seconds,"failure_threshold":r.failure_threshold,"attempt":attempt,"config_version":r.config_version,"environment_keys":r.environment_keys,"capture_output":r.capture_output,"max_log_bytes":r.max_log_bytes}),
+        serde_json::json!({"run_id":run_id,"id":r.id,"name":r.name,"kind":r.kind,"command":r.command,"prompt":r.prompt,"author":r.author,"community":r.community,"interval_seconds":r.interval_seconds,"priority":r.priority,"timeout_seconds":r.timeout_seconds,"max_attempts":r.max_attempts,"retry_backoff_seconds":r.retry_backoff_seconds,"failure_threshold":r.failure_threshold,"attempt":attempt,"config_version":r.config_version,"dry_run":r.test_requested,"environment_keys":r.environment_keys,"capture_output":r.capture_output,"max_log_bytes":r.max_log_bytes}),
     ))
 }
 
@@ -1277,9 +1460,9 @@ pub async fn complete_content_runner(
         return Err(ApiError::Invalid("Unknown runner run status"));
     }
     let mut tx = db.begin().await?;
-    type C = (i64, i32, i32, i32, i32, i32, String);
-    let run:Option<C>=sqlx::query_as("SELECT r.runner_id,r.attempt,c.max_attempts,c.retry_backoff_seconds,c.failure_threshold,c.consecutive_failures,c.state FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=$1 AND r.status='running' FOR UPDATE").bind(run_id).fetch_optional(&mut *tx).await?;
-    let Some((runner_id, attempt, max_attempts, backoff, threshold, consecutive, _state)) = run
+    type C = (i64, i32, i32, i32, i32, i32, String, bool);
+    let run:Option<C>=sqlx::query_as("SELECT r.runner_id,r.attempt,c.max_attempts,c.retry_backoff_seconds,c.failure_threshold,c.consecutive_failures,c.state,r.dry_run FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=$1 AND r.status='running' FOR UPDATE").bind(run_id).fetch_optional(&mut *tx).await?;
+    let Some((runner_id, attempt, max_attempts, backoff, threshold, consecutive, _state, dry_run)) = run
     else {
         return Err(ApiError::Missing);
     };
@@ -1292,6 +1475,17 @@ pub async fn complete_content_runner(
     }
     let detail = input.detail.unwrap_or_else(|| serde_json::json!({}));
     sqlx::query("UPDATE content_runner_runs SET finished_at=now(),status=$2,post_id=$3,error=$4,detail=$5,stdout=$6,stderr=$7,exit_code=$8,duration_ms=$9,timed_out=$10 WHERE id=$1").bind(run_id).bind(&input.status).bind(input.post_id).bind(&input.error).bind(detail).bind(&stdout).bind(&stderr).bind(input.exit_code).bind(input.duration_ms).bind(input.timed_out.unwrap_or(input.status=="timeout")).execute(&mut *tx).await?;
+    if dry_run {
+        sqlx::query("UPDATE content_runners SET last_status=$2,last_error=$3,paused_reason=NULL,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'")
+            .bind(runner_id)
+            .bind(format!("test_{}", input.status))
+            .bind(&input.error)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
     let failed = input.status == "failed" || input.status == "timeout";
     let exhausted = failed && attempt >= max_attempts;
     let new_failures = if exhausted {
@@ -1330,6 +1524,61 @@ pub struct RunnerPost {
     community: String,
     source_url: Option<String>,
     media: Option<serde_json::Value>,
+    source_comments: Option<serde_json::Value>,
+    attribution: Option<String>,
+    generation_config: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+pub struct RunnerMediaUpload {
+    data_hex: String,
+    content_type: String,
+}
+
+/// Store a bounded image produced by a worker-side command. The worker sends
+/// hex rather than a filesystem path because the API host and the worker may
+/// be different machines. This endpoint is admin-only and never exposes a
+/// worker filesystem path to the web process.
+pub async fn upload_content_runner_media(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<RunnerMediaUpload>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin(&headers, &db).await?;
+    let content_type = input.content_type.trim().to_ascii_lowercase();
+    if !matches!(
+        content_type.as_str(),
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+    ) {
+        return Err(ApiError::Invalid("Runner media must be a supported image type"));
+    }
+    if input.data_hex.is_empty()
+        || input.data_hex.len() > 10_485_760
+        || input.data_hex.len() % 2 != 0
+    {
+        return Err(ApiError::Invalid("Runner images must be between 1 byte and 5 MB"));
+    }
+    let bytes = hex::decode(input.data_hex.trim())
+        .map_err(|_| ApiError::Invalid("Runner media is not valid hexadecimal data"))?;
+    if bytes.is_empty() || bytes.len() > 5_242_880 {
+        return Err(ApiError::Invalid("Runner images must be between 1 byte and 5 MB"));
+    }
+    let digest = hex::encode(Sha256::digest(&bytes));
+    let row: (i64, String) = sqlx::query_as(
+        "INSERT INTO media_assets(content_hash,media_type,byte_size,content_bytes,content_type) VALUES($1,'image',$2,$3,$4) ON CONFLICT(content_hash) DO UPDATE SET content_bytes=COALESCE(media_assets.content_bytes,EXCLUDED.content_bytes),content_type=CASE WHEN media_assets.content_bytes IS NULL THEN EXCLUDED.content_type ELSE media_assets.content_type END RETURNING id,content_type",
+    )
+    .bind(&digest)
+    .bind(bytes.len() as i64)
+    .bind(bytes)
+    .bind(&content_type)
+    .fetch_one(&db)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "id": row.0,
+        "src": format!("/media/{}", row.0),
+        "kind": "image",
+        "content_type": row.1,
+    })))
 }
 
 /// The worker calls this after a host-side command has produced its JSON
@@ -1350,6 +1599,30 @@ pub async fn publish_content_runner(
             "Runner post title or body is outside the allowed length",
         ));
     }
+    if input
+        .media
+        .as_ref()
+        .is_some_and(|media| !media.is_array() || media.as_array().is_some_and(|media| media.len() > 8))
+    {
+        return Err(ApiError::Invalid("Runner posts may contain at most 8 media items"));
+    }
+    if input
+        .source_comments
+        .as_ref()
+        .is_some_and(|comments| !comments.is_array() || comments.as_array().is_some_and(|comments| comments.len() > 50))
+    {
+        return Err(ApiError::Invalid("Runner source comments are too large"));
+    }
+    if input.attribution.as_ref().is_some_and(|attribution| attribution.len() > 2000) {
+        return Err(ApiError::Invalid("Runner attribution is too long"));
+    }
+    if input
+        .generation_config
+        .as_ref()
+        .is_some_and(|config| !config.is_object())
+    {
+        return Err(ApiError::Invalid("Runner generation settings must be an object"));
+    }
     let author_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle=$1")
         .bind(author)
         .fetch_optional(&db)
@@ -1360,20 +1633,40 @@ pub async fn publish_content_runner(
         .fetch_optional(&db)
         .await?
         .ok_or(ApiError::Missing)?;
-    let analysis = analyze_user_content(&db, author_id, &format!("{title}\n{body}")).await?;
-    let flags = flags_json(&analysis);
+    let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let (severity, flags, urgent) = if moderation_enabled {
+        let analysis = analyze_user_content(&db, author_id, &format!("{title}\n{body}")).await?;
+        (
+            analysis.severity.clone(),
+            flags_json(&analysis),
+            analysis.urgent,
+        )
+    } else {
+        ("none".to_owned(), serde_json::json!([]), false)
+    };
+    let publication_status = if moderation_enabled { "pending" } else { "approved" };
     let mut tx = db.begin().await?;
-    let post_id:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,body,moderation_status) VALUES($1,$2,$3,$4,'pending') RETURNING id").bind(community_id).bind(author_id).bind(title).bind(body.trim()).fetch_one(&mut *tx).await?;
-    let moderation_id:i64=sqlx::query_scalar("INSERT INTO moderation_items(kind,target_id,author_id,status,severity,flags,rule_version,urgent) VALUES('post',$1,$2,'pending',$3,$4,$5,$6) RETURNING id").bind(post_id).bind(author_id).bind(&analysis.severity).bind(flags.clone()).bind(moderation::RULE_VERSION).bind(analysis.urgent).fetch_one(&mut *tx).await?;
-    sqlx::query("UPDATE posts SET moderation_item_id=$2 WHERE id=$1")
-        .bind(post_id)
-        .bind(moderation_id)
-        .execute(&mut *tx)
-        .await?;
-    if let (Some(source), Some(media)) = (input.source_url, input.media) {
-        if !source.trim().is_empty() {
-            sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,observed_at,media,attribution) VALUES($1,'runner',$2,$3,now(),$4,$5)").bind(post_id).bind(source.trim()).bind(author).bind(media).bind("Generated by a configured Swartzit content runner").execute(&mut *tx).await?;
-        }
+    let post_id:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,body,moderation_status) VALUES($1,$2,$3,$4,$5) RETURNING id").bind(community_id).bind(author_id).bind(title).bind(body.trim()).bind(publication_status).fetch_one(&mut *tx).await?;
+    let moderation_id=if moderation_enabled {
+        let moderation_id:i64=sqlx::query_scalar("INSERT INTO moderation_items(kind,target_id,author_id,status,severity,flags,rule_version,urgent) VALUES('post',$1,$2,'pending',$3,$4,$5,$6) RETURNING id").bind(post_id).bind(author_id).bind(&severity).bind(flags.clone()).bind(moderation::RULE_VERSION).bind(urgent).fetch_one(&mut *tx).await?;
+        sqlx::query("UPDATE posts SET moderation_item_id=$2 WHERE id=$1")
+            .bind(post_id)
+            .bind(moderation_id)
+            .execute(&mut *tx)
+            .await?;
+        Some(moderation_id)
+    } else { None };
+    if let Some(source) = input.source_url.filter(|source| !source.trim().is_empty()) {
+        sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,observed_at,media,source_comments,attribution,generation_config) VALUES($1,'runner',$2,$3,now(),$4,$5,$6,$7)")
+            .bind(post_id)
+            .bind(source.trim())
+            .bind(author)
+            .bind(input.media.unwrap_or_else(|| serde_json::json!([])))
+            .bind(input.source_comments.unwrap_or_else(|| serde_json::json!([])))
+            .bind(input.attribution.unwrap_or_else(|| "Generated by a configured Swartzit content runner".to_owned()))
+            .bind(input.generation_config.unwrap_or_else(|| serde_json::json!({})))
+            .execute(&mut *tx)
+            .await?;
     }
     tx.commit().await?;
     operations::clear_public_cache();
@@ -1381,11 +1674,11 @@ pub async fn publish_content_runner(
         &db,
         "info",
         "runner.post_submitted",
-        serde_json::json!({"post_id":post_id,"author_id":author_id,"community":community}),
+        serde_json::json!({"post_id":post_id,"author_id":author_id,"community":community,"moderation":if moderation_enabled {"enabled"} else {"disabled"}}),
     )
     .await;
     Ok(Json(
-        serde_json::json!({"post_id":post_id,"status":"pending","flags":flags}),
+        serde_json::json!({"post_id":post_id,"status":publication_status,"moderation_id":moderation_id,"flags":flags}),
     ))
 }
 
@@ -1417,5 +1710,36 @@ mod tests {
         );
         assert!(validate_runner_command(&serde_json::json!([])).is_err());
         assert!(validate_runner_command(&serde_json::json!("draw-things-cli generate")).is_err());
+    }
+
+    #[test]
+    fn draw_things_configuration_accepts_loras_and_rejects_bad_ranges() {
+        let config = serde_json::json!({
+            "executable": "draw-things-cli",
+            "models_dir": "~/DrawThings/Models",
+            "model": "flux_1_schnell_q5p.ckpt",
+            "width": 1024,
+            "height": 1024,
+            "steps": 4,
+            "cfg": 3.5,
+            "seed": 42,
+            "loras": [{"file": "style.ckpt", "version": "flux1", "weight": 0.8}],
+            "posts_per_run": 2,
+            "output_path": "~/DrawThings/lighthouse-{index}.png"
+        });
+        assert!(validate_runner_definition("draw_things", &config).is_ok());
+        assert!(validate_runner_definition(
+            "draw_things",
+            &serde_json::json!({"executable":"draw-things-cli","model":"flux.ckpt","width":8})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn runner_days_are_unique_iso_weekdays() {
+        assert!(validate_days_of_week(&serde_json::json!([1, 3, 7])).is_ok());
+        assert!(validate_days_of_week(&serde_json::json!([])).is_err());
+        assert!(validate_days_of_week(&serde_json::json!([1, 1])).is_err());
+        assert!(validate_days_of_week(&serde_json::json!([0, 7])).is_err());
     }
 }

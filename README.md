@@ -46,6 +46,14 @@ content remains published during upgrade, while new user content follows the
 review gate. This keeps moderation behavior explicit and makes it possible to
 change the rules without rewriting the original content.
 
+Publication moderation is an instance module. Administrators can turn off the
+publication gate from **Settings** when an instance wants posts, comments,
+profile changes, imports, and content-runner output to publish immediately.
+Disabling the module bypasses the classifier and preserves the moderation
+tables and historical audit records; reports, account suspension, IP security,
+and operational logs remain available. Existing pending submissions are
+released and recorded as dismissed when the module is disabled.
+
 ## Homebrew installation
 
 The repository includes a formula at `Formula/swartzit.rb`. The pinned release

@@ -312,6 +312,30 @@ async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
     }
     Err(ApiError::Missing)
 }
+async fn runner_media(
+    State(db): State<PgPool>,
+    Path(id): Path<i64>,
+) -> Result<Response, ApiError> {
+    if id <= 0 {
+        return Err(ApiError::Missing);
+    }
+    let row: Option<(Option<Vec<u8>>, String)> = sqlx::query_as(
+        "SELECT content_bytes,content_type FROM media_assets WHERE id=$1",
+    )
+    .bind(id)
+    .fetch_optional(&db)
+    .await?;
+    let Some((Some(bytes), content_type)) = row else {
+        return Err(ApiError::Missing);
+    };
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", content_type)
+        .header("cache-control", "public, max-age=31536000, immutable")
+        .body(Body::from(bytes))
+        .map_err(|_| ApiError::Missing)
+        .unwrap())
+}
 async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     operations::timed_query("health", sqlx::query("SELECT 1").execute(&db)).await?;
     let started_at = STARTED_AT.get().copied().unwrap_or_else(Utc::now);
@@ -744,18 +768,22 @@ async fn my_profile(
         .fetch_one(&db)
         .await?;
     let mut payload = profile_payload(&db, &handle, None).await?;
-    let pending: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT row_to_json(t) FROM (
-           SELECT id, status, severity, flags, rule_version, created_at, payload
-           FROM moderation_items
-           WHERE kind = 'profile' AND target_id = $1 AND status IN ('pending', 'escalated')
-           ORDER BY id DESC
-           LIMIT 1
-         ) t",
-    )
-    .bind(author_id)
-    .fetch_optional(&db)
-    .await?;
+    let pending: Option<serde_json::Value> = if instance_module_enabled(&db, "moderation").await? {
+        sqlx::query_scalar(
+            "SELECT row_to_json(t) FROM (
+               SELECT id, status, severity, flags, rule_version, created_at, payload
+               FROM moderation_items
+               WHERE kind = 'profile' AND target_id = $1 AND status IN ('pending', 'escalated')
+               ORDER BY id DESC
+               LIMIT 1
+             ) t",
+        )
+        .bind(author_id)
+        .fetch_optional(&db)
+        .await?
+    } else {
+        None
+    };
     if let Some(object) = payload.as_object_mut() {
         object.insert(
             "pending_change".into(),
@@ -779,6 +807,32 @@ async fn update_profile(
             .await?;
     if current == (display_name.clone(), bio.clone(), avatar_url.clone()) {
         return Err(ApiError::Invalid("There are no profile changes to submit"));
+    }
+    if !instance_module_enabled(&db, "moderation").await? {
+        sqlx::query(
+            "UPDATE authors
+             SET display_name = $2, bio = $3, avatar_url = NULLIF($4, ''), profile_updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(author_id)
+        .bind(&display_name)
+        .bind(&bio)
+        .bind(&avatar_url)
+        .execute(&db)
+        .await?;
+        log_event(
+            &db,
+            "info",
+            "profile.updated",
+            serde_json::json!({"author_id": author_id, "moderation": "disabled"}),
+        )
+        .await;
+        return Ok(Json(serde_json::json!({
+            "status": "approved",
+            "display_name": display_name,
+            "bio": bio,
+            "avatar_url": avatar_url.as_deref().filter(|value| !value.is_empty()).map_or(serde_json::Value::Null, |value| serde_json::Value::String(value.to_owned()))
+        })));
     }
     let pending: bool = sqlx::query_scalar(
         "SELECT EXISTS(
@@ -1186,14 +1240,24 @@ async fn create_post(
             "Title or body is outside the allowed length",
         ));
     }
-    let analysis = analyze_user_content(&db, author_id, &format!("{title}\n{body}")).await?;
-    let flags = flags_json(&analysis);
+    let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let (severity, flags, urgent) = if moderation_enabled {
+        let analysis = analyze_user_content(&db, author_id, &format!("{title}\n{body}")).await?;
+        (
+            analysis.severity.clone(),
+            flags_json(&analysis),
+            analysis.urgent,
+        )
+    } else {
+        ("none".to_owned(), serde_json::json!([]), false)
+    };
+    let publication_status = if moderation_enabled { "pending" } else { "approved" };
     let mut tx = db.begin().await?;
     let result = sqlx::query_as::<_, CreatedPost>(
         "INSERT INTO posts (
            community_id, author_id, title, body, moderation_status
          )
-         SELECT id, $1, $2, $3, 'pending'
+         SELECT id, $1, $2, $3, $5
          FROM communities
          WHERE slug = $4
          RETURNING id, public_id, title, $4::text AS community",
@@ -1202,40 +1266,51 @@ async fn create_post(
     .bind(title)
     .bind(body)
     .bind(&community)
+    .bind(publication_status)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ApiError::Missing)?;
-    let moderation_id: i64 = sqlx::query_scalar(
-        "INSERT INTO moderation_items(
-           kind, target_id, author_id, status, severity, flags, rule_version, urgent
-         ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
-         RETURNING id",
-    )
-    .bind(result.id)
-    .bind(author_id)
-    .bind(&analysis.severity)
-    .bind(flags.clone())
-    .bind(moderation::RULE_VERSION)
-    .bind(analysis.urgent)
-    .fetch_one(&mut *tx)
-    .await?;
-    sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+    let moderation_id = if moderation_enabled {
+        let moderation_id: i64 = sqlx::query_scalar(
+            "INSERT INTO moderation_items(
+               kind, target_id, author_id, status, severity, flags, rule_version, urgent
+             ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
+             RETURNING id",
+        )
         .bind(result.id)
-        .bind(moderation_id)
-        .execute(&mut *tx)
+        .bind(author_id)
+        .bind(&severity)
+        .bind(flags.clone())
+        .bind(moderation::RULE_VERSION)
+        .bind(urgent)
+        .fetch_one(&mut *tx)
         .await?;
+        sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+            .bind(result.id)
+            .bind(moderation_id)
+            .execute(&mut *tx)
+            .await?;
+        Some(moderation_id)
+    } else {
+        None
+    };
     tx.commit().await?;
     operations::clear_public_cache();
     log_event(
         &db,
         "info",
-        "moderation.submitted",
+        if moderation_enabled {
+            "moderation.submitted"
+        } else {
+            "post.published"
+        },
         serde_json::json!({
             "kind": "post",
             "moderation_id": moderation_id,
             "author_id": author_id,
-            "severity": analysis.severity,
-            "urgent": analysis.urgent
+            "severity": severity,
+            "urgent": urgent,
+            "moderation": if moderation_enabled { "enabled" } else { "disabled" }
         }),
     )
     .await;
@@ -1246,10 +1321,11 @@ async fn create_post(
             "public_id": result.public_id,
             "title": result.title,
             "community": result.community,
-            "status": "pending",
-            "severity": analysis.severity,
+            "status": publication_status,
+            "severity": severity,
             "flags": flags,
-            "message": "Your discussion is waiting for moderator review."
+            "moderation_id": moderation_id,
+            "message": if moderation_enabled { "Your discussion is waiting for moderator review." } else { "Your discussion is published." }
         })),
     ))
 }
@@ -1266,14 +1342,24 @@ async fn create_comment(
             "Comment must be between 1 and 10000 characters",
         ));
     }
-    let analysis = analyze_user_content(&db, author_id, body).await?;
-    let flags = flags_json(&analysis);
+    let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let (severity, flags, urgent) = if moderation_enabled {
+        let analysis = analyze_user_content(&db, author_id, body).await?;
+        (
+            analysis.severity.clone(),
+            flags_json(&analysis),
+            analysis.urgent,
+        )
+    } else {
+        ("none".to_owned(), serde_json::json!([]), false)
+    };
+    let publication_status = if moderation_enabled { "pending" } else { "approved" };
     let mut tx = db.begin().await?;
     let result = sqlx::query_as::<_, CreatedComment>(
         "INSERT INTO comments (
            post_id, author_id, parent_id, body, moderation_status
          )
-         SELECT $1, $2, $3, $4, 'pending'
+         SELECT $1, $2, $3, $4, $5
          WHERE EXISTS (
            SELECT 1 FROM posts WHERE id = $1 AND moderation_status = 'approved'
          )
@@ -1289,42 +1375,53 @@ async fn create_comment(
     .bind(author_id)
     .bind(input.parent_id)
     .bind(body)
+    .bind(publication_status)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ApiError::Invalid(
         "Post or parent comment is not available for replies",
     ))?;
-    let moderation_id: i64 = sqlx::query_scalar(
-        "INSERT INTO moderation_items(
-           kind, target_id, author_id, status, severity, flags, rule_version, urgent
-         ) VALUES ('comment', $1, $2, 'pending', $3, $4, $5, $6)
-         RETURNING id",
-    )
-    .bind(result.id)
-    .bind(author_id)
-    .bind(&analysis.severity)
-    .bind(flags.clone())
-    .bind(moderation::RULE_VERSION)
-    .bind(analysis.urgent)
-    .fetch_one(&mut *tx)
-    .await?;
-    sqlx::query("UPDATE comments SET moderation_item_id = $2 WHERE id = $1")
+    let moderation_id = if moderation_enabled {
+        let moderation_id: i64 = sqlx::query_scalar(
+            "INSERT INTO moderation_items(
+               kind, target_id, author_id, status, severity, flags, rule_version, urgent
+             ) VALUES ('comment', $1, $2, 'pending', $3, $4, $5, $6)
+             RETURNING id",
+        )
         .bind(result.id)
-        .bind(moderation_id)
-        .execute(&mut *tx)
+        .bind(author_id)
+        .bind(&severity)
+        .bind(flags.clone())
+        .bind(moderation::RULE_VERSION)
+        .bind(urgent)
+        .fetch_one(&mut *tx)
         .await?;
+        sqlx::query("UPDATE comments SET moderation_item_id = $2 WHERE id = $1")
+            .bind(result.id)
+            .bind(moderation_id)
+            .execute(&mut *tx)
+            .await?;
+        Some(moderation_id)
+    } else {
+        None
+    };
     tx.commit().await?;
     operations::clear_public_cache();
     log_event(
         &db,
         "info",
-        "moderation.submitted",
+        if moderation_enabled {
+            "moderation.submitted"
+        } else {
+            "comment.published"
+        },
         serde_json::json!({
             "kind": "comment",
             "moderation_id": moderation_id,
             "author_id": author_id,
-            "severity": analysis.severity,
-            "urgent": analysis.urgent
+            "severity": severity,
+            "urgent": urgent,
+            "moderation": if moderation_enabled { "enabled" } else { "disabled" }
         }),
     )
     .await;
@@ -1336,10 +1433,11 @@ async fn create_comment(
             "parent_id": result.parent_id,
             "body": result.body,
             "author": result.author,
-            "status": "pending",
-            "severity": analysis.severity,
+            "status": publication_status,
+            "severity": severity,
             "flags": flags,
-            "message": "Your comment is waiting for moderator review."
+            "moderation_id": moderation_id,
+            "message": if moderation_enabled { "Your comment is waiting for moderator review." } else { "Your comment is published." }
         })),
     ))
 }
@@ -1822,6 +1920,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(admin::run_content_runner_now),
         )
         .route(
+            "/api/admin/content-runners/{id}/test",
+            post_method(admin::test_content_runner),
+        )
+        .route(
             "/api/admin/content-runners/{id}/archive",
             post_method(admin::archive_content_runner),
         )
@@ -1845,9 +1947,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/admin/content-runners/publish",
             post_method(admin::publish_content_runner),
         )
+        .route(
+            "/api/admin/content-runners/media",
+            post_method(admin::upload_content_runner_media),
+        )
         .route("/api/admin/imports", post_method(imports::ingest))
         .route("/api/posts/cross-post", post_method(imports::cross_post))
         .route("/profile-images/{id}", get(profile_image))
+        .route("/media/{id}", get(runner_media))
         .route("/api/views", post_method(operations::view))
         .route("/api/posts", post_method(create_post).get(posts))
         .route(

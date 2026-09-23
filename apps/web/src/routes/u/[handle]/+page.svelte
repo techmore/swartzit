@@ -10,7 +10,7 @@
   const attachment = value => {
     const media = typeof value === 'string' ? { kind: 'image', src: value } : value ?? {};
     const src = String(media.src ?? '').trim();
-    return /^https?:\/\//i.test(src) ? { ...media, src, kind: media.kind === 'video' ? 'video' : 'image' } : null;
+    return /^(?:https?:\/\/|\/media\/\d+(?:\?|$))/i.test(src) ? { ...media, src, kind: media.kind === 'video' ? 'video' : 'image' } : null;
   };
   $: posts = data.posts ?? [];
   $: replies = data.replies ?? [];
