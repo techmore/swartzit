@@ -27,6 +27,17 @@ test('leaves unknown tokens intact and uses automatic seed by default', () => {
   );
 });
 
+test('renders explicit prompt permutation variables without overriding built-ins', () => {
+  assert.equal(
+    renderRunnerPrompt('{lighting} {date} {index}', {
+      now: '2026-09-23T00:00:00.000Z',
+      variables: {lighting: 'soft daylight', date: 'not allowed'},
+      index: 2
+    }),
+    'soft daylight 2026-09-23 2'
+  );
+});
+
 test('publishes the supported token list for UI and documentation', () => {
   assert.ok(RUNNER_PROMPT_TOKENS.includes('{date}'));
   assert.ok(RUNNER_PROMPT_TOKENS.includes('{index}'));

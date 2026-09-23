@@ -4,7 +4,7 @@ import {mkdtemp, readFile, rm, stat} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawn} from 'node:child_process';
-import {drawThingsArgs, drawThingsBody, drawThingsGeneration, parseDrawThingsProgress} from './draw-things-runner.mjs';
+import {drawThingsArgs, drawThingsBody, drawThingsGeneration, expandPromptPermutations, parseDrawThingsProgress} from './draw-things-runner.mjs';
 import {renderRunnerPrompt} from './runner-prompt.mjs';
 
 function run(command, args) {
@@ -56,6 +56,36 @@ test('emits the Draw Things designer LoRA recipe as config JSON', () => {
   assert.ok(configIndex > 0);
   assert.deepEqual(JSON.parse(args[configIndex + 1]), {loras: config.loras});
   assert.deepEqual(args.slice(-2), ['--output', '/tmp/designer.png']);
+});
+
+test('expands a bounded prompt permutation matrix in stable order', () => {
+  assert.deepEqual(
+    expandPromptPermutations([
+      {key: 'lighting', values: ['soft', 'golden']},
+      {key: 'angle', values: ['wide', 'close']}
+    ]),
+    [
+      {lighting: 'soft', angle: 'wide'},
+      {lighting: 'soft', angle: 'close'},
+      {lighting: 'golden', angle: 'wide'},
+      {lighting: 'golden', angle: 'close'}
+    ]
+  );
+});
+
+test('keeps the prompt template and selected permutation in the post receipt', () => {
+  const generation = drawThingsGeneration(
+    {model: 'test.ckpt', width: 256, height: 256, steps: 2, loras: [], prompt_permutations: [{key: 'lighting', values: ['soft', 'golden']}]},
+    'A soft portrait',
+    8,
+    0,
+    {promptTemplate: 'A {lighting} portrait', promptVariables: {lighting: 'soft'}, permutationIndex: 1, permutationTotal: 2}
+  );
+  const body = drawThingsBody(generation);
+  assert.equal(generation.prompt_template, 'A {lighting} portrait');
+  assert.deepEqual(generation.prompt_variables, {lighting: 'soft'});
+  assert.match(body, /Prompt template: A \{lighting\} portrait/);
+  assert.match(body, /Permutation: 1\/2 · lighting=soft/);
 });
 
 test('parses Draw Things redraw progress and strips terminal control codes', () => {

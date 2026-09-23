@@ -1104,6 +1104,87 @@ fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiErr
             }
         }
     }
+    if let Some(permutations) = config.get("prompt_permutations") {
+        let Some(permutations) = permutations.as_array() else {
+            return Err(ApiError::Invalid(
+                "Draw Things prompt permutations must be an array",
+            ));
+        };
+        if permutations.len() > 8 {
+            return Err(ApiError::Invalid(
+                "Draw Things supports at most 8 prompt permutation fields",
+            ));
+        }
+        let mut combination_count = 1usize;
+        for permutation in permutations {
+            let Some(permutation) = permutation.as_object() else {
+                return Err(ApiError::Invalid(
+                    "Each Draw Things prompt permutation must be an object",
+                ));
+            };
+            let Some(key) = permutation.get("key").and_then(serde_json::Value::as_str) else {
+                return Err(ApiError::Invalid(
+                    "Each Draw Things prompt permutation needs a key",
+                ));
+            };
+            let key = key.trim();
+            let key_bytes = key.as_bytes();
+            if key_bytes.is_empty()
+                || key_bytes.len() > 32
+                || !key_bytes[0].is_ascii_lowercase() && key_bytes[0] != b'_'
+                || !key_bytes[1..]
+                    .iter()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_')
+                || matches!(
+                    key,
+                    "date"
+                        | "time"
+                        | "weekday"
+                        | "iso"
+                        | "runner"
+                        | "community"
+                        | "author"
+                        | "run_id"
+                        | "seed"
+                        | "index"
+                        | "total"
+                        | "dry_run"
+                )
+            {
+                return Err(ApiError::Invalid(
+                    "Prompt permutation keys must be lowercase names that do not shadow built-in tokens",
+                ));
+            }
+            let Some(values) = permutation
+                .get("values")
+                .and_then(serde_json::Value::as_array)
+            else {
+                return Err(ApiError::Invalid(
+                    "Each Draw Things prompt permutation needs a values array",
+                ));
+            };
+            if values.is_empty() || values.len() > 8 {
+                return Err(ApiError::Invalid(
+                    "Each prompt permutation needs between 1 and 8 values",
+                ));
+            }
+            for value in values {
+                if value.as_str().is_none_or(|value| {
+                    value.trim().is_empty() || value.len() > 512 || value.contains('\0')
+                }) {
+                    return Err(ApiError::Invalid(
+                        "Prompt permutation values must be non-empty text under 512 bytes",
+                    ));
+                }
+            }
+            combination_count = combination_count.saturating_mul(values.len());
+            if combination_count > 8 {
+                return Err(ApiError::Invalid(
+                    "Prompt permutations may produce at most 8 combinations",
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -3224,6 +3305,45 @@ mod tests {
             validate_runner_definition(
                 "draw_things",
                 &serde_json::json!({"executable":"draw-things-cli","model":"flux.ckpt","width":8})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn draw_things_configuration_bounds_prompt_permutations() {
+        let base = serde_json::json!({
+            "executable": "draw-things-cli",
+            "model": "flux.ckpt",
+            "prompt_permutations": [
+                {"key": "lighting", "values": ["soft", "golden"]},
+                {"key": "angle", "values": ["wide", "close"]}
+            ]
+        });
+        assert!(validate_runner_definition("draw_things", &base).is_ok());
+        assert!(
+            validate_runner_definition(
+                "draw_things",
+                &serde_json::json!({
+                    "executable": "draw-things-cli",
+                    "model": "flux.ckpt",
+                    "prompt_permutations": [{"key": "date", "values": ["today"]}]
+                })
+            )
+            .is_err()
+        );
+        assert!(
+            validate_runner_definition(
+                "draw_things",
+                &serde_json::json!({
+                    "executable": "draw-things-cli",
+                    "model": "flux.ckpt",
+                    "prompt_permutations": [
+                        {"key": "one", "values": ["a", "b", "c"]},
+                        {"key": "two", "values": ["a", "b", "c"]},
+                        {"key": "three", "values": ["a", "b"]}
+                    ]
+                })
             )
             .is_err()
         );

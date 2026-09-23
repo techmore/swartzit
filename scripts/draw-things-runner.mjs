@@ -1,7 +1,34 @@
 import {homedir} from 'node:os';
 import {extname, isAbsolute, resolve} from 'node:path';
 
+export const MAX_PROMPT_PERMUTATIONS = 8;
+
 export const expandHome = value => value === '~' ? homedir() : value.startsWith('~/') ? `${homedir()}/${value.slice(2)}` : value;
+
+export function normalizePromptPermutations(value) {
+  return (Array.isArray(value) ? value : []).map(item => ({
+    key: String(item?.key ?? '').trim(),
+    values: Array.isArray(item?.values) ? item.values.map(option => String(option ?? '')) : []
+  }));
+}
+
+export function expandPromptPermutations(value, max = MAX_PROMPT_PERMUTATIONS) {
+  const rows = normalizePromptPermutations(value);
+  let combinations = [{}];
+  for (const row of rows) {
+    if (!row.key) throw new Error('Prompt permutation keys cannot be empty');
+    if (!row.values.length || row.values.some(option => !option.trim())) {
+      throw new Error(`Prompt permutation ${row.key} needs at least one non-empty value`);
+    }
+    const next = [];
+    for (const combination of combinations) {
+      for (const option of row.values) next.push({...combination, [row.key]: option});
+    }
+    if (next.length > max) throw new Error(`Prompt permutations produce ${next.length} combinations; the maximum is ${max}`);
+    combinations = next;
+  }
+  return combinations;
+}
 
 export function runnerOutputPath(template, claimId, index, total, startedAt) {
   const raw = String(template || `.local/draw-things/${claimId}-${startedAt}-${index + 1}.png`);
@@ -49,10 +76,20 @@ export function parseDrawThingsProgress(line) {
   };
 }
 
-export function drawThingsGeneration(config, prompt, seed, index) {
+export function drawThingsGeneration(config, prompt, seed, index, details = {}) {
+  const promptRows = normalizePromptPermutations(config.prompt_permutations);
+  const promptVariables = details.promptVariables && typeof details.promptVariables === 'object' ? details.promptVariables : {};
   return {
     provider: 'draw_things',
+    executable: config.executable || null,
     prompt,
+    prompt_template: details.promptTemplate ?? null,
+    prompt_variables: promptVariables,
+    prompt_permutations: promptRows,
+    permutation: promptRows.length ? {
+      index: Number(details.permutationIndex ?? index + 1),
+      total: Number(details.permutationTotal ?? promptRows.length)
+    } : null,
     model: config.model,
     models_dir: config.models_dir || null,
     loras: Array.isArray(config.loras) ? config.loras : [],
@@ -63,7 +100,10 @@ export function drawThingsGeneration(config, prompt, seed, index) {
     // recommended guidance instead of Swartzit inventing a value.
     cfg: config.cfg === undefined || config.cfg === null || config.cfg === '' ? null : Number(config.cfg),
     seed: seed ?? null,
-    variant: index + 1
+    variant: index + 1,
+    posts_per_run: Number(config.posts_per_run ?? 1),
+    output_path: config.output_path || null,
+    title_prefix: config.title_prefix || null
   };
 }
 
@@ -71,13 +111,19 @@ export function drawThingsBody(generation) {
   const loras = generation.loras.length
     ? generation.loras.map(lora => `${lora.file} (${lora.version}, weight ${lora.weight})`).join(', ')
     : 'None';
+  const variables = Object.entries(generation.prompt_variables || {});
+  const permutation = generation.permutation && variables.length
+    ? `Permutation: ${generation.permutation.index}/${generation.permutation.total} · ${variables.map(([key, value]) => `${key}=${value}`).join(' · ')}`
+    : null;
   return [
     'Generated with Draw Things via Swartzit.',
     '',
     `Prompt: ${generation.prompt}`,
+    generation.prompt_template && generation.prompt_template !== generation.prompt ? `Prompt template: ${generation.prompt_template}` : null,
+    permutation,
     '',
     `Model: ${generation.model}`,
     `LoRAs: ${loras}`,
     `Settings: ${generation.width}×${generation.height} · ${generation.steps} steps · CFG ${generation.cfg ?? 'recommended'} · seed ${generation.seed ?? 'automatic'}`
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }

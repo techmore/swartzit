@@ -51,6 +51,13 @@ Prompts support deterministic runtime tokens: `{date}`, `{time}`, `{weekday}`,
 worker expands the prompt once for each Draw Things variant, so a scheduled
 recipe can vary by day or variant without adding a model or remote service.
 
+Draw Things recipes also support a bounded prompt permutation matrix. Add rows
+such as `{"key":"lighting","values":["soft daylight","golden hour"]}` and
+write `{lighting}` in the prompt. Multiple rows expand as a Cartesian product
+in stable order; the server accepts at most eight total combinations and
+rejects empty values or names that shadow built-in tokens. Each generated post
+records the original template, the selected values, and its permutation number.
+
 Only the normal process environment (`PATH`, `HOME`, locale, and similar
 runtime values) plus explicitly configured environment key names are passed to
 the command. Secret values are not stored in the database; provision them in
@@ -94,7 +101,9 @@ without a shell:
 - executable, models directory, model, prompt, width, height, steps, CFG, and
   optional starting seed;
 - zero or more LoRAs with `file`, `version`, and `weight`;
-- output path/template, title prefix, and 1–8 posts per run.
+- optional prompt permutation rows with a key and one or more values;
+- output path/template, title prefix, and 1–8 posts per run when no prompt
+  matrix is configured.
 
 For multiple posts, `{index}` is replaced with a one-based variant number. If
 the starting seed is set, each variant increments it. A local output image is
@@ -120,9 +129,19 @@ For example, a designer recipe is stored like this:
   "seed": 123,
   "loras": [
     {"file": "flux_alexandra_daddario_lora_f16.ckpt", "version": "flux1", "weight": 0.8}
+  ],
+  "prompt_permutations": [
+    {"key": "lighting", "values": ["soft daylight", "golden hour"]},
+    {"key": "composition", "values": ["wide frame", "close portrait"]}
   ]
 }
 ```
+
+With the example above, use `{lighting}` and `{composition}` in the prompt to
+generate four posts. The prompt body includes the rendered prompt, the
+template, the selected permutation values, model/LoRA settings, dimensions,
+steps, CFG, and seed; the structured `generation_config` keeps the same
+receipt machine-readable for later comparisons.
 
 The worker turns that into Draw Things' native `--config-json '{"loras":[...]}'`
 argument. The LoRA file must already exist in the configured Draw Things model

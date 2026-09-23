@@ -23,7 +23,11 @@ export const RUNNER_PROMPT_TOKENS = [
 
 export function renderRunnerPrompt(template, context = {}) {
   const parts = dateParts(context.now);
+  const variables = context.variables && typeof context.variables === 'object'
+    ? Object.fromEntries(Object.entries(context.variables).map(([key, value]) => [key, String(value ?? '')]))
+    : {};
   const values = {
+    ...variables,
     ...parts,
     runner: context.runner ?? '',
     community: context.community ?? '',
