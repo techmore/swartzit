@@ -1,4 +1,5 @@
 import Cocoa
+import Darwin
 import Foundation
 
 struct Health: Decodable {
@@ -47,6 +48,37 @@ struct BindingOption: Decodable {
 struct ActivityWindow: Decodable { let label: String; let users: Int; let posts: Int; let comments: Int }
 struct ActivityFeatures: Decodable { let orchard_enabled: Bool? }
 struct Activity: Decodable { let windows: [ActivityWindow]; let features: ActivityFeatures? }
+
+final class SingleInstanceLock {
+    private var descriptor: Int32 = -1
+
+    init?() {
+        let fileManager = FileManager.default
+        let supportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Swartzit", isDirectory: true)
+        try? fileManager.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+
+        let lockURL = supportDirectory.appendingPathComponent("SwartzitStatus.lock")
+        descriptor = Darwin.open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        var lock = Darwin.flock()
+        lock.l_type = Int16(F_WRLCK)
+        lock.l_whence = Int16(SEEK_SET)
+        lock.l_start = 0
+        lock.l_len = 0
+        guard descriptor >= 0, Darwin.fcntl(descriptor, F_SETLK, &lock) == 0 else {
+            if descriptor >= 0 {
+                Darwin.close(descriptor)
+                descriptor = -1
+            }
+            return nil
+        }
+    }
+
+    deinit {
+        guard descriptor >= 0 else { return }
+        Darwin.close(descriptor)
+    }
+}
 
 final class StatusHeaderView: NSView {
     private let iconView = NSImageView()
@@ -571,6 +603,11 @@ final class StatusApp: NSObject, NSApplicationDelegate {
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
+guard let instanceLock = SingleInstanceLock() else {
+    exit(EXIT_SUCCESS)
+}
 let delegate = StatusApp()
 app.delegate = delegate
-app.run()
+withExtendedLifetime(instanceLock) {
+    app.run()
+}
