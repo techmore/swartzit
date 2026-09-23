@@ -36,11 +36,22 @@ if ! brew upgrade swartzit; then
   exit 1
 fi
 
+# Homebrew replaces the versioned keg during an upgrade. Resolve the new
+# launcher before restarting services so the menu companion is refreshed from
+# the same release instead of continuing to run the old copied binary.
+new_launcher=$(command -v swartzit 2>/dev/null || true)
+[[ -x "$new_launcher" ]] && LAUNCHER="$new_launcher"
+
 if ! "$LAUNCHER" start || ! "$LAUNCHER" status; then
   echo "Updated package failed health checks." >&2
   echo "Recovery backup: $backup_path"
   echo "Archive: $archive_path"
   echo "Restore only after verifying the backup with db-restore-verify.sh." >&2
+  exit 1
+fi
+if [[ "$(uname -s)" == Darwin ]] && ! "$LAUNCHER" status-install; then
+  echo "Updated Swartzit is healthy, but the macOS menu companion could not be refreshed." >&2
+  echo "Run: $LAUNCHER status-install" >&2
   exit 1
 fi
 new_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)

@@ -15,6 +15,10 @@ if [[ -f "$STATE_DIR/runtime.env" ]]; then
   source "$STATE_DIR/runtime.env"
   set +a
 fi
+version_file="$ROOT/VERSION"
+[[ -f "$version_file" ]] || version_file="$ROOT/libexec/VERSION"
+version='development'
+[[ -f "$version_file" ]] && version=$(<"$version_file")
 api="${API_URL:-http://127.0.0.1:18080}"
 web_url="${SWARTZIT_LOCAL_URL:-http://127.0.0.1:${PORT:-4173}}"
 web_port="${PORT:-4173}"
@@ -99,9 +103,10 @@ fi
 [[ -n "$web_bind_ip" ]] || web_bind_ip=unknown
 [[ -n "$api_bind_ip" ]] || api_bind_ip=unknown
 if (( json )); then
-  node -e 'let pulse={}; try { pulse=JSON.parse(process.argv[14]) } catch {} const uptimeSeconds=/^\d+$/.test(process.argv[17] ?? "") ? Number(process.argv[17]) : null; console.log(JSON.stringify({status:process.argv[15],api:process.argv[1],web:process.argv[2],database:process.argv[3],caddy:process.argv[4],worker:process.argv[5],public:process.argv[6],network:{mode:process.argv[7],label:process.argv[8],web_interface:process.argv[9],web_bind_ip:process.argv[10],web_url:process.argv[11],api_interface:process.argv[12],api_bind_ip:process.argv[13]},uptime:{status:process.argv[15],started_at:process.argv[16] || null,seconds:uptimeSeconds,duration:process.argv[18] || "unknown"},pulse,checked_at:new Date().toISOString()}))' "$api_status" "$web_status" "$database_status" "$caddy_status" "$worker_status" "$public_status" "$network_mode" "$network_label" "$web_interface" "$web_bind_ip" "$web_url" "$api_interface" "$api_bind_ip" "$pulse_json" "$local_status" "$api_started_at" "$api_uptime_seconds" "$api_uptime_display"
+  node -e 'let pulse={}; try { pulse=JSON.parse(process.argv[14]) } catch {} const uptimeSeconds=/^\d+$/.test(process.argv[17] ?? "") ? Number(process.argv[17]) : null; console.log(JSON.stringify({version:process.argv[19] || "development",status:process.argv[15],api:process.argv[1],web:process.argv[2],database:process.argv[3],caddy:process.argv[4],worker:process.argv[5],public:process.argv[6],network:{mode:process.argv[7],label:process.argv[8],web_interface:process.argv[9],web_bind_ip:process.argv[10],web_url:process.argv[11],api_interface:process.argv[12],api_bind_ip:process.argv[13]},uptime:{status:process.argv[15],started_at:process.argv[16] || null,seconds:uptimeSeconds,duration:process.argv[18] || "unknown"},pulse,checked_at:new Date().toISOString()}))' "$api_status" "$web_status" "$database_status" "$caddy_status" "$worker_status" "$public_status" "$network_mode" "$network_label" "$web_interface" "$web_bind_ip" "$web_url" "$api_interface" "$api_bind_ip" "$pulse_json" "$local_status" "$api_started_at" "$api_uptime_seconds" "$api_uptime_display" "$version"
 else
   printf 'Swartzit status (%s)\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+  printf '  Version:   %s\n' "$version"
   printf '  Status:    %s\n' "$local_status"
   printf '  API:       %s (%s)\n' "$api_status" "$api"
   printf '  Web:       %s (%s)\n' "$web_status" "$web_url"

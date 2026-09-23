@@ -109,8 +109,10 @@ brew install swartzit
 
 The formula is built from source on the local Mac, while the tag and SHA256
 keep the source reproducible. To update safely, use `swartzit update --yes`; it
-backs up PostgreSQL before upgrading and records the recovery paths. To restore
-an earlier verified dump, use the rollback command documented below.
+backs up PostgreSQL before upgrading, refreshes the installed native menu
+companion from the same Homebrew release, and records the recovery paths. To
+refresh that companion independently, use `swartzit status-install` on macOS.
+To restore an earlier verified dump, use the rollback command documented below.
 
 The formula builds the Rust API and SvelteKit web app. PostgreSQL remains an
 external dependency so its data directory can be upgraded, backed up, and

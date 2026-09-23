@@ -2,6 +2,7 @@ import Cocoa
 import Foundation
 
 struct Health: Decodable {
+    let version: String?
     let status: String?
     let api: String
     let web: String
@@ -47,6 +48,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     private var activityRows: [NSMenuItem] = []
     private var orchardItems: [NSMenuItem] = []
     private var checkNowItem: NSMenuItem!
+    private var versionItem: NSMenuItem!
     private var networkItem: NSMenuItem!
     private var uptimeItem: NSMenuItem!
     private var pulseItem: NSMenuItem!
@@ -68,6 +70,9 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         item.button?.setAccessibilityLabel("Swartzit")
         menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Swartzit: Checking…", action: nil, keyEquivalent: ""))
+        versionItem = NSMenuItem(title: "Version: Checking…", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
         networkItem = NSMenuItem(title: "Network: Checking…", action: nil, keyEquivalent: "")
         networkItem.isEnabled = false
         menu.addItem(networkItem)
@@ -151,6 +156,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                 summary.toolTip = self.summary(health)
                 self.item.button?.toolTip = self.summary(health)
                 self.item.button?.setAccessibilityLabel(localUp ? "Swartzit up" : "Swartzit down")
+                self.versionItem.title = "Version: \(health?.version ?? "unknown")"
                 self.networkItem.title = self.networkTitle(health?.network)
                 self.uptimeItem.title = self.uptimeTitle(health?.uptime)
                 self.pulseItem.title = self.pulseTitle(health?.pulse, publicStatus: health?.public)

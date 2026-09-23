@@ -179,6 +179,7 @@ case "${1:-status}" in
   update) shift; exec "$SCRIPT_HOME/swartzit-update.sh" "$@" ;;
   monitor) shift; exec "$SCRIPT_HOME/swartzit-monitor.sh" "$@" ;;
   monitor-install) shift; exec "$SCRIPT_HOME/install-mac-monitor.sh" "$@" ;;
+  status-install) shift; exec "$SCRIPT_HOME/install-mac-status.sh" "$@" ;;
   orchard) shift; exec "$SCRIPT_HOME/swartzit-orchard.sh" "$@" ;;
-  *) echo 'Usage: swartzit {version|start|stop|status|backup|restore-verify|rollback|update|monitor|monitor-install|orchard}' >&2; exit 2 ;;
+  *) echo 'Usage: swartzit {version|start|stop|status|status-install|backup|restore-verify|rollback|update|monitor|monitor-install|orchard}' >&2; exit 2 ;;
 esac
