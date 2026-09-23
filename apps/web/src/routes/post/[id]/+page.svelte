@@ -8,6 +8,7 @@
   import SourcePost from '$lib/SourcePost.svelte';
   import DrawThingsFeedback from '$lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
+  import { mediaShareUrl } from '$lib/media-share.js';
   let commentOrder = 'oldest';
   export let data;
   let token = '', body = '', parent = null, message = '', busy = false, showAllComments = false;
@@ -16,6 +17,7 @@
   $: previewTitle = `${data.post.title} — Swartzit`;
   $: previewDescription = (data.post.body || '').replace(/\s+/g, ' ').trim().slice(0, 240) || 'A public discussion on Swartzit.';
   $: previewMedia = mediaValue(data.post.source?.media?.[0]);
+  $: shareMediaUrl = mediaShareUrl(data.post.source?.media);
   $: canonicalUrl = `https://stoverparc.org/post/${data.post.public_id}`;
   onMount(() => {
     token = localStorage.getItem('swartzit_session') || '';
@@ -78,7 +80,7 @@
       <DrawThingsFeedback postId={data.post.id} summary={data.draw_feedback} />
     {/if}
     <div class="post-engagement"><div class="post-actions">{#key data.post.id}<BookmarkButton id={data.post.id} />{/key}
-    <ShareButton id={data.post.public_id} title={data.post.title} /></div>
+    <ShareButton id={data.post.public_id} title={data.post.title} url={shareMediaUrl} media={Boolean(shareMediaUrl)} /></div>
     <span class="local-score" aria-label="Swartzit score">{data.post.score} points</span>
     <footer class="post-reading-stats"><PostViews id={data.post.id} initial={data.post} /></footer>
     {#if token}

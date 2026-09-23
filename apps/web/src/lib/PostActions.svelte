@@ -1,15 +1,17 @@
 <script>
   import BookmarkButton from '$lib/BookmarkButton.svelte';
+  import { mediaShareUrl } from '$lib/media-share.js';
   import ShareButton from '$lib/ShareButton.svelte';
   import VoteButtons from '$lib/VoteButtons.svelte';
 
   export let post;
+  $: shareUrl = mediaShareUrl(post?.source?.media);
 </script>
 
 <div class="post-actions" aria-label="Discussion actions">
   <a class="comment-action" href={'/post/' + post.public_id}>{post.comment_count} comments</a>
   <VoteButtons id={post.id} score={post.score} />
-  <ShareButton id={post.public_id} title={post.title} />
+  <ShareButton id={post.public_id} title={post.title} url={shareUrl} media={Boolean(shareUrl)} />
   <BookmarkButton id={post.id} />
 </div>
 
