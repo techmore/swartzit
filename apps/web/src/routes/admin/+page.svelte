@@ -8,7 +8,7 @@
   let runnerName = '', runnerKind = 'command', runnerCommand = '', runnerPrompt = '', runnerAuthor = '', runnerCommunity = '', runnerInterval = 1800, runnerDays = [1, 2, 3, 4, 5, 6, 7], runnerPriority = 100, runnerTimeout = 900, runnerAttempts = 3, runnerBackoff = 60, runnerThreshold = 3, runnerRetention = 30, runnerEnvironmentKeys = '', runnerCaptureOutput = true, runnerMaxLogBytes = 20000, editingRunner = null;
   let drawExecutable = 'draw-things-cli', drawModelsDir = '', drawModel = '', drawWidth = 1024, drawHeight = 1024, drawSteps = 4, drawCfg = 3.5, drawSeed = '', drawLoras = '[]', drawOutputPath = '', drawPostsPerRun = 1, drawTitlePrefix = 'Draw Things generation';
   let search = '', level = '', kind = 'posts', cursors = [], before = null, paused = false, refreshed = null, busy = false, security = null, blockIp = '', blockReason = '', blockExpiry = '';
-  let generation = 0, authState = 'checking', authError = '';
+  let generation = 0, authState = 'signed_out', authError = '';
   const number = value => new Intl.NumberFormat().format(value ?? 0);
   const date = value => value ? new Date(value).toLocaleString() : '—';
   const size = value => (value / 1024 / 1024).toFixed(1) + ' MB';
@@ -26,6 +26,7 @@
   async function establishAdminSession() {
     const token = localStorage.getItem('swartzit_session');
     if (!token) { authState = 'signed_out'; loading = false; return; }
+    authState = 'checking';
     try {
       const response = await fetch('/api/me', { headers: { authorization: 'Bearer ' + token } });
       if (response.status === 401) {
