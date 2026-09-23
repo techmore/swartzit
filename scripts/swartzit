@@ -199,7 +199,9 @@ case "${1:-status}" in
     ;;
   restart)
     shift
-    NETWORK_REQUESTED="${1:-${SWARTZIT_MODE:-${SWARTZIT_BIND_INTERFACE:-wifi}}}"
+    NETWORK_REQUESTED="${1:-${SWARTZIT_MODE:-${SWARTZIT_BIND_INTERFACE:-}}}"
+    NETWORK_ARGUMENT_SET=0
+    [[ -n "$NETWORK_REQUESTED" ]] && NETWORK_ARGUMENT_SET=1
     CADDY_OVERRIDE_SET=0
     DOMAIN_OVERRIDE_SET=0
     CADDY_BIND_OVERRIDE_SET=0
@@ -212,6 +214,16 @@ case "${1:-status}" in
       set -a
       source "$STATE_DIR/runtime.env"
       set +a
+      if (( ! NETWORK_ARGUMENT_SET )); then
+        # Reuse the exact interface selected for the running service. This is
+        # important when en0 fell back to en1, or when a deployment uses a
+        # specific VPN/bridge interface rather than the default Wi-Fi mode.
+        if [[ "${SWARTZIT_WEB_INTERFACE:-}" =~ ^(en[0-9]+|utun[0-9]+|bridge[0-9]+|lo0|loopback)$ ]]; then
+          NETWORK_REQUESTED="$SWARTZIT_WEB_INTERFACE"
+        else
+          NETWORK_REQUESTED="${SWARTZIT_NETWORK_MODE:-}"
+        fi
+      fi
       if [[ -n "${SWARTZIT_API_BIND_INTERFACE:-}" ]]; then
         SWARTZIT_API_INTERFACE="$SWARTZIT_API_BIND_INTERFACE"
       fi
@@ -219,6 +231,9 @@ case "${1:-status}" in
         SWARTZIT_NETWORK_MODE SWARTZIT_NETWORK_LABEL SWARTZIT_WEB_INTERFACE \
         SWARTZIT_WEB_BIND_IP SWARTZIT_API_BIND_INTERFACE SWARTZIT_API_BIND_IP \
         SWARTZIT_STARTED_AT SWARTZIT_CADDY_BIND_IP SWARTZIT_CADDY_UPSTREAM
+    fi
+    if [[ -z "$NETWORK_REQUESTED" ]]; then
+      NETWORK_REQUESTED="${SWARTZIT_MODE:-${SWARTZIT_BIND_INTERFACE:-wifi}}"
     fi
     if (( CADDY_OVERRIDE_SET )); then SWARTZIT_CADDY="$CADDY_OVERRIDE"; fi
     if (( DOMAIN_OVERRIDE_SET )); then SWARTZIT_DOMAIN="$DOMAIN_OVERRIDE"; fi

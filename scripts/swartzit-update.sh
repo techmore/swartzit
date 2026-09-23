@@ -69,6 +69,30 @@ printf '{"started_at":"%s","previous_version":"%s","backup":"%s","archive":"%s"}
   "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$previous_version" "$backup_path" "$archive_path" > "$manifest"
 
 write_update_status "updating" "stopping" "Stopping Swartzit services" "$previous_version"
+restart_network=""
+restart_origin=""
+restart_caddy=""
+restart_domain=""
+restart_caddy_bind=""
+restart_caddy_upstream=""
+if [[ -f "$STATE_DIR/runtime.env" ]]; then
+  # Capture the active network before stop removes the runtime process state.
+  # Prefer the exact interface over the abstract mode so an en0 -> en1
+  # fallback, VPN, bridge, or other explicit bind survives the update.
+  set -a
+  source "$STATE_DIR/runtime.env"
+  set +a
+  if [[ "${SWARTZIT_WEB_INTERFACE:-}" =~ ^(en[0-9]+|utun[0-9]+|bridge[0-9]+|lo0|loopback)$ ]]; then
+    restart_network="$SWARTZIT_WEB_INTERFACE"
+  else
+    restart_network="${SWARTZIT_NETWORK_MODE:-}"
+  fi
+  restart_origin="${ORIGIN:-${SWARTZIT_ORIGIN:-}}"
+  restart_caddy="${SWARTZIT_CADDY:-}"
+  restart_domain="${SWARTZIT_DOMAIN:-}"
+  restart_caddy_bind="${SWARTZIT_CADDY_BIND_IP:-}"
+  restart_caddy_upstream="${SWARTZIT_CADDY_UPSTREAM:-}"
+fi
 if ! "$LAUNCHER" stop; then
   fail_update "Swartzit services could not be stopped." "$previous_version"
 fi
@@ -86,7 +110,16 @@ new_launcher=$(command -v swartzit 2>/dev/null || true)
 new_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)
 
 write_update_status "updating" "starting" "Starting the updated Swartzit services" "$new_version"
-if ! "$LAUNCHER" start; then
+start_args=()
+[[ -n "$restart_network" ]] && start_args+=("$restart_network")
+if [[ -n "$restart_origin" ]]; then
+  export ORIGIN="$restart_origin"
+fi
+if [[ -n "$restart_caddy" ]]; then export SWARTZIT_CADDY="$restart_caddy"; fi
+if [[ -n "$restart_domain" ]]; then export SWARTZIT_DOMAIN="$restart_domain"; fi
+if [[ -n "$restart_caddy_bind" ]]; then export SWARTZIT_CADDY_BIND_IP="$restart_caddy_bind"; fi
+if [[ -n "$restart_caddy_upstream" ]]; then export SWARTZIT_CADDY_UPSTREAM="$restart_caddy_upstream"; fi
+if ! "$LAUNCHER" start "${start_args[@]}"; then
   echo "Updated package failed health checks." >&2
   echo "Recovery backup: $backup_path"
   echo "Archive: $archive_path"
