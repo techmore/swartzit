@@ -231,7 +231,7 @@ pub async fn observe(State(db): State<PgPool>, request: Request, next: Next) -> 
     }
     // Only bounded route templates and method/status/timing; no IPs, headers,
     // passwords, tokens, bodies, query strings, or user-supplied paths.
-    let log_successes = std::env::var("SWARTZIT_HTTP_SUCCESS_LOGS").ok().as_deref() == Some("1");
+    let log_successes = env_flag("SWARTZIT_HTTP_SUCCESS_LOGS", false);
     if (status.is_client_error() || status.is_server_error() || log_successes)
         && !route.starts_with("/api/admin/")
         && route != "/api/views"
@@ -253,13 +253,17 @@ pub async fn observe(State(db): State<PgPool>, request: Request, next: Next) -> 
         });
     }
     if let Some(hash) = ip_hash {
-        let record_successes = std::env::var("SWARTZIT_IP_ACTIVITY_SUCCESS")
-            .ok()
-            .as_deref()
-            == Some("1");
+        let record_successes = env_flag("SWARTZIT_IP_ACTIVITY_SUCCESS", false);
         if record_successes || status.is_client_error() || status.is_server_error() {
             let _ = sqlx::query(
-                "INSERT INTO ip_activity(ip_hash,route,method,status) VALUES($1,$2,$3,$4)",
+                "INSERT INTO ip_activity(ip_hash,route,method,status) VALUES($1,$2,$3,$4)
+                 ON CONFLICT (slot) DO UPDATE SET
+                   id=EXCLUDED.id,
+                   ip_hash=EXCLUDED.ip_hash,
+                   route=EXCLUDED.route,
+                   method=EXCLUDED.method,
+                   status=EXCLUDED.status,
+                   created_at=EXCLUDED.created_at",
             )
             .bind(hash)
             .bind(&route)
@@ -273,7 +277,7 @@ pub async fn observe(State(db): State<PgPool>, request: Request, next: Next) -> 
 }
 
 pub fn client_ip_hash(request: &Request) -> Option<String> {
-    if std::env::var("TRUST_PROXY").ok().as_deref() != Some("true") {
+    if !env_flag("TRUST_PROXY", false) {
         return None;
     }
     let raw = request
@@ -289,6 +293,28 @@ pub fn client_ip_hash(request: &Request) -> Option<String> {
     let ip: std::net::IpAddr = raw.parse().ok()?;
     Some(hash_ip(ip))
 }
+
+pub fn proxy_trust_enabled() -> bool {
+    env_flag("TRUST_PROXY", false)
+}
+
+fn env_flag(name: &str, default: bool) -> bool {
+    match std::env::var(name).ok().as_deref() {
+        Some(value)
+            if ["1", "true", "yes", "on"].contains(&value.to_ascii_lowercase().as_str()) =>
+        {
+            true
+        }
+        Some(value)
+            if ["0", "false", "no", "off"].contains(&value.to_ascii_lowercase().as_str()) =>
+        {
+            false
+        }
+        Some(_) => default,
+        None => default,
+    }
+}
+
 pub fn hash_ip(ip: std::net::IpAddr) -> String {
     let secret =
         std::env::var("IP_HASH_SECRET").unwrap_or_else(|_| "change-this-ip-hash-secret".into());

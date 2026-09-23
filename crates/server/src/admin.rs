@@ -680,8 +680,9 @@ pub async fn security(
     require_admin(&headers, &db).await?;
     let blocks: Vec<serde_json::Value> = sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT id,label,reason,expires_at,created_at FROM ip_blocks WHERE expires_at IS NULL OR expires_at>now() ORDER BY created_at DESC) t").fetch_all(&db).await?;
     let activity: Vec<serde_json::Value> = sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT ip_hash, count(*)::bigint AS requests, count(*) FILTER (WHERE status>=400)::bigint AS errors, max(created_at) AS last_seen FROM ip_activity WHERE created_at>now()-interval '24 hours' GROUP BY ip_hash ORDER BY requests DESC LIMIT 100) t").fetch_all(&db).await?;
+    let access: Vec<serde_json::Value> = sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT id,ip_hash,route,method,status,created_at FROM ip_activity ORDER BY id DESC LIMIT 100) t").fetch_all(&db).await?;
     Ok(Json(
-        serde_json::json!({"proxy_trust_enabled":std::env::var("TRUST_PROXY").ok().as_deref()==Some("true"),"blocks":blocks,"activity":activity}),
+        serde_json::json!({"proxy_trust_enabled":super::operations::proxy_trust_enabled(),"blocks":blocks,"activity":activity,"access":access}),
     ))
 }
 pub async fn block_ip(

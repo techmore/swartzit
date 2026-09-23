@@ -921,12 +921,15 @@ it does not require an account.
 
 The **Security** tab shows recent proxy-derived request activity and reversible
 address blocks. Swartzit stores a keyed one-way hash of each address, not the
-raw IP, and keeps activity for seven days. To enable this
-behind Caddy or another trusted reverse proxy, set both variables for the API:
+raw IP. Detailed access history is kept
+in a 5,000-request circular buffer and older aggregate activity is cleaned up
+after seven days. To enable this
+behind Caddy or another trusted reverse proxy, set these variables for the API:
 
 ```sh
 TRUST_PROXY=true
 IP_HASH_SECRET='a-long-random-secret'
+SWARTZIT_IP_ACTIVITY_SUCCESS=1
 ```
 
 Only enable `TRUST_PROXY` when every request reaching the API comes through
