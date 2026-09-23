@@ -537,7 +537,6 @@ pub async fn update_settings(
     {
         return Err(ApiError::Invalid("No supported setting was provided"));
     }
-    let actor = actor;
     if let Some(orchard_enabled) = input.orchard_enabled {
         sqlx::query(
             "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
@@ -589,33 +588,33 @@ pub async fn update_settings(
         )
         .await;
     }
-    if let Some(primary) = input.media_primary.as_deref() {
-        if !["filesystem", "s3", "ipfs"].contains(&primary) {
-            return Err(ApiError::Invalid(
-                "Media primary must be filesystem, s3, or ipfs",
-            ));
-        }
+    if let Some(primary) = input.media_primary.as_deref()
+        && !["filesystem", "s3", "ipfs"].contains(&primary)
+    {
+        return Err(ApiError::Invalid(
+            "Media primary must be filesystem, s3, or ipfs",
+        ));
     }
-    if let Some(secondary) = input.media_secondary.as_deref() {
-        if !["disabled", "filesystem", "s3", "ipfs"].contains(&secondary) {
-            return Err(ApiError::Invalid(
-                "Media secondary must be disabled, filesystem, s3, or ipfs",
-            ));
-        }
+    if let Some(secondary) = input.media_secondary.as_deref()
+        && !["disabled", "filesystem", "s3", "ipfs"].contains(&secondary)
+    {
+        return Err(ApiError::Invalid(
+            "Media secondary must be disabled, filesystem, s3, or ipfs",
+        ));
     }
-    if let Some(share) = input.media_share.as_deref() {
-        if !["disabled", "catbox"].contains(&share) {
-            return Err(ApiError::Invalid(
-                "Media sharing must be disabled or catbox",
-            ));
-        }
+    if let Some(share) = input.media_share.as_deref()
+        && !["disabled", "catbox"].contains(&share)
+    {
+        return Err(ApiError::Invalid(
+            "Media sharing must be disabled or catbox",
+        ));
     }
-    if let Some(max_bytes) = input.media_cache_max_bytes {
-        if !(1_048_576..=1_099_511_627_776).contains(&max_bytes) {
-            return Err(ApiError::Invalid(
-                "Media cache size must be between 1 MiB and 1 TiB",
-            ));
-        }
+    if let Some(max_bytes) = input.media_cache_max_bytes
+        && !(1_048_576..=1_099_511_627_776).contains(&max_bytes)
+    {
+        return Err(ApiError::Invalid(
+            "Media cache size must be between 1 MiB and 1 TiB",
+        ));
     }
     if input.media_primary.is_some() || input.media_secondary.is_some() {
         let current = media_store::load_config(&db)
@@ -1035,13 +1034,12 @@ fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiErr
     string_field("output_path", false)?;
     string_field("title_prefix", false)?;
     let bounded_u64 = |key: &str, min: u64, max: u64| -> Result<(), ApiError> {
-        if let Some(value) = config.get(key) {
-            if value
+        if let Some(value) = config.get(key)
+            && value
                 .as_u64()
                 .is_none_or(|value| !(min..=max).contains(&value))
-            {
-                return Err(ApiError::Invalid("Draw Things numeric setting is invalid"));
-            }
+        {
+            return Err(ApiError::Invalid("Draw Things numeric setting is invalid"));
         }
         Ok(())
     };
@@ -1049,18 +1047,17 @@ fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiErr
     bounded_u64("height", 64, 4096)?;
     bounded_u64("steps", 1, 200)?;
     bounded_u64("posts_per_run", 1, 8)?;
-    if let Some(value) = config.get("cfg") {
-        if value
+    if let Some(value) = config.get("cfg")
+        && value
             .as_f64()
             .is_none_or(|value| !value.is_finite() || !(0.0..=50.0).contains(&value))
-        {
-            return Err(ApiError::Invalid("Draw Things CFG setting is invalid"));
-        }
+    {
+        return Err(ApiError::Invalid("Draw Things CFG setting is invalid"));
     }
-    if let Some(value) = config.get("seed") {
-        if !(value.is_null() || value.as_i64().is_some_and(|seed| seed >= 0)) {
-            return Err(ApiError::Invalid("Draw Things seed setting is invalid"));
-        }
+    if let Some(value) = config.get("seed")
+        && !(value.is_null() || value.as_i64().is_some_and(|seed| seed >= 0))
+    {
+        return Err(ApiError::Invalid("Draw Things seed setting is invalid"));
     }
     if let Some(loras) = config.get("loras") {
         let Some(loras) = loras.as_array() else {
@@ -1868,15 +1865,18 @@ async fn load_media_variant(
     };
     let bytes = media_store::read_variant(
         config,
-        &source.content_hash,
-        &source.storage_backend,
-        (!metadata.object_key.is_empty()).then_some(metadata.object_key.as_str()),
-        variant,
-        source.content_bytes.as_deref(),
-        (!metadata.checksum.is_empty()).then_some(metadata.checksum.as_str()),
-        secondary
-            .as_ref()
-            .map(|(provider, key)| (provider.as_str(), key.as_str())),
+        media_store::VariantRead {
+            hash: &source.content_hash,
+            provider: &source.storage_backend,
+            key: (!metadata.object_key.is_empty()).then_some(metadata.object_key.as_str()),
+            variant,
+            legacy_bytes: source.content_bytes.as_deref(),
+            expected_checksum: (!metadata.checksum.is_empty())
+                .then_some(metadata.checksum.as_str()),
+            secondary: secondary
+                .as_ref()
+                .map(|(provider, key)| (provider.as_str(), key.as_str())),
+        },
     )
     .await
     .map_err(ApiError::Storage)?;
@@ -2646,8 +2646,8 @@ pub async fn media_verify(
                 source.storage_backend.clone(),
                 metadata.object_key.clone(),
             )];
-            if config.secondary_provider != "disabled" {
-                if let Some((provider, object_key)) = sqlx::query_as::<_, (String, String)>(
+            if config.secondary_provider != "disabled"
+                && let Some((provider, object_key)) = sqlx::query_as::<_, (String, String)>(
                     "SELECT provider, object_key
                      FROM media_replicas
                      WHERE media_id = $1 AND role = 'secondary' AND provider = $3
@@ -2660,9 +2660,8 @@ pub async fn media_verify(
                 .bind(&config.secondary_provider)
                 .fetch_optional(&db)
                 .await?
-                {
-                    targets.push(("secondary".to_owned(), provider, object_key));
-                }
+            {
+                targets.push(("secondary".to_owned(), provider, object_key));
             }
             for (role, provider, object_key) in targets {
                 if object_key.is_empty() {
@@ -2958,13 +2957,13 @@ pub async fn publish_content_runner(
     };
     let mut tx = db.begin().await?;
     if let Some(source) = canonical_source.as_ref() {
-        if let Some(existing_id) = sqlx::query_scalar::<_, i64>(
+        let existing_id = sqlx::query_scalar::<_, i64>(
             "SELECT post_id FROM external_posts WHERE source_url=$1 FOR UPDATE",
         )
         .bind(source)
         .fetch_optional(&mut *tx)
-        .await?
-        {
+        .await?;
+        if let Some(existing_id) = existing_id {
             sqlx::query(
                 "UPDATE external_posts SET provider=$2,source_author=$3,
                  published_at=COALESCE($4,published_at),observed_at=now(),

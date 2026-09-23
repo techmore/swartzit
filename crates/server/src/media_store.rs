@@ -416,38 +416,49 @@ pub fn variant_metadata(variants: &Value, variant: &str) -> Option<StoredVariant
     serde_json::from_value(value).ok()
 }
 
+pub struct VariantRead<'a> {
+    pub hash: &'a str,
+    pub provider: &'a str,
+    pub key: Option<&'a str>,
+    pub variant: &'a str,
+    pub legacy_bytes: Option<&'a [u8]>,
+    pub expected_checksum: Option<&'a str>,
+    pub secondary: Option<(&'a str, &'a str)>,
+}
+
 pub async fn read_variant(
     config: &MediaConfig,
-    hash: &str,
-    provider: &str,
-    key: Option<&str>,
-    variant: &str,
-    legacy_bytes: Option<&[u8]>,
-    expected_checksum: Option<&str>,
-    secondary: Option<(&str, &str)>,
+    source: VariantRead<'_>,
 ) -> Result<Vec<u8>, String> {
-    if config.cache_enabled {
-        if let Some(bytes) = read_cache(&config.cache_root, hash, variant).await? {
-            if expected_checksum.is_none_or(|expected| checksum(&bytes) == expected) {
-                return Ok(bytes);
-            }
-            tracing::warn!(hash, variant, "media cache checksum mismatch; refetching");
+    if config.cache_enabled
+        && let Some(bytes) = read_cache(&config.cache_root, source.hash, source.variant).await?
+    {
+        if source
+            .expected_checksum
+            .is_none_or(|expected| checksum(&bytes) == expected)
+        {
+            return Ok(bytes);
         }
+        tracing::warn!(
+            hash = source.hash,
+            variant = source.variant,
+            "media cache checksum mismatch; refetching"
+        );
     }
     let mut attempts = Vec::new();
-    if provider == "legacy" {
+    if source.provider == "legacy" {
         attempts.push((
-            provider,
-            key.unwrap_or_default(),
-            legacy_bytes.map(|bytes| bytes.to_vec()),
+            source.provider,
+            source.key.unwrap_or_default(),
+            source.legacy_bytes.map(|bytes| bytes.to_vec()),
         ));
-    } else if let Some(key) = key {
-        attempts.push((provider, key, None));
+    } else if let Some(key) = source.key {
+        attempts.push((source.provider, key, None));
     }
-    if let Some((secondary_provider, secondary_key)) = secondary {
-        if secondary_provider != provider {
-            attempts.push((secondary_provider, secondary_key, None));
-        }
+    if let Some((secondary_provider, secondary_key)) = source.secondary
+        && secondary_provider != source.provider
+    {
+        attempts.push((secondary_provider, secondary_key, None));
     }
     if attempts.is_empty() {
         return Err("media storage record has no readable object".to_owned());
@@ -459,11 +470,21 @@ pub async fn read_variant(
             None => read_primary(config, candidate_provider, candidate_key).await,
         };
         match result {
-            Ok(bytes) if expected_checksum.is_none_or(|expected| checksum(&bytes) == expected) => {
-                if config.cache_enabled {
-                    if let Err(error) = write_cache(config, hash, variant, &bytes).await {
-                        tracing::warn!(%error, hash, variant, "could not populate media cache");
-                    }
+            Ok(bytes)
+                if source
+                    .expected_checksum
+                    .is_none_or(|expected| checksum(&bytes) == expected) =>
+            {
+                if config.cache_enabled
+                    && let Err(error) =
+                        write_cache(config, source.hash, source.variant, &bytes).await
+                {
+                    tracing::warn!(
+                        %error,
+                        hash = source.hash,
+                        variant = source.variant,
+                        "could not populate media cache"
+                    );
                 }
                 return Ok(bytes);
             }

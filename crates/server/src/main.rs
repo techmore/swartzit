@@ -296,6 +296,29 @@ struct MediaAsset {
     byte_size: i64,
     magnet_uri: Option<String>,
 }
+#[derive(FromRow)]
+struct MediaServeRow {
+    content_hash: String,
+    content_bytes: Option<Vec<u8>>,
+    byte_size: i64,
+    mime_type: Option<String>,
+    content_type: String,
+    storage_backend: String,
+    object_key: Option<String>,
+    status: String,
+    variants: serde_json::Value,
+}
+#[derive(FromRow)]
+struct MediaOverviewRow {
+    id: i64,
+    content_hash: String,
+    media_type: String,
+    byte_size: i64,
+    magnet_uri: Option<String>,
+    mime_type: String,
+    storage_backend: String,
+    variants: serde_json::Value,
+}
 #[derive(Deserialize)]
 struct AttachMediaRequest {
     media_id: i64,
@@ -498,17 +521,7 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
     if !matches!(variant, "original" | "thumbnail") {
         return Err(ApiError::Missing);
     }
-    let row: Option<(
-        String,
-        Option<Vec<u8>>,
-        i64,
-        Option<String>,
-        String,
-        String,
-        Option<String>,
-        String,
-        serde_json::Value,
-    )> = sqlx::query_as(
+    let row: Option<MediaServeRow> = sqlx::query_as(
         "SELECT content_hash, content_bytes, byte_size, mime_type, content_type,
                 storage_backend, object_key, status, variants
          FROM media_assets WHERE id=$1",
@@ -516,35 +529,27 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
     .bind(id)
     .fetch_optional(&db)
     .await?;
-    let Some((
-        hash,
-        legacy_bytes,
-        byte_size,
-        mime_type,
-        content_type,
-        provider,
-        object_key,
-        status,
-        variants,
-    )) = row
-    else {
+    let Some(row) = row else {
         return Err(ApiError::Missing);
     };
-    if status == "deleted" {
+    if row.status == "deleted" {
         return Err(ApiError::Missing);
     }
-    let metadata = media_store::variant_metadata(&variants, variant).unwrap_or_else(|| {
+    let metadata = media_store::variant_metadata(&row.variants, variant).unwrap_or_else(|| {
         media_store::StoredVariant {
             variant: variant.to_owned(),
             object_key: if variant == "original" {
-                object_key.clone().unwrap_or_default()
+                row.object_key.clone().unwrap_or_default()
             } else {
                 String::new()
             },
-            byte_size: byte_size.max(0) as u64,
-            mime_type: mime_type.clone().unwrap_or_else(|| content_type.clone()),
+            byte_size: row.byte_size.max(0) as u64,
+            mime_type: row
+                .mime_type
+                .clone()
+                .unwrap_or_else(|| row.content_type.clone()),
             checksum: if variant == "original" {
-                hash.clone()
+                row.content_hash.clone()
             } else {
                 String::new()
             },
@@ -576,15 +581,18 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
     };
     let bytes = media_store::read_variant(
         &config,
-        &hash,
-        &provider,
-        (!metadata.object_key.is_empty()).then_some(metadata.object_key.as_str()),
-        variant,
-        legacy_bytes.as_deref(),
-        (!metadata.checksum.is_empty()).then_some(metadata.checksum.as_str()),
-        secondary
-            .as_ref()
-            .map(|(provider, key)| (provider.as_str(), key.as_str())),
+        media_store::VariantRead {
+            hash: &row.content_hash,
+            provider: &row.storage_backend,
+            key: (!metadata.object_key.is_empty()).then_some(metadata.object_key.as_str()),
+            variant,
+            legacy_bytes: row.content_bytes.as_deref(),
+            expected_checksum: (!metadata.checksum.is_empty())
+                .then_some(metadata.checksum.as_str()),
+            secondary: secondary
+                .as_ref()
+                .map(|(provider, key)| (provider.as_str(), key.as_str())),
+        },
     )
     .await
     .map_err(ApiError::Storage)?;
@@ -1425,16 +1433,7 @@ async fn media(
     State(db): State<PgPool>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let row: Option<(
-        i64,
-        String,
-        String,
-        i64,
-        Option<String>,
-        String,
-        String,
-        serde_json::Value,
-    )> = sqlx::query_as(
+    let row: Option<MediaOverviewRow> = sqlx::query_as(
         "SELECT id, content_hash, media_type, byte_size, magnet_uri,
                 COALESCE(NULLIF(mime_type, ''), content_type), storage_backend, variants
          FROM media_assets WHERE id = $1",
@@ -1442,30 +1441,20 @@ async fn media(
     .bind(id)
     .fetch_optional(&db)
     .await?;
-    let Some((
-        id,
-        content_hash,
-        media_type,
-        byte_size,
-        magnet_uri,
-        mime_type,
-        storage_backend,
-        variants,
-    )) = row
-    else {
+    let Some(row) = row else {
         return Err(ApiError::Missing);
     };
     Ok(Json(serde_json::json!({
-        "id": id,
-        "content_hash": content_hash,
-        "media_type": media_type,
-        "byte_size": byte_size,
-        "magnet_uri": magnet_uri,
-        "mime_type": mime_type,
-        "storage_backend": storage_backend,
-        "src": format!("/media/{id}"),
-        "original_src": format!("/media/{id}/original"),
-        "thumbnail_src": variants.get("thumbnail").map(|_| format!("/media/{id}/thumbnail")),
+        "id": row.id,
+        "content_hash": row.content_hash,
+        "media_type": row.media_type,
+        "byte_size": row.byte_size,
+        "magnet_uri": row.magnet_uri,
+        "mime_type": row.mime_type,
+        "storage_backend": row.storage_backend,
+        "src": format!("/media/{}", row.id),
+        "original_src": format!("/media/{}/original", row.id),
+        "thumbnail_src": row.variants.get("thumbnail").map(|_| format!("/media/{}/thumbnail", row.id)),
     })))
 }
 async fn create_post(
