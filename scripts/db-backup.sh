@@ -6,7 +6,15 @@ cd "$ROOT"
 CONTAINER="${SWARTZIT_DB_CONTAINER:-swartzit-db}"
 DB_USER="${SWARTZIT_DB_USER:-swartzit}"
 DB_NAME="${SWARTZIT_DB_NAME:-swartzit}"
-BACKUP_ROOT="${SWARTZIT_BACKUP_DIR:-${SWARTZIT_DATA_DIR:-$ROOT/.local}/backups}"
+if [[ -n "${SWARTZIT_BACKUP_DIR:-}" ]]; then
+  BACKUP_ROOT="$SWARTZIT_BACKUP_DIR"
+elif [[ -n "${SWARTZIT_STATE_DIR:-}" ]]; then
+  BACKUP_ROOT="$SWARTZIT_STATE_DIR/backups"
+elif [[ -d "$ROOT/.git" || -d "$ROOT/.local" ]]; then
+  BACKUP_ROOT="$ROOT/.local/backups"
+else
+  BACKUP_ROOT="${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}/backups"
+fi
 STAMP="$(date -u '+%Y%m%dT%H%M%SZ')"
 OUT_DIR="$BACKUP_ROOT/$STAMP"
 mkdir -p "$OUT_DIR"

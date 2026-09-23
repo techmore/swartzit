@@ -24,7 +24,8 @@ class Swartzit < Formula
     bin.install "VERSION"
     libexec.install "apps/web/build"
     libexec.install "scripts/status-local.sh", "scripts/db-backup.sh",
-      "scripts/db-restore-verify.sh", "scripts/swartzit-update.sh",
+      "scripts/db-restore-verify.sh", "scripts/db-restore.sh",
+      "scripts/swartzit-update.sh",
       "scripts/swartzit-monitor.sh"
     etc.install ".env.example" => "swartzit.env.example"
   end

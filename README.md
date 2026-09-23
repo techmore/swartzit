@@ -89,6 +89,20 @@ against the source counts, and removes only that temporary verification instance
 Keep at least one dump and one `.tgz` archive off the Mac as well; the local
 artifacts are intentionally ignored by Git because they contain private data.
 
+To restore a verified dump into the active instance, stop the app, make a fresh
+pre-rollback backup, restore the dump, and restart with health checks:
+
+```sh
+swartzit rollback --backup \
+  "$HOME/Library/Application Support/Swartzit/backups/<timestamp>/swartzit.dump" \
+  --yes
+```
+
+The command records `last-rollback.json` and preserves the pre-rollback dump
+and archive. It requires `--yes` because PostgreSQL objects are replaced. Add
+`--leave-stopped` when the database should be restored without restarting the
+application.
+
 > Read freely. Participate under a pseudonym. Take your community with you.
 
 ## Instance administration

@@ -3,7 +3,13 @@ set -euo pipefail
 
 SCRIPT_HOME=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SCRIPT_HOME/.." && pwd)
-STATE_DIR="${SWARTZIT_STATE_DIR:-$ROOT/.local}"
+if [[ -n "${SWARTZIT_STATE_DIR:-}" ]]; then
+  STATE_DIR="$SWARTZIT_STATE_DIR"
+elif [[ -d "$ROOT/.git" || -d "$ROOT/.local" ]]; then
+  STATE_DIR="$ROOT/.local"
+else
+  STATE_DIR="${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}"
+fi
 LAUNCHER="$ROOT/scripts/swartzit"
 [[ -x "$LAUNCHER" ]] || LAUNCHER="$ROOT/bin/swartzit"
 mkdir -p "$STATE_DIR"
@@ -15,10 +21,10 @@ if [[ "${1:-}" != "--yes" ]]; then
 fi
 command -v brew >/dev/null || { echo 'Homebrew is required for updates.' >&2; exit 1; }
 
-backup_output=$($SCRIPT_HOME/db-backup.sh)
+backup_output=$(SWARTZIT_BACKUP_DIR="${SWARTZIT_BACKUP_DIR:-$STATE_DIR/backups}" "$SCRIPT_HOME/db-backup.sh")
 printf '%s\n' "$backup_output" | tee "$STATE_DIR/last-update-backup.txt"
-backup_path=$(printf '%s\n' "$backup_output" | awk '/^Backup: / {print $2; exit}')
-archive_path=$(printf '%s\n' "$backup_output" | awk '/^Archive: / {print $2; exit}')
+backup_path=$(printf '%s\n' "$backup_output" | sed -n 's/^Backup: //p' | head -n 1)
+archive_path=$(printf '%s\n' "$backup_output" | sed -n 's/^Archive: //p' | head -n 1)
 previous_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)
 manifest="$STATE_DIR/last-update.json"
 printf '{"started_at":"%s","previous_version":"%s","backup":"%s","archive":"%s"}\n' \

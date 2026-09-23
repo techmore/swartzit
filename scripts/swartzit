@@ -45,12 +45,13 @@ case "${1:-status}" in
   status)
     STATUS_SCRIPT="$HOME_DIR/scripts/status-local.sh"
     [[ -x "$STATUS_SCRIPT" ]] || STATUS_SCRIPT="$HOME_DIR/libexec/status-local.sh"
-    if [[ -x "$STATUS_SCRIPT" ]]; then exec "$STATUS_SCRIPT" "${2:-}"; fi
+    if [[ -x "$STATUS_SCRIPT" ]]; then shift; exec "$STATUS_SCRIPT" "$@"; fi
     if curl -fsS --max-time 3 "${API_URL:-http://127.0.0.1:18080}/api/posts?limit=1" >/dev/null; then echo 'API: ready'; else echo 'API: down'; fi
     ;;
   backup) exec "$SCRIPT_HOME/db-backup.sh" ;;
   restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify.sh" "$@" ;;
+  rollback) shift; exec "$SCRIPT_HOME/db-restore.sh" "$@" ;;
   update) shift; exec "$SCRIPT_HOME/swartzit-update.sh" "$@" ;;
   monitor) shift; exec "$SCRIPT_HOME/swartzit-monitor.sh" "$@" ;;
-  *) echo 'Usage: swartzit {version|start|stop|status|backup|restore-verify|update|monitor}' >&2; exit 2 ;;
+  *) echo 'Usage: swartzit {version|start|stop|status|backup|restore-verify|rollback|update|monitor}' >&2; exit 2 ;;
 esac
