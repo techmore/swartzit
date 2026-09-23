@@ -138,11 +138,14 @@ case "${1:-status}" in
     : "${API_URL:=http://$API_BIND_IP:$API_PORT}"
     : "${HOST:=$WEB_BIND_IP}"
     : "${PORT:=4173}"
+    REQUESTED_ORIGIN="${SWARTZIT_ORIGIN:-${ORIGIN:-}}"
     : "${ORIGIN:=${SWARTZIT_ORIGIN:-http://$WEB_BIND_IP:$PORT}}"
     export DATABASE_URL BIND_ADDR API_URL HOST PORT ORIGIN SWARTZIT_STATE_DIR="$STATE_DIR"
     {
       printf 'API_URL=%q\n' "$API_URL"
+      printf 'API_PORT=%q\n' "$API_PORT"
       printf 'PORT=%q\n' "$PORT"
+      printf 'SWARTZIT_ORIGIN=%q\n' "$REQUESTED_ORIGIN"
       printf 'SWARTZIT_LOCAL_URL=%q\n' "http://$HOST:$PORT"
       printf 'SWARTZIT_NETWORK_MODE=%q\n' "$NETWORK_MODE"
       printf 'SWARTZIT_NETWORK_LABEL=%q\n' "$NETWORK_LABEL"
@@ -163,6 +166,24 @@ case "${1:-status}" in
     echo "Web URL: http://$HOST:$PORT"
     echo "API bind: $BIND_ADDR ($API_INTERFACE)"
     ;;
+  restart)
+    shift
+    NETWORK_REQUESTED="${1:-${SWARTZIT_MODE:-${SWARTZIT_BIND_INTERFACE:-wifi}}}"
+    if [[ -f "$STATE_DIR/runtime.env" ]]; then
+      set -a
+      source "$STATE_DIR/runtime.env"
+      set +a
+      if [[ -n "${SWARTZIT_API_BIND_INTERFACE:-}" ]]; then
+        SWARTZIT_API_INTERFACE="$SWARTZIT_API_BIND_INTERFACE"
+      fi
+      unset API_URL BIND_ADDR HOST ORIGIN SWARTZIT_LOCAL_URL \
+        SWARTZIT_NETWORK_MODE SWARTZIT_NETWORK_LABEL SWARTZIT_WEB_INTERFACE \
+        SWARTZIT_WEB_BIND_IP SWARTZIT_API_BIND_INTERFACE SWARTZIT_API_BIND_IP \
+        SWARTZIT_STARTED_AT
+    fi
+    "$0" stop >/dev/null
+    exec "$0" start "$NETWORK_REQUESTED"
+    ;;
   stop)
     for name in api web; do if [[ -f "$STATE_DIR/$name.pid" ]]; then kill "$(cat "$STATE_DIR/$name.pid")" 2>/dev/null || true; rm -f "$STATE_DIR/$name.pid"; fi; done
     echo 'Swartzit stopped; database data was preserved.'
@@ -173,6 +194,7 @@ case "${1:-status}" in
     if [[ -x "$STATUS_SCRIPT" ]]; then shift; exec "$STATUS_SCRIPT" "$@"; fi
     if curl -fsS --max-time 3 "${API_URL:-http://127.0.0.1:18080}/api/posts?limit=1" >/dev/null; then echo 'API: ready'; else echo 'API: down'; fi
     ;;
+  interfaces|network-options) shift; exec "$SCRIPT_HOME/network-options.sh" "$@" ;;
   backup) exec "$SCRIPT_HOME/db-backup.sh" ;;
   backup-install) shift; exec "$SCRIPT_HOME/install-mac-backup.sh" "$@" ;;
   restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify.sh" "$@" ;;
@@ -182,5 +204,5 @@ case "${1:-status}" in
   monitor-install) shift; exec "$SCRIPT_HOME/install-mac-monitor.sh" "$@" ;;
   status-install) shift; exec "$SCRIPT_HOME/install-mac-status.sh" "$@" ;;
   orchard) shift; exec "$SCRIPT_HOME/swartzit-orchard.sh" "$@" ;;
-  *) echo 'Usage: swartzit {version|start|stop|status|status-install|backup|backup-install|restore-verify|rollback|update|monitor|monitor-install|orchard}' >&2; exit 2 ;;
+  *) echo 'Usage: swartzit {version|start|restart|stop|status|interfaces|status-install|backup|backup-install|restore-verify|rollback|update|monitor|monitor-install|orchard}' >&2; exit 2 ;;
 esac

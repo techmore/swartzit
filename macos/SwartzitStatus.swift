@@ -37,6 +37,13 @@ struct Network: Decodable {
     let api_interface: String?
     let api_bind_ip: String?
 }
+struct BindingOption: Decodable {
+    let id: String
+    let label: String
+    let `interface`: String
+    let ip: String
+    let kind: String
+}
 struct ActivityWindow: Decodable { let label: String; let users: Int; let posts: Int; let comments: Int }
 struct ActivityFeatures: Decodable { let orchard_enabled: Bool? }
 struct Activity: Decodable { let windows: [ActivityWindow]; let features: ActivityFeatures? }
@@ -52,6 +59,10 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     private var networkItem: NSMenuItem!
     private var uptimeItem: NSMenuItem!
     private var pulseItem: NSMenuItem!
+    private var bindingRootItem: NSMenuItem!
+    private var bindingMenu: NSMenu!
+    private var bindingRows: [NSMenuItem] = []
+    private var bindingInProgress = false
     private var currentOpenURL: String?
     private var timer: Timer?
     private var command: String { ProcessInfo.processInfo.environment["SWARTZIT_COMMAND"] ?? "swartzit" }
@@ -82,6 +93,14 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         pulseItem = NSMenuItem(title: "Uptime pulse: Checking…", action: nil, keyEquivalent: "")
         pulseItem.isEnabled = false
         menu.addItem(pulseItem)
+        bindingRootItem = NSMenuItem(title: "Bind web interface", action: nil, keyEquivalent: "")
+        bindingRootItem.toolTip = "Hot-reload the web server on an available macOS interface. The API remains loopback-only by default."
+        bindingMenu = NSMenu()
+        bindingRootItem.submenu = bindingMenu
+        let checkingBindings = NSMenuItem(title: "Checking available interfaces…", action: nil, keyEquivalent: "")
+        checkingBindings.isEnabled = false
+        bindingMenu.addItem(checkingBindings)
+        menu.addItem(bindingRootItem)
         let activityHeader = NSMenuItem(title: "Activity", action: nil, keyEquivalent: "")
         activityHeader.isEnabled = false
         menu.addItem(activityHeader)
@@ -140,6 +159,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let result = self.run(["status", "--json"])
             let health = result.data.flatMap { try? JSONDecoder().decode(Health.self, from: $0) }
+            let bindings = self.fetchBindings()
             DispatchQueue.main.async {
                 let localUp = health?.status == "up" || (health?.api == "ready" && health?.web == "ready" && health?.database == "ready")
                 let publicDown = health?.public == "down"
@@ -163,6 +183,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                 if let webURL = health?.network?.web_url, !webURL.isEmpty {
                     self.currentOpenURL = webURL
                 }
+                self.renderBindings(bindings, current: health?.network)
             }
             let activity = self.fetchActivity()
             DispatchQueue.main.async {
@@ -192,6 +213,46 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         let api = ProcessInfo.processInfo.environment["SWARTZIT_API_URL"] ?? "http://127.0.0.1:18080"
         guard let url = URL(string: "\(api)/api/activity"), let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(Activity.self, from: data)
+    }
+
+    private func fetchBindings() -> [BindingOption] {
+        let result = run(["interfaces", "--json"])
+        guard result.code == 0, let data = result.data else { return [] }
+        return (try? JSONDecoder().decode([BindingOption].self, from: data)) ?? []
+    }
+
+    private func renderBindings(_ options: [BindingOption], current network: Network?) {
+        for row in bindingRows {
+            bindingMenu.removeItem(row)
+        }
+        bindingRows.removeAll(keepingCapacity: true)
+        bindingMenu.removeAllItems()
+
+        let currentMode = network?.mode
+        let currentInterface = network?.web_interface
+        bindingRootItem.title = "Bind web interface (\(currentInterface ?? "unknown"))"
+
+        guard !options.isEmpty else {
+            let unavailable = NSMenuItem(title: "No active IPv4 interfaces found", action: nil, keyEquivalent: "")
+            unavailable.isEnabled = false
+            bindingMenu.addItem(unavailable)
+            return
+        }
+
+        let note = NSMenuItem(title: "Choose an interface to hot-reload", action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        bindingMenu.addItem(note)
+        bindingMenu.addItem(.separator())
+        for option in options {
+            let row = menuItem("\(option.label) · \(option.interface) · \(option.ip)", #selector(selectBinding(_:)))
+            row.representedObject = option.id
+            row.toolTip = "Restart Swartzit with the web server bound to \(option.interface) (\(option.ip))."
+            if option.id == currentMode || (currentMode == "interface" && option.interface == currentInterface) {
+                row.state = .on
+            }
+            bindingMenu.addItem(row)
+            bindingRows.append(row)
+        }
     }
 
     private func renderActivity(_ activity: Activity?) {
@@ -300,6 +361,30 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             let result = self.run(["orchard", "install", "--yes"])
             DispatchQueue.main.async {
                 self.menu.items[0].title = result.code == 0 ? "Orchard: Installed" : "Orchard: Install failed"
+                self.checkNow()
+            }
+        }
+    }
+    @objc private func selectBinding(_ sender: NSMenuItem) {
+        guard !bindingInProgress, let binding = sender.representedObject as? String else { return }
+        bindingInProgress = true
+        bindingRootItem.isEnabled = false
+        for row in bindingRows { row.isEnabled = false }
+        menu.items[0].title = "Swartzit: Restarting…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.run(["restart", binding])
+            DispatchQueue.main.async {
+                self.bindingInProgress = false
+                self.bindingRootItem.isEnabled = true
+                if result.code != 0 {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not bind Swartzit to \(binding)."
+                    alert.informativeText = String(data: result.data ?? Data(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "The restart command failed."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
                 self.checkNow()
             }
         }

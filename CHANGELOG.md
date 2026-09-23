@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.10-20260923T14
+
+- Adds a native menu submenu for selecting an active web-binding interface.
+- Hot-reloads Swartzit on loopback, Wi-Fi/LAN, Ethernet, VPN, or a concrete
+  macOS interface while keeping the API loopback-only by default.
+- Preserves runtime API, origin, pulse, and port settings during menu restarts.
+
 ## 0.1.9-20260923T14
 
 - Makes macOS LaunchAgent refreshes reliable across package replacement by

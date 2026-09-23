@@ -21,7 +21,7 @@ class Swartzit < Formula
 
     bin.install "scripts/swartzit"
     libexec.install "VERSION", "apps/web/build", "apps/web/static/swartzit-icon.png"
-    libexec.install "scripts/status-local.sh", "scripts/db-backup.sh",
+    libexec.install "scripts/status-local.sh", "scripts/network-options.sh", "scripts/db-backup.sh",
       "scripts/db-restore-verify.sh", "scripts/db-restore.sh",
       "scripts/swartzit-update.sh",
       "scripts/swartzit-monitor.sh", "scripts/install-mac-monitor.sh",

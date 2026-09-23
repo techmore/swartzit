@@ -72,13 +72,27 @@ It emits JSON with completion count, errors, elapsed time, p50, p95, maximum lat
 
 ### macOS menu-bar status
 
-On macOS, install the small native status companion so end users can see at a glance whether Swartzit is running. It refreshes every 30 seconds and provides Open, Check Now, Start, and Stop actions:
+On macOS, install the small native status companion so end users can see at a glance whether Swartzit is running. It refreshes every 30 seconds and provides Open, Check Now, Start, Stop, and hot-reloadable web-interface binding actions:
 
 ```bash
 bash scripts/install-mac-status.sh
 ```
 
 The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Its first rows explicitly show `Swartzit: UP` or `DOWN`, the network binding (for example `Wi-Fi/LAN · Web en0 10.x.x.x · API loopback 127.0.0.1`), the server uptime, and the latest configurable uptime pulse. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
+
+Use **Bind web interface** in the menu to choose an active loopback, Wi-Fi/LAN,
+Ethernet, VPN, or concrete macOS interface. Swartzit stops and restarts its API
+and web processes with the selected web binding, then rechecks health; the API
+remains loopback-only unless `SWARTZIT_API_INTERFACE` was explicitly configured.
+The same options are available to scripts with:
+
+```sh
+swartzit interfaces --json
+swartzit restart en0
+```
+
+Only interfaces with a detected IPv4 address are offered, so the menu cannot
+switch to a disconnected subnet accidentally.
 
 `swartzit start` defaults the web UI to the detected Wi-Fi interface (`en0`,
 falling back to `en1`) while keeping the API on loopback. Choose another mode
