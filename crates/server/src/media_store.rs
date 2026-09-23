@@ -10,7 +10,7 @@ use std::{
     cmp::Reverse,
     env,
     path::{Path, PathBuf},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 use tokio::io::AsyncWriteExt;
 use url::Url;
@@ -28,16 +28,26 @@ pub struct S3Config {
 }
 
 #[derive(Clone, Debug)]
+pub struct IpfsConfig {
+    pub api_url: String,
+    pub gateway_url: Option<String>,
+    pub api_token: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 pub struct MediaConfig {
     pub primary_provider: String,
+    pub secondary_provider: String,
     pub share_provider: String,
     pub cache_enabled: bool,
     pub cache_max_bytes: u64,
     pub media_root: PathBuf,
     pub cache_root: PathBuf,
     pub s3: Option<S3Config>,
+    pub ipfs: Option<IpfsConfig>,
     pub catbox_userhash: Option<String>,
     pub primary_source: String,
+    pub secondary_source: String,
     pub share_source: String,
 }
 
@@ -56,11 +66,19 @@ pub struct StoredAsset {
     pub backend: String,
     pub object_key: String,
     pub variants: Vec<StoredVariant>,
+    pub secondary: Option<StoredReplica>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct StoredReplica {
+    pub backend: String,
+    pub variants: Vec<StoredVariant>,
 }
 
 #[derive(FromRow)]
 struct DbMediaSettings {
     primary_provider: String,
+    secondary_provider: String,
     cache_enabled: bool,
     cache_max_bytes: i64,
     share_provider: String,
@@ -92,7 +110,7 @@ fn env_choice(name: &str, fallback: &str, allowed: &[&str]) -> Result<(String, S
 
 pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
     let settings = sqlx::query_as::<_, DbMediaSettings>(
-        "SELECT primary_provider, cache_enabled, cache_max_bytes, share_provider
+        "SELECT primary_provider, secondary_provider, cache_enabled, cache_max_bytes, share_provider
          FROM media_settings WHERE singleton = TRUE",
     )
     .fetch_optional(db)
@@ -100,6 +118,7 @@ pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
     .map_err(|error| format!("could not load media settings: {error}"))?
     .unwrap_or(DbMediaSettings {
         primary_provider: "filesystem".to_owned(),
+        secondary_provider: "disabled".to_owned(),
         cache_enabled: true,
         cache_max_bytes: 5 * 1024 * 1024 * 1024,
         share_provider: "disabled".to_owned(),
@@ -107,7 +126,12 @@ pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
     let (primary_provider, primary_source) = env_choice(
         "SWARTZIT_MEDIA_PRIMARY",
         &settings.primary_provider,
-        &["filesystem", "s3"],
+        &["filesystem", "s3", "ipfs"],
+    )?;
+    let (secondary_provider, secondary_source) = env_choice(
+        "SWARTZIT_MEDIA_SECONDARY",
+        &settings.secondary_provider,
+        &["disabled", "filesystem", "s3", "ipfs"],
     )?;
     let (share_provider, share_source) = env_choice(
         "SWARTZIT_MEDIA_SHARE",
@@ -125,22 +149,57 @@ pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| data_root().join("cache"));
     let s3 = load_s3_config();
+    let ipfs = load_ipfs_config()?;
+    if secondary_provider != "disabled" && secondary_provider == primary_provider {
+        return Err("SWARTZIT_MEDIA_SECONDARY must differ from the primary provider".to_owned());
+    }
     let catbox_userhash = env::var("SWARTZIT_CATBOX_USERHASH")
         .or_else(|_| env::var("CATBOX_USERHASH"))
         .ok()
         .filter(|value| !value.trim().is_empty());
     Ok(MediaConfig {
         primary_provider,
+        secondary_provider,
         share_provider,
         cache_enabled: settings.cache_enabled,
         cache_max_bytes,
         media_root,
         cache_root,
         s3,
+        ipfs,
         catbox_userhash,
         primary_source,
+        secondary_source,
         share_source,
     })
+}
+
+fn load_ipfs_config() -> Result<Option<IpfsConfig>, String> {
+    let api_url =
+        env::var("SWARTZIT_IPFS_API_URL").unwrap_or_else(|_| "http://127.0.0.1:5001".to_owned());
+    let api_url = normalize_http_base_url(&api_url, "SWARTZIT_IPFS_API_URL")?;
+    let gateway_url = env::var("SWARTZIT_IPFS_GATEWAY_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| normalize_http_base_url(&value, "SWARTZIT_IPFS_GATEWAY_URL"))
+        .transpose()?;
+    let api_token = env::var("SWARTZIT_IPFS_API_TOKEN")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    Ok(Some(IpfsConfig {
+        api_url,
+        gateway_url,
+        api_token,
+    }))
+}
+
+fn normalize_http_base_url(value: &str, name: &str) -> Result<String, String> {
+    let value = value.trim().trim_end_matches('/');
+    let url = Url::parse(value).map_err(|error| format!("{name} is invalid: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(format!("{name} must be an http(s) URL"));
+    }
+    Ok(value.to_owned())
 }
 
 fn load_s3_config() -> Option<S3Config> {
@@ -169,10 +228,12 @@ fn load_s3_config() -> Option<S3Config> {
 
 pub async fn settings_view(db: &PgPool) -> Result<Value, String> {
     let config = load_config(db).await?;
-    let cache = cache_stats(&config.cache_root).await?;
+    let cache = directory_stats(&config.cache_root).await?;
     Ok(serde_json::json!({
         "primary": config.primary_provider,
         "primary_source": config.primary_source,
+        "secondary": config.secondary_provider,
+        "secondary_source": config.secondary_source,
         "share": config.share_provider,
         "share_source": config.share_source,
         "cache_enabled": config.cache_enabled,
@@ -182,8 +243,143 @@ pub async fn settings_view(db: &PgPool) -> Result<Value, String> {
         "media_root": config.media_root,
         "cache_root": config.cache_root,
         "s3_configured": config.s3.is_some(),
+        "ipfs_configured": config.ipfs.is_some(),
+        "ipfs_gateway_configured": config.ipfs.as_ref().is_some_and(|ipfs| ipfs.gateway_url.is_some()),
         "catbox_configured": config.catbox_userhash.is_some(),
     }))
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct StorageContentSummary {
+    pub media_type: String,
+    pub asset_count: i64,
+    pub bytes: i64,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct StorageReplicaSummary {
+    pub provider: String,
+    pub role: String,
+    pub state: String,
+    pub replica_count: i64,
+    pub bytes: i64,
+}
+
+#[derive(Default, Serialize, Clone, Debug)]
+pub struct StorageReplicationSummary {
+    pub pending_jobs: i64,
+    pub running_jobs: i64,
+    pub ready_jobs: i64,
+    pub failed_jobs: i64,
+    pub attempts: i64,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct StorageOverview {
+    pub database_size_bytes: i64,
+    pub canonical_media_assets: i64,
+    pub canonical_media_bytes: i64,
+    pub local_media_files: i64,
+    pub local_media_bytes: i64,
+    pub cache_files: i64,
+    pub cache_bytes: i64,
+    pub project_size_bytes: i64,
+    pub content: Vec<StorageContentSummary>,
+    pub replicas: Vec<StorageReplicaSummary>,
+    pub replication: StorageReplicationSummary,
+}
+
+pub async fn storage_overview(db: &PgPool) -> Result<StorageOverview, String> {
+    let config = load_config(db).await?;
+    let database_size_bytes: i64 =
+        sqlx::query_scalar("SELECT pg_database_size(current_database())")
+            .fetch_one(db)
+            .await
+            .map_err(|error| format!("could not measure database size: {error}"))?;
+    let (canonical_media_assets, canonical_media_bytes): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint, COALESCE(SUM(byte_size), 0)::bigint
+         FROM media_assets WHERE status <> 'deleted'",
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|error| format!("could not measure media size: {error}"))?;
+    let content = sqlx::query_as::<_, (String, i64, i64)>(
+        "SELECT media_type, COUNT(*)::bigint, COALESCE(SUM(byte_size), 0)::bigint
+         FROM media_assets
+         WHERE status <> 'deleted'
+         GROUP BY media_type
+         ORDER BY media_type",
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|error| format!("could not group media size: {error}"))?
+    .into_iter()
+    .map(|(media_type, asset_count, bytes)| StorageContentSummary {
+        media_type,
+        asset_count,
+        bytes,
+    })
+    .collect();
+    let replicas = sqlx::query_as::<_, (String, String, String, i64, i64)>(
+        "SELECT provider, role, state, COUNT(*)::bigint,
+                COALESCE(SUM(byte_size), 0)::bigint
+         FROM media_replicas
+         GROUP BY provider, role, state
+         ORDER BY provider, role, state",
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|error| format!("could not group media replicas: {error}"))?
+    .into_iter()
+    .map(
+        |(provider, role, state, replica_count, bytes)| StorageReplicaSummary {
+            provider,
+            role,
+            state,
+            replica_count,
+            bytes,
+        },
+    )
+    .collect();
+    let job_rows = sqlx::query_as::<_, (String, i64, i64)>(
+        "SELECT status, COUNT(*)::bigint, COALESCE(SUM(attempts), 0)::bigint
+         FROM media_replication_jobs
+         GROUP BY status",
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|error| format!("could not measure media replication jobs: {error}"))?;
+    let mut replication = StorageReplicationSummary::default();
+    for (status, count, attempts) in job_rows {
+        match status.as_str() {
+            "pending" => replication.pending_jobs = count,
+            "running" => replication.running_jobs = count,
+            "ready" => replication.ready_jobs = count,
+            "failed" => replication.failed_jobs = count,
+            _ => {}
+        }
+        replication.attempts += attempts;
+    }
+    let local_media = directory_stats(&config.media_root).await?;
+    let cache = directory_stats(&config.cache_root).await?;
+    let project_size_bytes = u64::try_from(database_size_bytes.max(0))
+        .unwrap_or_default()
+        .saturating_add(local_media.bytes)
+        .saturating_add(cache.bytes)
+        .min(i64::MAX as u64) as i64;
+    Ok(StorageOverview {
+        database_size_bytes,
+        canonical_media_assets,
+        canonical_media_bytes,
+        local_media_files: local_media.files.min(i64::MAX as u64) as i64,
+        local_media_bytes: local_media.bytes.min(i64::MAX as u64) as i64,
+        cache_files: cache.files.min(i64::MAX as u64) as i64,
+        cache_bytes: cache.bytes.min(i64::MAX as u64) as i64,
+        project_size_bytes,
+        content,
+        replicas,
+        replication,
+    })
 }
 
 pub fn object_key(hash: &str, variant: &str) -> String {
@@ -227,28 +423,63 @@ pub async fn read_variant(
     key: Option<&str>,
     variant: &str,
     legacy_bytes: Option<&[u8]>,
+    expected_checksum: Option<&str>,
+    secondary: Option<(&str, &str)>,
 ) -> Result<Vec<u8>, String> {
     if config.cache_enabled {
         if let Some(bytes) = read_cache(&config.cache_root, hash, variant).await? {
-            return Ok(bytes);
+            if expected_checksum.is_none_or(|expected| checksum(&bytes) == expected) {
+                return Ok(bytes);
+            }
+            tracing::warn!(hash, variant, "media cache checksum mismatch; refetching");
         }
     }
-    let bytes = if provider == "legacy" {
-        legacy_bytes
-            .map(|bytes| bytes.to_vec())
-            .ok_or_else(|| "legacy media has no database content".to_owned())?
-    } else {
-        let key = key.ok_or_else(|| "media storage record has no object key".to_owned())?;
-        read_primary(config, provider, key).await?
-    };
-    if config.cache_enabled {
-        if let Err(error) = write_cache(config, hash, variant, &bytes).await {
-            tracing::warn!(%error, hash, variant, "could not populate media cache");
+    let mut attempts = Vec::new();
+    if provider == "legacy" {
+        attempts.push((
+            provider,
+            key.unwrap_or_default(),
+            legacy_bytes.map(|bytes| bytes.to_vec()),
+        ));
+    } else if let Some(key) = key {
+        attempts.push((provider, key, None));
+    }
+    if let Some((secondary_provider, secondary_key)) = secondary {
+        if secondary_provider != provider {
+            attempts.push((secondary_provider, secondary_key, None));
         }
     }
-    Ok(bytes)
+    if attempts.is_empty() {
+        return Err("media storage record has no readable object".to_owned());
+    }
+    let mut errors = Vec::new();
+    for (candidate_provider, candidate_key, inline_bytes) in attempts {
+        let result = match inline_bytes {
+            Some(bytes) => Ok(bytes),
+            None => read_primary(config, candidate_provider, candidate_key).await,
+        };
+        match result {
+            Ok(bytes) if expected_checksum.is_none_or(|expected| checksum(&bytes) == expected) => {
+                if config.cache_enabled {
+                    if let Err(error) = write_cache(config, hash, variant, &bytes).await {
+                        tracing::warn!(%error, hash, variant, "could not populate media cache");
+                    }
+                }
+                return Ok(bytes);
+            }
+            Ok(_) => errors.push(format!("{candidate_provider}: checksum mismatch")),
+            Err(error) => errors.push(format!("{candidate_provider}: {error}")),
+        }
+    }
+    Err(format!(
+        "could not read media variant: {}",
+        errors.join("; ")
+    ))
 }
 
+/// Validate and write the canonical primary variants. Secondary providers are
+/// queued after the asset row is recorded so partner latency does not block the
+/// upload request.
 pub async fn store_asset(
     config: &MediaConfig,
     hash: &str,
@@ -287,7 +518,8 @@ pub async fn store_asset(
     }
     let mut variants = Vec::with_capacity(payloads.len());
     for (variant, mime_type, payload) in payloads {
-        variants.push(store_variant(config, hash, &variant, &mime_type, &payload).await?);
+        let stored = store_variant(config, hash, &variant, &mime_type, &payload).await?;
+        variants.push(stored);
     }
     Ok(StoredAsset {
         backend: config.primary_provider.clone(),
@@ -296,11 +528,31 @@ pub async fn store_asset(
             .map(|variant| variant.object_key.clone())
             .unwrap_or_default(),
         variants,
+        secondary: None,
     })
 }
 
 pub async fn store_variant(
     config: &MediaConfig,
+    hash: &str,
+    variant: &str,
+    mime_type: &str,
+    bytes: &[u8],
+) -> Result<StoredVariant, String> {
+    store_variant_on_provider(
+        config,
+        &config.primary_provider,
+        hash,
+        variant,
+        mime_type,
+        bytes,
+    )
+    .await
+}
+
+pub async fn store_variant_on_provider(
+    config: &MediaConfig,
+    provider: &str,
     hash: &str,
     variant: &str,
     mime_type: &str,
@@ -314,15 +566,53 @@ pub async fn store_variant(
         return Err("media variant name is invalid".to_owned());
     }
     let key = object_key(hash, variant);
-    put_primary(config, &key, mime_type, bytes).await?;
+    let key = put_provider(config, provider, &key, mime_type, bytes).await?;
     Ok(StoredVariant {
         variant: variant.to_owned(),
         object_key: key.clone(),
         byte_size: bytes.len() as u64,
         mime_type: mime_type.to_owned(),
         checksum: checksum(bytes),
-        external_url: public_url(config, &key),
+        external_url: public_url(config, provider, &key),
     })
+}
+
+pub async fn store_variant_replicated(
+    config: &MediaConfig,
+    hash: &str,
+    variant: &str,
+    mime_type: &str,
+    bytes: &[u8],
+) -> Result<(StoredVariant, Option<StoredVariant>), String> {
+    let primary = store_variant(config, hash, variant, mime_type, bytes).await?;
+    let secondary = if config.secondary_provider == "disabled" {
+        None
+    } else {
+        let requested_key = object_key(hash, variant);
+        let key = put_provider(
+            config,
+            &config.secondary_provider,
+            &requested_key,
+            mime_type,
+            bytes,
+        )
+        .await
+        .map_err(|error| {
+            format!(
+                "secondary {} write failed after primary write: {error}",
+                config.secondary_provider
+            )
+        })?;
+        Some(StoredVariant {
+            variant: variant.to_owned(),
+            object_key: key.clone(),
+            byte_size: bytes.len() as u64,
+            mime_type: mime_type.to_owned(),
+            checksum: checksum(bytes),
+            external_url: public_url(config, &config.secondary_provider, &key),
+        })
+    };
+    Ok((primary, secondary))
 }
 
 fn make_thumbnail(bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -336,23 +626,35 @@ fn make_thumbnail(bytes: &[u8]) -> Result<Vec<u8>, String> {
     Ok(output.into_inner())
 }
 
-async fn put_primary(
+async fn put_provider(
     config: &MediaConfig,
+    provider: &str,
     key: &str,
     content_type: &str,
     bytes: &[u8],
-) -> Result<(), String> {
-    match config.primary_provider.as_str() {
-        "filesystem" => write_filesystem(&config.media_root, key, bytes).await,
+) -> Result<String, String> {
+    match provider {
+        "filesystem" => {
+            write_filesystem(&config.media_root, key, bytes).await?;
+            Ok(key.to_owned())
+        }
         "s3" => {
             let s3 = config.s3.as_ref().ok_or_else(|| {
                 "S3 storage is selected but credentials are not configured".to_owned()
             })?;
             let response =
                 s3_request(s3, Method::PUT, Some(key), Some(bytes), Some(content_type)).await?;
-            ensure_success(response, "S3 upload").await
+            ensure_success(response, "S3 upload").await?;
+            Ok(key.to_owned())
         }
-        other => Err(format!("unsupported primary media provider: {other}")),
+        "ipfs" => {
+            let ipfs = config
+                .ipfs
+                .as_ref()
+                .ok_or_else(|| "IPFS storage is not configured".to_owned())?;
+            ipfs_add(ipfs, bytes, content_type).await
+        }
+        other => Err(format!("unsupported media provider: {other}")),
     }
 }
 
@@ -377,8 +679,134 @@ pub async fn read_primary(
                 .map(|bytes| bytes.to_vec())
                 .map_err(|error| format!("could not read S3 media: {error}"))
         }
+        "ipfs" => {
+            let ipfs = config
+                .ipfs
+                .as_ref()
+                .ok_or_else(|| "IPFS storage is not configured".to_owned())?;
+            ipfs_cat(ipfs, key).await
+        }
         other => Err(format!("unsupported media provider: {other}")),
     }
+}
+
+fn ipfs_client() -> Result<Client, String> {
+    Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|error| format!("could not create IPFS client: {error}"))
+}
+
+fn ipfs_rpc_url(config: &IpfsConfig, command: &str) -> String {
+    format!("{}/api/v0/{command}", config.api_url)
+}
+
+fn ipfs_authorize(
+    request: reqwest::RequestBuilder,
+    config: &IpfsConfig,
+) -> reqwest::RequestBuilder {
+    match &config.api_token {
+        Some(token) => request.bearer_auth(token),
+        None => request,
+    }
+}
+
+async fn ipfs_add(config: &IpfsConfig, bytes: &[u8], content_type: &str) -> Result<String, String> {
+    let part = reqwest::multipart::Part::bytes(bytes.to_vec())
+        .file_name("media.bin")
+        .mime_str(content_type)
+        .map_err(|error| format!("invalid IPFS media type: {error}"))?;
+    let form = reqwest::multipart::Form::new().part("file", part);
+    let client = ipfs_client()?;
+    let response = ipfs_authorize(
+        client
+            .post(ipfs_rpc_url(config, "add"))
+            .query(&[
+                ("pin", "true"),
+                ("cid-version", "1"),
+                ("raw-leaves", "true"),
+                ("wrap-with-directory", "false"),
+            ])
+            .multipart(form),
+        config,
+    )
+    .send()
+    .await
+    .map_err(|error| format!("IPFS add failed: {error}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("IPFS add response could not be read: {error}"))?;
+    if !status.is_success() {
+        return Err(format!("IPFS add failed with HTTP {status}: {body}"));
+    }
+    ipfs_cid_from_add_response(&body)
+}
+
+fn ipfs_cid_from_add_response(body: &str) -> Result<String, String> {
+    for line in body.lines().rev() {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let cid = value
+            .get("Hash")
+            .and_then(Value::as_str)
+            .or_else(|| value.get("Cid").and_then(Value::as_str))
+            .or_else(|| {
+                value
+                    .get("Cid")
+                    .and_then(|cid| cid.get("/"))
+                    .and_then(Value::as_str)
+            });
+        if let Some(cid) = cid.filter(|cid| valid_ipfs_key(cid)) {
+            return Ok(cid.to_owned());
+        }
+    }
+    Err("IPFS add returned no valid CID".to_owned())
+}
+
+fn valid_ipfs_key(key: &str) -> bool {
+    !key.is_empty() && key.len() <= 256 && key.bytes().all(|byte| byte.is_ascii_alphanumeric())
+}
+
+async fn ipfs_cat(config: &IpfsConfig, key: &str) -> Result<Vec<u8>, String> {
+    if !valid_ipfs_key(key) {
+        return Err("IPFS object key is not a valid CID".to_owned());
+    }
+    let client = ipfs_client()?;
+    let response = ipfs_authorize(
+        client
+            .post(ipfs_rpc_url(config, "cat"))
+            .query(&[("arg", key)]),
+        config,
+    )
+    .send()
+    .await
+    .map_err(|error| format!("IPFS cat failed: {error}"))?;
+    let response = ensure_response(response, "IPFS cat").await?;
+    response
+        .bytes()
+        .await
+        .map(|bytes| bytes.to_vec())
+        .map_err(|error| format!("could not read IPFS media: {error}"))
+}
+
+async fn ipfs_unpin(config: &IpfsConfig, key: &str) -> Result<(), String> {
+    if !valid_ipfs_key(key) {
+        return Err("IPFS object key is not a valid CID".to_owned());
+    }
+    let client = ipfs_client()?;
+    let response = ipfs_authorize(
+        client
+            .post(ipfs_rpc_url(config, "pin/rm"))
+            .query(&[("arg", key), ("recursive", "true")]),
+        config,
+    )
+    .send()
+    .await
+    .map_err(|error| format!("IPFS unpin failed: {error}"))?;
+    ensure_success(response, "IPFS unpin").await
 }
 
 pub async fn write_cache(
@@ -417,15 +845,15 @@ pub async fn clear_cache(cache_root: &Path) -> Result<(), String> {
 }
 
 #[derive(Default)]
-struct CacheStats {
+struct DirectoryStats {
     bytes: u64,
     files: u64,
 }
 
-async fn cache_stats(root: &Path) -> Result<CacheStats, String> {
+async fn directory_stats(root: &Path) -> Result<DirectoryStats, String> {
     let mut files = Vec::new();
     collect_cache_files(root, &mut files).await?;
-    Ok(CacheStats {
+    Ok(DirectoryStats {
         bytes: files.iter().map(|(_, size, _)| *size).sum(),
         files: files.len() as u64,
     })
@@ -522,13 +950,18 @@ async fn write_filesystem_path(path: &Path, bytes: &[u8]) -> Result<(), String> 
         .map_err(|error| format!("could not finalize media file: {error}"))
 }
 
-pub async fn test_primary(config: &MediaConfig) -> Result<(), String> {
-    let bytes = b"swartzit-media-storage-test";
-    let hash = hex::encode(Sha256::digest(bytes));
+async fn test_provider(config: &MediaConfig, provider: &str) -> Result<(), String> {
+    let bytes = format!(
+        "swartzit-media-storage-test:{}:{}",
+        provider,
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    )
+    .into_bytes();
+    let hash = checksum(&bytes);
     let key = format!("health/{hash}");
-    match config.primary_provider.as_str() {
+    match provider {
         "filesystem" => {
-            write_filesystem(&config.media_root, &key, bytes).await?;
+            write_filesystem(&config.media_root, &key, &bytes).await?;
             tokio::fs::remove_file(config.media_root.join(key))
                 .await
                 .map_err(|error| format!("could not clean storage test object: {error}"))?;
@@ -538,22 +971,66 @@ pub async fn test_primary(config: &MediaConfig) -> Result<(), String> {
             let s3 = config.s3.as_ref().ok_or_else(|| {
                 "S3 storage is selected but credentials are not configured".to_owned()
             })?;
-            let response =
-                s3_request(s3, Method::PUT, Some(&key), Some(bytes), Some("text/plain")).await?;
+            let response = s3_request(
+                s3,
+                Method::PUT,
+                Some(&key),
+                Some(&bytes),
+                Some("text/plain"),
+            )
+            .await?;
             ensure_success(response, "S3 storage test upload").await?;
             let response = s3_request(s3, Method::DELETE, Some(&key), None, None).await?;
             ensure_success(response, "S3 storage test cleanup").await
         }
-        other => Err(format!("unsupported primary media provider: {other}")),
+        "ipfs" => {
+            let ipfs = config
+                .ipfs
+                .as_ref()
+                .ok_or_else(|| "IPFS storage is not configured".to_owned())?;
+            let cid = ipfs_add(ipfs, &bytes, "text/plain").await?;
+            let read_result = ipfs_cat(ipfs, &cid).await;
+            let unpin_result = ipfs_unpin(ipfs, &cid).await;
+            match (read_result, unpin_result) {
+                (Ok(read), Ok(())) if read == bytes => Ok(()),
+                (Ok(_), Ok(())) => Err("IPFS storage test checksum mismatch".to_owned()),
+                (Err(error), Ok(())) => Err(error),
+                (Ok(_), Err(error)) => Err(error),
+                (Err(read_error), Err(unpin_error)) => {
+                    Err(format!("{read_error}; cleanup also failed: {unpin_error}"))
+                }
+            }
+        }
+        "disabled" => Ok(()),
+        other => Err(format!("unsupported media provider: {other}")),
     }
 }
 
-pub fn public_url(config: &MediaConfig, key: &str) -> Option<String> {
-    config.s3.as_ref().and_then(|s3| {
-        s3.public_base_url
-            .as_ref()
-            .map(|base| format!("{}/{}", base.trim_end_matches('/'), key))
-    })
+pub async fn test_configured(config: &MediaConfig) -> Result<Vec<String>, String> {
+    let mut tested = Vec::new();
+    test_provider(config, &config.primary_provider).await?;
+    tested.push(config.primary_provider.clone());
+    if config.secondary_provider != "disabled" {
+        test_provider(config, &config.secondary_provider).await?;
+        tested.push(config.secondary_provider.clone());
+    }
+    Ok(tested)
+}
+
+pub fn public_url(config: &MediaConfig, provider: &str, key: &str) -> Option<String> {
+    match provider {
+        "s3" => config.s3.as_ref().and_then(|s3| {
+            s3.public_base_url
+                .as_ref()
+                .map(|base| format!("{}/{}", base.trim_end_matches('/'), key))
+        }),
+        "ipfs" => config.ipfs.as_ref().and_then(|ipfs| {
+            ipfs.gateway_url
+                .as_ref()
+                .map(|base| format!("{}/ipfs/{key}", base.trim_end_matches('/')))
+        }),
+        _ => None,
+    }
 }
 
 pub async fn share_catbox(
@@ -769,5 +1246,24 @@ mod tests {
             checksum(b"swartzit"),
             "b552eaf72ef6b99b1df32220a7b5ca058167b3119a5912c9e04a284d3b0098ca"
         );
+    }
+
+    #[test]
+    fn ipfs_add_response_reads_the_final_streaming_cid() {
+        let body = concat!(
+            "{\"Name\":\"media.bin\",\"Hash\":\"bafyfirst\",\"Size\":\"1\"}\n",
+            "{\"Name\":\"media.bin\",\"Hash\":\"bafyfinal\",\"Size\":\"2\"}\n"
+        );
+        assert_eq!(
+            ipfs_cid_from_add_response(body).expect("IPFS CID"),
+            "bafyfinal"
+        );
+    }
+
+    #[test]
+    fn ipfs_object_keys_cannot_escape_the_cid_path() {
+        assert!(valid_ipfs_key("bafybeigdyrzt"));
+        assert!(!valid_ipfs_key("https://gateway.example/ipfs/bafy"));
+        assert!(!valid_ipfs_key(""));
     }
 }

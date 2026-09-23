@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.16-20260923T17
+
+- Adds the content-runner release surface for X cross-posting and Draw Things,
+  including reusable disabled starters, dynamic prompts, LoRA configuration,
+  source metadata, and live progress/ETA reporting in the admin console.
+- Adds media replica and migration foundations so canonical local storage,
+  disposable cache data, and optional external sharing can evolve independently.
+- Adds draw-generation feedback capture and compact, organized runner details
+  so administrators can see the model, prompt, destination, schedule, and run
+  state without expanding every card.
+- Completes the profile/timeline presentation and desktop posting/search
+  affordances while keeping the native macOS status companion aligned with the
+  application release and recovery workflow.
+- Includes the database migrations, runner tests, web checks, and backup-first
+  upgrade tooling required for this release line.
+
 ## 0.1.15-20260923T16
 
 - Rebinds Caddy whenever the macOS menu changes Swartzit's web interface, so

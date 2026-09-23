@@ -231,11 +231,12 @@ Swartzit keeps a provider-neutral `media_assets` record and serves stable URLs:
 
 The original is canonical; the local cache is disposable. New runner uploads use
 the configured primary provider, while older database-backed blobs remain
-readable until an administrator chooses **Migrate legacy media**. Configure the
+readable until an administrator chooses **Migrate media**. Configure the
 primary in Admin → Settings or with environment variables:
 
 ```sh
-SWARTZIT_MEDIA_PRIMARY=filesystem   # filesystem (default) or s3
+SWARTZIT_MEDIA_PRIMARY=filesystem   # filesystem (default), s3, or ipfs
+SWARTZIT_MEDIA_SECONDARY=disabled   # disabled (default), filesystem, s3, or ipfs
 SWARTZIT_MEDIA_ROOT="$HOME/Library/Application Support/Swartzit/media"
 SWARTZIT_MEDIA_CACHE_DIR="$HOME/Library/Application Support/Swartzit/cache"
 SWARTZIT_MEDIA_CACHE_MAX_BYTES=5368709120
@@ -246,9 +247,22 @@ The S3-compatible adapter accepts `SWARTZIT_S3_ENDPOINT`,
 `SWARTZIT_S3_BUCKET`, `SWARTZIT_S3_REGION`, `SWARTZIT_S3_ACCESS_KEY`,
 `SWARTZIT_S3_SECRET_KEY`, and optional `SWARTZIT_S3_PUBLIC_BASE_URL`. Swartzit
 writes content-addressed objects, records checksums and replicas, and verifies
-the stored bytes before serving them. Switching providers changes new writes;
-the migration action copies old assets and the verification action checks the
-new replica before cleanup.
+the stored bytes before serving them. IPFS uses a local Kubo RPC endpoint and
+pins each uploaded variant. Set SWARTZIT_IPFS_GATEWAY_URL if gateway URLs
+should be included in media metadata, and set SWARTZIT_IPFS_API_TOKEN when the
+RPC endpoint requires bearer authentication:
+
+SWARTZIT_IPFS_API_URL=http://127.0.0.1:5001
+SWARTZIT_IPFS_GATEWAY_URL=https://ipfs.example.net
+
+The primary is written during the upload request. If a secondary is enabled,
+Swartzit records a durable replication job and retries the partner upload in
+the background; the Admin storage panel shows pending, failed, and completed
+replicas. If the primary cannot be read, Swartzit verifies and serves a ready
+secondary copy, then repopulates the bounded local cache. Switching providers
+changes new writes; the migration action copies existing assets into both
+selected providers and the verification action checks every recorded primary
+and secondary replica.
 
 Catbox is an explicit share/export adapter only. It is disabled by default and
 is never treated as canonical storage, a backup, a CDN, or a streaming origin.
@@ -547,12 +561,36 @@ recorded as failed; the worker never scrapes a browser login or reports a
 fabricated success. Provider credentials belong in the worker environment, not
 in the job record or repository.
 
+### Scheduled X cross-posts and local Draw Things
+
+Admin → **Content Runners** includes disabled starter recipes for a bounded X
+cross-post and local Draw Things generation. The X recipe can collect several
+accounts, topics, or explicit queries over a rolling or explicit start/end
+window; it deduplicates canonical source URLs and caps each execution at eight
+posts. Set `X_BEARER_TOKEN` only in the worker environment, add it to the
+runner's allowed environment keys, and enter account/topic values in the
+runner editor. The adapter is `scripts/x-cross-post-runner.mjs`.
+
+Draw Things uses the installed `draw-things-cli` directly on the worker host.
+The starter model is `flux_1_schnell_q5p.ckpt` when that model is present; pick
+another local model in the editor when needed. Prompts expand `{date}`,
+`{weekday}`, `{community}`, `{runner}`, `{seed}`, and `{index}` at execution
+time. **Test** runs the actual command without publishing, records the output
+path and prompt, and only **Run now** or an enabled schedule creates a post.
+
+Generated Draw Things posts also have an optional structured feedback panel:
+overall preference plus prompt match, natural color, realism, likeness,
+composition, and detail. Each person can update their rating, skip dimensions
+that do not apply, and see the aggregate signal without affecting normal post
+votes or moderation.
+
 Swartzit stores external media metadata and source URLs separately from its
 canonical media store. The bounded LRU cache is enabled only for media objects;
 it never caches sessions, admin pages, or authenticated responses. External
 source media still respects the source license and can be purged independently.
-Torrent or IPFS distribution is an optional future backend for media that is
-explicitly redistributable; it is not enabled by default.
+IPFS is now an optional durable backend for media that is explicitly
+redistributable; it is not enabled by default and its Kubo RPC endpoint must
+remain private.
 
 ## Optional JEV finance bridge
 
@@ -919,9 +957,9 @@ it does not require an account.
 
 ### Admin security
 
-The **Security** tab shows recent proxy-derived request activity and reversible
-address blocks. Swartzit stores a keyed one-way hash of each address, not the
-raw IP. Detailed access history is kept
+The **Security** tab shows recent proxy-derived request activity, timestamps,
+routes, statuses, and reversible address blocks. Swartzit stores a keyed
+one-way hash of each address, not the raw IP. Detailed access history is kept
 in a 5,000-request circular buffer and older aggregate activity is cleaned up
 after seven days. To enable this
 behind Caddy or another trusted reverse proxy, set these variables for the API:

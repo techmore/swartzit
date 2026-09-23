@@ -4,7 +4,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 mkdir -p .local
 export SWARTZIT_STATE_DIR="${SWARTZIT_STATE_DIR:-$ROOT/.local}"
-PORT="${PORT:-4173}"
+PORT="${SWARTZIT_WEB_PORT:-${PORT:-4173}}"
 MODE="${SWARTZIT_MODE:-${SWARTZIT_BIND_INTERFACE:-${1:-lan}}}"
 
 interface_ip() {
@@ -103,9 +103,9 @@ API_BIND_IP="$(interface_ip "$API_BIND_INTERFACE" || true)"
 [[ -n "$API_BIND_IP" ]] || { echo "No IPv4 address found on API interface $API_BIND_INTERFACE." >&2; exit 1; }
 export BIND_ADDR="${BIND_ADDR:-$API_BIND_IP:$API_PORT}"
 export API_URL="${API_URL:-http://$API_BIND_IP:$API_PORT}"
-export HOST="${HOST:-$WEB_BIND_IP}"
+export HOST="${SWARTZIT_WEB_HOST:-$WEB_BIND_IP}"
 export PORT
-export ORIGIN="${ORIGIN:-${SWARTZIT_ORIGIN:-$DEFAULT_ORIGIN}}"
+export ORIGIN="${SWARTZIT_ORIGIN:-$DEFAULT_ORIGIN}"
 if [[ "$MODE" == public && -z "${SWARTZIT_CADDY_BIND_IP:-}" ]]; then
   SWARTZIT_CADDY_BIND_IP=0.0.0.0
 fi

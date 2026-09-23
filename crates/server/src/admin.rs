@@ -475,6 +475,7 @@ pub struct UpdateSettings {
     content_runners_enabled: Option<bool>,
     moderation_enabled: Option<bool>,
     media_primary: Option<String>,
+    media_secondary: Option<String>,
     media_cache_enabled: Option<bool>,
     media_cache_max_bytes: Option<i64>,
     media_share: Option<String>,
@@ -507,6 +508,18 @@ pub async fn settings(
     })))
 }
 
+pub async fn storage(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<media_store::StorageOverview>, ApiError> {
+    require_admin(&headers, &db).await?;
+    Ok(Json(
+        media_store::storage_overview(&db)
+            .await
+            .map_err(ApiError::Storage)?,
+    ))
+}
+
 pub async fn update_settings(
     State(db): State<PgPool>,
     headers: HeaderMap,
@@ -517,6 +530,7 @@ pub async fn update_settings(
         && input.content_runners_enabled.is_none()
         && input.moderation_enabled.is_none()
         && input.media_primary.is_none()
+        && input.media_secondary.is_none()
         && input.media_cache_enabled.is_none()
         && input.media_cache_max_bytes.is_none()
         && input.media_share.is_none()
@@ -578,8 +592,17 @@ pub async fn update_settings(
         .await;
     }
     if let Some(primary) = input.media_primary.as_deref() {
-        if !["filesystem", "s3"].contains(&primary) {
-            return Err(ApiError::Invalid("Media primary must be filesystem or s3"));
+        if !["filesystem", "s3", "ipfs"].contains(&primary) {
+            return Err(ApiError::Invalid(
+                "Media primary must be filesystem, s3, or ipfs",
+            ));
+        }
+    }
+    if let Some(secondary) = input.media_secondary.as_deref() {
+        if !["disabled", "filesystem", "s3", "ipfs"].contains(&secondary) {
+            return Err(ApiError::Invalid(
+                "Media secondary must be disabled, filesystem, s3, or ipfs",
+            ));
         }
     }
     if let Some(share) = input.media_share.as_deref() {
@@ -594,22 +617,44 @@ pub async fn update_settings(
             ));
         }
     }
-    if let Some(primary) = input.media_primary.as_deref() {
+    if input.media_primary.is_some() || input.media_secondary.is_some() {
         let current = media_store::load_config(&db)
             .await
             .map_err(ApiError::Storage)?;
-        if current.primary_source == "environment" && current.primary_provider != primary {
+        let mut candidate = current;
+        if let Some(primary) = input.media_primary.as_deref() {
+            if candidate.primary_source == "environment"
+                && candidate.primary_provider != primary
+            {
+                return Err(ApiError::Invalid(
+                    "SWARTZIT_MEDIA_PRIMARY is set in the environment; change that override first",
+                ));
+            }
+            candidate.primary_provider = primary.to_owned();
+        }
+        if let Some(secondary) = input.media_secondary.as_deref() {
+            if candidate.secondary_source == "environment"
+                && candidate.secondary_provider != secondary
+            {
+                return Err(ApiError::Invalid(
+                    "SWARTZIT_MEDIA_SECONDARY is set in the environment; change that override first",
+                ));
+            }
+            candidate.secondary_provider = secondary.to_owned();
+        }
+        if candidate.secondary_provider != "disabled"
+            && candidate.secondary_provider == candidate.primary_provider
+        {
             return Err(ApiError::Invalid(
-                "SWARTZIT_MEDIA_PRIMARY is set in the environment; change that override first",
+                "Media secondary must differ from the primary provider",
             ));
         }
-        let mut candidate = current;
-        candidate.primary_provider = primary.to_owned();
-        media_store::test_primary(&candidate)
+        media_store::test_configured(&candidate)
             .await
             .map_err(ApiError::Storage)?;
     }
     if input.media_primary.is_some()
+        || input.media_secondary.is_some()
         || input.media_cache_enabled.is_some()
         || input.media_cache_max_bytes.is_some()
         || input.media_share.is_some()
@@ -617,14 +662,16 @@ pub async fn update_settings(
         sqlx::query(
             "UPDATE media_settings
              SET primary_provider = COALESCE($1, primary_provider),
-                 cache_enabled = COALESCE($2, cache_enabled),
-                 cache_max_bytes = COALESCE($3, cache_max_bytes),
-                 share_provider = COALESCE($4, share_provider),
-                 updated_by = $5,
+                 secondary_provider = COALESCE($2, secondary_provider),
+                 cache_enabled = COALESCE($3, cache_enabled),
+                 cache_max_bytes = COALESCE($4, cache_max_bytes),
+                 share_provider = COALESCE($5, share_provider),
+                 updated_by = $6,
                  updated_at = now()
              WHERE singleton = TRUE",
         )
         .bind(input.media_primary.as_deref())
+        .bind(input.media_secondary.as_deref())
         .bind(input.media_cache_enabled)
         .bind(input.media_cache_max_bytes)
         .bind(input.media_share.as_deref())
@@ -638,6 +685,7 @@ pub async fn update_settings(
             serde_json::json!({
                 "actor_id": actor,
                 "primary": input.media_primary,
+                "secondary": input.media_secondary,
                 "cache_enabled": input.media_cache_enabled,
                 "cache_max_bytes": input.media_cache_max_bytes,
                 "share": input.media_share
@@ -1130,7 +1178,7 @@ fn validate_environment_keys(keys: &serde_json::Value) -> Result<(), ApiError> {
     Ok(())
 }
 
-const RUNNER_SELECT: &str = "SELECT row_to_json(t) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.days_of_week,r.priority,r.enabled,r.state,r.test_requested,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT row_to_json(x) FROM (SELECT id,status,attempt,config_version,dry_run,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
+const RUNNER_SELECT: &str = "SELECT row_to_json(t) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.days_of_week,r.priority,r.enabled,r.state,r.test_requested,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT row_to_json(x) FROM (SELECT id,status,attempt,config_version,dry_run,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail,progress_percent,progress_phase,progress_message,current_step,total_steps,eta_seconds,progress_updated_at FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
 
 pub async fn content_runners(
     State(db): State<PgPool>,
@@ -1445,7 +1493,79 @@ pub async fn content_runner_runs(
     Query(filter): Query<RunnerRunFilter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT r.id,r.runner_id,c.name,r.status,r.attempt,r.config_version,r.dry_run,r.started_at,r.finished_at,r.post_id,r.error,r.exit_code,r.duration_ms,r.timed_out,r.retry_at,r.stdout,r.stderr,r.detail FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE ($1::bigint IS NULL OR r.runner_id=$1) ORDER BY r.id DESC LIMIT 200) t").bind(filter.runner_id).fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT r.id,r.runner_id,c.name,r.status,r.attempt,r.config_version,r.dry_run,r.started_at,r.finished_at,r.post_id,r.error,r.exit_code,r.duration_ms,r.timed_out,r.retry_at,r.stdout,r.stderr,r.detail,r.progress_percent,r.progress_phase,r.progress_message,r.current_step,r.total_steps,r.eta_seconds,r.progress_updated_at FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE ($1::bigint IS NULL OR r.runner_id=$1) ORDER BY r.id DESC LIMIT 200) t").bind(filter.runner_id).fetch_all(&db).await?))
+}
+
+#[derive(Deserialize, Default)]
+pub struct UpdateContentRunnerProgress {
+    progress_percent: Option<i16>,
+    phase: Option<String>,
+    message: Option<String>,
+    current_step: Option<i32>,
+    total_steps: Option<i32>,
+    eta_seconds: Option<i32>,
+}
+
+pub async fn update_content_runner_progress(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(run_id): Path<i64>,
+    Json(input): Json<UpdateContentRunnerProgress>,
+) -> Result<StatusCode, ApiError> {
+    require_admin(&headers, &db).await?;
+    let percent = input
+        .progress_percent
+        .ok_or(ApiError::Invalid("Runner progress requires a percentage"))?;
+    if !(0..=100).contains(&percent) {
+        return Err(ApiError::Invalid("Runner progress must be between 0 and 100"));
+    }
+    let phase = input
+        .phase
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if phase.as_ref().is_some_and(|value| value.len() > 64) {
+        return Err(ApiError::Invalid("Runner progress phase is too long"));
+    }
+    let message = input
+        .message
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if message.as_ref().is_some_and(|value| value.len() > 300) {
+        return Err(ApiError::Invalid("Runner progress message is too long"));
+    }
+    if input.current_step.is_some_and(|value| value < 0)
+        || input.total_steps.is_some_and(|value| value < 0)
+        || input
+            .current_step
+            .zip(input.total_steps)
+            .is_some_and(|(current, total)| current > total)
+    {
+        return Err(ApiError::Invalid("Runner progress steps are invalid"));
+    }
+    if input.eta_seconds.is_some_and(|value| !(0..=604_800).contains(&value)) {
+        return Err(ApiError::Invalid("Runner progress ETA is invalid"));
+    }
+    let updated = sqlx::query(
+        "UPDATE content_runner_runs
+         SET progress_percent=$2, progress_phase=$3, progress_message=$4,
+             current_step=$5, total_steps=$6, eta_seconds=$7,
+             progress_updated_at=now()
+         WHERE id=$1 AND status='running'",
+    )
+    .bind(run_id)
+    .bind(percent)
+    .bind(phase)
+    .bind(message)
+    .bind(input.current_step)
+    .bind(input.total_steps)
+    .bind(input.eta_seconds)
+    .execute(&db)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(ApiError::Missing);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn replay_content_runner(
@@ -1560,7 +1680,7 @@ pub async fn complete_content_runner(
         ));
     }
     let detail = input.detail.unwrap_or_else(|| serde_json::json!({}));
-    sqlx::query("UPDATE content_runner_runs SET finished_at=now(),status=$2,post_id=$3,error=$4,detail=$5,stdout=$6,stderr=$7,exit_code=$8,duration_ms=$9,timed_out=$10 WHERE id=$1").bind(run_id).bind(&input.status).bind(input.post_id).bind(&input.error).bind(detail).bind(&stdout).bind(&stderr).bind(input.exit_code).bind(input.duration_ms).bind(input.timed_out.unwrap_or(input.status=="timeout")).execute(&mut *tx).await?;
+    sqlx::query("UPDATE content_runner_runs SET finished_at=now(),status=$2,post_id=$3,error=$4,detail=$5,stdout=$6,stderr=$7,exit_code=$8,duration_ms=$9,timed_out=$10,progress_percent=CASE WHEN $2 IN ('success','skipped') THEN 100 ELSE progress_percent END,progress_phase=CASE WHEN $2 IN ('success','skipped') THEN 'complete' ELSE progress_phase END,eta_seconds=NULL,progress_updated_at=now() WHERE id=$1").bind(run_id).bind(&input.status).bind(input.post_id).bind(&input.error).bind(detail).bind(&stdout).bind(&stderr).bind(input.exit_code).bind(input.duration_ms).bind(input.timed_out.unwrap_or(input.status=="timeout")).execute(&mut *tx).await?;
     if dry_run {
         sqlx::query("UPDATE content_runners SET last_status=$2,last_error=$3,paused_reason=NULL,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'")
             .bind(runner_id)
@@ -1608,10 +1728,24 @@ pub struct RunnerPost {
     body: Option<String>,
     author: String,
     community: String,
+    provider: Option<String>,
     source_url: Option<String>,
+    source_author: Option<String>,
+    published_at: Option<chrono::DateTime<chrono::Utc>>,
+    source_views: Option<i64>,
+    source_likes: Option<i64>,
+    source_reposts: Option<i64>,
+    source_replies: Option<i64>,
     media: Option<serde_json::Value>,
     source_comments: Option<serde_json::Value>,
     attribution: Option<String>,
+    profile_image_url: Option<String>,
+    profile_url: Option<String>,
+    profile_display_name: Option<String>,
+    profile_bio: Option<String>,
+    profile_followers: Option<i64>,
+    profile_following: Option<i64>,
+    profile_verified: Option<bool>,
     generation_config: Option<serde_json::Value>,
 }
 
@@ -1681,6 +1815,23 @@ async fn load_media_variant(
         return Err(ApiError::Missing);
     }
     let metadata = source_variant(&source, variant)?;
+    let secondary: Option<(String, String)> = if config.secondary_provider == "disabled" {
+        None
+    } else {
+        sqlx::query_as(
+            "SELECT provider, object_key
+             FROM media_replicas
+             WHERE media_id = $1 AND role = 'secondary' AND provider = $3
+               AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+             ORDER BY id DESC
+             LIMIT 1",
+        )
+        .bind(id)
+        .bind(variant)
+        .bind(&config.secondary_provider)
+        .fetch_optional(db)
+        .await?
+    };
     let bytes = media_store::read_variant(
         config,
         &source.content_hash,
@@ -1688,6 +1839,10 @@ async fn load_media_variant(
         (!metadata.object_key.is_empty()).then_some(metadata.object_key.as_str()),
         variant,
         source.content_bytes.as_deref(),
+        (!metadata.checksum.is_empty()).then_some(metadata.checksum.as_str()),
+        secondary
+            .as_ref()
+            .map(|(provider, key)| (provider.as_str(), key.as_str())),
     )
     .await
     .map_err(ApiError::Storage)?;
@@ -1700,17 +1855,19 @@ async fn load_media_variant(
     Ok((source, metadata, bytes))
 }
 
-async fn record_primary_replicas(
+async fn record_replicas(
     db: &PgPool,
     media_id: i64,
+    role: &str,
     stored: &media_store::StoredAsset,
+    variants: &[media_store::StoredVariant],
 ) -> Result<(), ApiError> {
-    for variant in &stored.variants {
+    for variant in variants {
         sqlx::query(
             "INSERT INTO media_replicas
                 (media_id, provider, role, variant, object_key, external_url,
                  checksum, byte_size, mime_type, state, error, updated_at, last_verified_at)
-             VALUES ($1, $2, 'primary', $3, $4, $5, $6, $7, $8, 'ready', '', now(), now())
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'ready', '', now(), now())
              ON CONFLICT (media_id, provider, role, variant) DO UPDATE SET
                 object_key = EXCLUDED.object_key,
                 external_url = EXCLUDED.external_url,
@@ -1724,12 +1881,101 @@ async fn record_primary_replicas(
         )
         .bind(media_id)
         .bind(&stored.backend)
+        .bind(role)
         .bind(&variant.variant)
         .bind(&variant.object_key)
         .bind(variant.external_url.as_deref())
         .bind(&variant.checksum)
         .bind(variant.byte_size as i64)
         .bind(&variant.mime_type)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn record_primary_replicas(
+    db: &PgPool,
+    media_id: i64,
+    stored: &media_store::StoredAsset,
+) -> Result<(), ApiError> {
+    record_replicas(db, media_id, "primary", stored, &stored.variants).await
+}
+
+async fn record_secondary_replicas(
+    db: &PgPool,
+    media_id: i64,
+    stored: &media_store::StoredAsset,
+) -> Result<(), ApiError> {
+    if let Some(secondary) = stored.secondary.as_ref() {
+        let replica = media_store::StoredAsset {
+            backend: secondary.backend.clone(),
+            object_key: secondary
+                .variants
+                .first()
+                .map(|variant| variant.object_key.clone())
+                .unwrap_or_default(),
+            variants: secondary.variants.clone(),
+            secondary: None,
+        };
+        record_replicas(
+            db,
+            media_id,
+            "secondary",
+            &replica,
+            &secondary.variants,
+        )
+        .await?;
+        for variant in &secondary.variants {
+            sqlx::query(
+                "UPDATE media_replication_jobs
+                 SET status = 'ready', locked_at = NULL, last_error = '',
+                     completed_at = COALESCE(completed_at, now()), updated_at = now()
+                 WHERE media_id = $1 AND provider = $2 AND variant = $3",
+            )
+            .bind(media_id)
+            .bind(&secondary.backend)
+            .bind(&variant.variant)
+            .execute(db)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn queue_secondary_replicas(
+    db: &PgPool,
+    media_id: i64,
+    stored: &media_store::StoredAsset,
+    provider: &str,
+) -> Result<(), ApiError> {
+    if provider == "disabled" {
+        return Ok(());
+    }
+    for variant in &stored.variants {
+        sqlx::query(
+            "INSERT INTO media_replicas
+                (media_id, provider, role, variant, checksum, byte_size, mime_type, state, error)
+             VALUES ($1, $2, 'secondary', $3, $4, $5, $6, 'uploading', '')
+             ON CONFLICT (media_id, provider, role, variant) DO NOTHING",
+        )
+        .bind(media_id)
+        .bind(provider)
+        .bind(&variant.variant)
+        .bind(&variant.checksum)
+        .bind(variant.byte_size as i64)
+        .bind(&variant.mime_type)
+        .execute(db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO media_replication_jobs
+                (media_id, provider, variant, status, available_at, updated_at)
+             VALUES ($1, $2, $3, 'pending', now(), now())
+             ON CONFLICT (media_id, provider, variant) DO NOTHING",
+        )
+        .bind(media_id)
+        .bind(provider)
+        .bind(&variant.variant)
         .execute(db)
         .await?;
     }
@@ -1743,6 +1989,7 @@ async fn persist_stored_asset(
     bytes: &[u8],
     digest: &str,
     stored: &media_store::StoredAsset,
+    secondary_provider: &str,
 ) -> Result<(i64, String, String, serde_json::Value), ApiError> {
     let variants = media_store::variants_json(&stored.variants);
     let row: (i64, String, String, serde_json::Value) = sqlx::query_as(
@@ -1780,6 +2027,8 @@ async fn persist_stored_asset(
     .await?;
     if row.2 == stored.backend {
         record_primary_replicas(db, row.0, stored).await?;
+        record_secondary_replicas(db, row.0, stored).await?;
+        queue_secondary_replicas(db, row.0, stored, secondary_provider).await?;
     }
     Ok(row)
 }
@@ -1839,6 +2088,7 @@ pub async fn upload_media(
         &bytes,
         &digest,
         &stored,
+        &config.secondary_provider,
     )
     .await?;
     Ok((
@@ -1890,7 +2140,16 @@ pub async fn upload_content_runner_media(
     let stored = media_store::store_asset(&config, &digest, &content_type, &bytes)
         .await
         .map_err(ApiError::Storage)?;
-    let row = persist_stored_asset(&db, "image", &content_type, &bytes, &digest, &stored).await?;
+    let row = persist_stored_asset(
+        &db,
+        "image",
+        &content_type,
+        &bytes,
+        &digest,
+        &stored,
+        &config.secondary_provider,
+    )
+    .await?;
     Ok(Json(serde_json::json!({
         "id": row.0,
         "src": format!("/media/{}", row.0),
@@ -1900,6 +2159,207 @@ pub async fn upload_content_runner_media(
         "content_type": row.1,
         "storage_backend": row.2,
     })))
+}
+
+#[derive(FromRow)]
+struct MediaReplicationJob {
+    id: i64,
+    media_id: i64,
+    provider: String,
+    variant: String,
+    attempts: i32,
+}
+
+async fn claim_media_replication_job(
+    db: &PgPool,
+) -> Result<Option<MediaReplicationJob>, String> {
+    sqlx::query_as(
+        "WITH stale AS (
+             UPDATE media_replication_jobs
+             SET status = 'pending', locked_at = NULL, updated_at = now()
+             WHERE status = 'running'
+               AND locked_at < now() - interval '10 minutes'
+         ), candidate AS (
+             SELECT id
+             FROM media_replication_jobs
+             WHERE status IN ('pending', 'failed')
+               AND available_at <= now()
+             ORDER BY id
+             FOR UPDATE SKIP LOCKED
+             LIMIT 1
+         )
+         UPDATE media_replication_jobs AS job
+         SET status = 'running', attempts = job.attempts + 1,
+             locked_at = now(), updated_at = now()
+         FROM candidate
+         WHERE job.id = candidate.id
+         RETURNING job.id, job.media_id, job.provider, job.variant, job.attempts",
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|error| format!("could not claim media replication job: {error}"))
+}
+
+async fn complete_media_replication_job(
+    db: &PgPool,
+    job: &MediaReplicationJob,
+    config: &media_store::MediaConfig,
+) -> Result<(), String> {
+    let source = sqlx::query_as::<_, MediaSource>(
+        "SELECT id, content_hash, content_bytes, byte_size, mime_type, content_type,
+                storage_backend, object_key, status, variants
+         FROM media_assets WHERE id = $1",
+    )
+    .bind(job.media_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|error| format!("could not load media asset: {error}"))?
+    .ok_or_else(|| "media asset no longer exists".to_owned())?;
+    if source.status == "deleted" {
+        return Err("media asset is deleted".to_owned());
+    }
+    let metadata = source_variant(&source, &job.variant)
+        .map_err(|_| format!("media variant {} is unavailable", job.variant))?;
+    let bytes = if source.storage_backend == "legacy" {
+        source
+            .content_bytes
+            .as_deref()
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| "legacy media has no database content".to_owned())?
+    } else {
+        media_store::read_primary(config, &source.storage_backend, &metadata.object_key).await?
+    };
+    if !metadata.checksum.is_empty() && media_store::checksum(&bytes) != metadata.checksum {
+        return Err(format!("checksum mismatch for {}", job.variant));
+    }
+    let stored = media_store::store_variant_on_provider(
+        config,
+        &job.provider,
+        &source.content_hash,
+        &job.variant,
+        &metadata.mime_type,
+        &bytes,
+    )
+    .await?;
+    let verified = media_store::read_primary(config, &job.provider, &stored.object_key).await?;
+    if media_store::checksum(&verified) != stored.checksum {
+        return Err(format!(
+            "secondary {} checksum mismatch after upload",
+            job.provider
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO media_replicas
+            (media_id, provider, role, variant, object_key, external_url,
+             checksum, byte_size, mime_type, state, error, updated_at, last_verified_at)
+         VALUES ($1, $2, 'secondary', $3, $4, $5, $6, $7, $8, 'ready', '', now(), now())
+         ON CONFLICT (media_id, provider, role, variant) DO UPDATE SET
+            object_key = EXCLUDED.object_key,
+            external_url = EXCLUDED.external_url,
+            checksum = EXCLUDED.checksum,
+            byte_size = EXCLUDED.byte_size,
+            mime_type = EXCLUDED.mime_type,
+            state = 'ready', error = '', updated_at = now(), last_verified_at = now()",
+    )
+    .bind(job.media_id)
+    .bind(&job.provider)
+    .bind(&job.variant)
+    .bind(&stored.object_key)
+    .bind(stored.external_url.as_deref())
+    .bind(&stored.checksum)
+    .bind(stored.byte_size as i64)
+    .bind(&stored.mime_type)
+    .execute(db)
+    .await
+    .map_err(|error| format!("could not record media replica: {error}"))?;
+    sqlx::query(
+        "UPDATE media_replication_jobs
+         SET status = 'ready', locked_at = NULL, last_error = '',
+             completed_at = now(), updated_at = now()
+         WHERE id = $1",
+    )
+    .bind(job.id)
+    .execute(db)
+    .await
+    .map_err(|error| format!("could not complete media replication job: {error}"))?;
+    Ok(())
+}
+
+async fn fail_media_replication_job(
+    db: &PgPool,
+    job: &MediaReplicationJob,
+    error: &str,
+) -> Result<(), String> {
+    let shift = job.attempts.saturating_sub(1).min(7) as u32;
+    let delay_seconds = 30_i64.saturating_mul(1_i64 << shift);
+    let available_at = Utc::now() + chrono::Duration::seconds(delay_seconds);
+    let error = error.chars().take(2000).collect::<String>();
+    sqlx::query(
+        "UPDATE media_replication_jobs
+         SET status = 'failed', locked_at = NULL, available_at = $2,
+             last_error = $3, updated_at = now()
+         WHERE id = $1",
+    )
+    .bind(job.id)
+    .bind(available_at)
+    .bind(&error)
+    .execute(db)
+    .await
+    .map_err(|update_error| format!("could not record media replication failure: {update_error}"))?;
+    sqlx::query(
+        "UPDATE media_replicas
+         SET state = 'failed', error = $4, updated_at = now()
+         WHERE media_id = $1 AND provider = $2 AND role = 'secondary' AND variant = $3",
+    )
+    .bind(job.media_id)
+    .bind(&job.provider)
+    .bind(&job.variant)
+    .bind(&error)
+    .execute(db)
+    .await
+    .map_err(|update_error| format!("could not record media replica failure: {update_error}"))?;
+    Ok(())
+}
+
+async fn reconcile_media_replication_jobs(db: &PgPool) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO media_replication_jobs
+            (media_id, provider, variant, status, available_at, updated_at)
+         SELECT media_id, provider, variant, 'pending', now(), now()
+         FROM media_replicas
+         WHERE role = 'secondary' AND state IN ('uploading', 'failed')
+         ON CONFLICT (media_id, provider, variant) DO NOTHING",
+    )
+    .execute(db)
+    .await
+    .map(|_| ())
+    .map_err(|error| format!("could not reconcile media replication jobs: {error}"))
+}
+
+pub async fn process_media_replication_jobs(db: &PgPool) -> Result<u64, String> {
+    let config = media_store::load_config(db).await?;
+    reconcile_media_replication_jobs(db).await?;
+    let mut processed = 0_u64;
+    for _ in 0..4 {
+        let Some(job) = claim_media_replication_job(db).await? else {
+            break;
+        };
+        match complete_media_replication_job(db, &job, &config).await {
+            Ok(()) => processed += 1,
+            Err(error) => {
+                tracing::warn!(
+                    media_id = job.media_id,
+                    provider = %job.provider,
+                    variant = %job.variant,
+                    attempts = job.attempts,
+                    %error,
+                    "media replication attempt failed"
+                );
+                fail_media_replication_job(db, &job, &error).await?;
+            }
+        }
+    }
+    Ok(processed)
 }
 
 #[derive(Deserialize, Default)]
@@ -1915,20 +2375,21 @@ pub async fn media_test(
     let config = media_store::load_config(&db)
         .await
         .map_err(ApiError::Storage)?;
-    media_store::test_primary(&config)
+    let tested = media_store::test_configured(&config)
         .await
         .map_err(ApiError::Storage)?;
     log_event(
         &db,
         "info",
         "admin.media_storage_tested",
-        serde_json::json!({"actor_id": actor, "provider": config.primary_provider}),
+        serde_json::json!({"actor_id": actor, "providers": tested}),
     )
     .await;
     Ok(Json(serde_json::json!({
         "status": "ok",
-        "provider": config.primary_provider,
-        "source": config.primary_source,
+        "providers": tested,
+        "primary_source": config.primary_source,
+        "secondary_source": config.secondary_source,
     })))
 }
 
@@ -1965,16 +2426,16 @@ pub async fn media_migrate(
         "SELECT id, content_hash, content_bytes, byte_size, mime_type, content_type,
                 storage_backend, object_key, status, variants
          FROM media_assets
-         WHERE status = 'ready' AND (storage_backend = 'legacy' OR storage_backend <> $1)
+         WHERE status = 'ready'
          ORDER BY id",
     )
-    .bind(&config.primary_provider)
     .fetch_all(&db)
     .await?;
     let mut migrated = 0_u64;
     let mut failures = Vec::new();
     for source in sources {
         let mut stored_variants = Vec::new();
+        let mut secondary_variants = Vec::new();
         let mut source_error = None;
         for variant in ["original", "thumbnail"] {
             let metadata = match source_variant(&source, variant) {
@@ -2009,7 +2470,7 @@ pub async fn media_migrate(
                 source_error = Some(format!("checksum mismatch for {variant}"));
                 break;
             }
-            match media_store::store_variant(
+            match media_store::store_variant_replicated(
                 &config,
                 &source.content_hash,
                 variant,
@@ -2018,7 +2479,12 @@ pub async fn media_migrate(
             )
             .await
             {
-                Ok(stored) => stored_variants.push(stored),
+                Ok((stored, secondary)) => {
+                    stored_variants.push(stored);
+                    if let Some(secondary) = secondary {
+                        secondary_variants.push(secondary);
+                    }
+                }
                 Err(error) => {
                     source_error = Some(error);
                     break;
@@ -2047,6 +2513,12 @@ pub async fn media_migrate(
             backend: config.primary_provider.clone(),
             object_key: original_key,
             variants: stored_variants,
+            secondary: (config.secondary_provider != "disabled").then_some(
+                media_store::StoredReplica {
+                    backend: config.secondary_provider.clone(),
+                    variants: secondary_variants,
+                },
+            ),
         };
         let variants = media_store::variants_json(&stored.variants);
         sqlx::query(
@@ -2062,6 +2534,15 @@ pub async fn media_migrate(
         .bind(&original_mime_type)
         .bind(original_byte_size as i64)
         .bind(variants)
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "UPDATE media_replicas
+             SET state = 'deleted', updated_at = now()
+             WHERE media_id = $1 AND role = 'secondary' AND provider <> $2",
+        )
+        .bind(source.id)
+        .bind(&config.secondary_provider)
         .execute(&db)
         .await?;
         if source.storage_backend != "legacy" {
@@ -2081,6 +2562,7 @@ pub async fn media_migrate(
             .await?;
         }
         record_primary_replicas(&db, source.id, &stored).await?;
+        record_secondary_replicas(&db, source.id, &stored).await?;
         migrated += 1;
     }
     log_event(
@@ -2126,46 +2608,72 @@ pub async fn media_verify(
             let Ok(metadata) = source_variant(&source, variant) else {
                 continue;
             };
-            if metadata.object_key.is_empty() {
-                failures.push(serde_json::json!({
-                    "id": source.id,
-                    "variant": variant,
-                    "error": "missing object key"
-                }));
-                continue;
+            let mut targets = vec![(
+                "primary".to_owned(),
+                source.storage_backend.clone(),
+                metadata.object_key.clone(),
+            )];
+            if config.secondary_provider != "disabled" {
+                if let Some((provider, object_key)) = sqlx::query_as::<_, (String, String)>(
+                    "SELECT provider, object_key
+                     FROM media_replicas
+                     WHERE media_id = $1 AND role = 'secondary' AND provider = $3
+                       AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+                     ORDER BY id DESC
+                     LIMIT 1",
+                )
+                .bind(source.id)
+                .bind(variant)
+                .bind(&config.secondary_provider)
+                .fetch_optional(&db)
+                .await?
+                {
+                    targets.push(("secondary".to_owned(), provider, object_key));
+                }
             }
-            let result = media_store::read_primary(
-                &config,
-                &source.storage_backend,
-                &metadata.object_key,
-            )
-            .await
-            .and_then(|bytes| {
-                if media_store::checksum(&bytes) != metadata.checksum {
-                    Err("checksum mismatch".to_owned())
-                } else {
-                    Ok(bytes)
+            for (role, provider, object_key) in targets {
+                if object_key.is_empty() {
+                    failures.push(serde_json::json!({
+                        "id": source.id,
+                        "variant": variant,
+                        "role": role,
+                        "provider": provider,
+                        "error": "missing object key"
+                    }));
+                    continue;
                 }
-            });
-            match result {
-                Ok(_) => {
-                    checked += 1;
-                    sqlx::query(
-                        "UPDATE media_replicas
-                         SET last_verified_at = now(), updated_at = now(), state = 'ready', error = ''
-                         WHERE media_id = $1 AND provider = $2 AND role = 'primary' AND variant = $3",
-                    )
-                    .bind(source.id)
-                    .bind(&source.storage_backend)
-                    .bind(variant)
-                    .execute(&db)
-                    .await?;
+                let result = media_store::read_primary(&config, &provider, &object_key)
+                    .await
+                    .and_then(|bytes| {
+                        if media_store::checksum(&bytes) != metadata.checksum {
+                            Err("checksum mismatch".to_owned())
+                        } else {
+                            Ok(bytes)
+                        }
+                    });
+                match result {
+                    Ok(_) => {
+                        checked += 1;
+                        sqlx::query(
+                            "UPDATE media_replicas
+                             SET last_verified_at = now(), updated_at = now(), state = 'ready', error = ''
+                             WHERE media_id = $1 AND provider = $2 AND role = $3 AND variant = $4",
+                        )
+                        .bind(source.id)
+                        .bind(&provider)
+                        .bind(&role)
+                        .bind(variant)
+                        .execute(&db)
+                        .await?;
+                    }
+                    Err(error) => failures.push(serde_json::json!({
+                        "id": source.id,
+                        "variant": variant,
+                        "role": role,
+                        "provider": provider,
+                        "error": error
+                    })),
                 }
-                Err(error) => failures.push(serde_json::json!({
-                    "id": source.id,
-                    "variant": variant,
-                    "error": error
-                })),
             }
         }
     }
@@ -2307,37 +2815,87 @@ pub async fn publish_content_runner(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
     let title = input.title.trim();
-    let body = input.body.unwrap_or_default();
+    let body = input.body.clone().unwrap_or_default();
     let author = input.author.trim();
     let community = input.community.trim().to_ascii_lowercase();
+    let provider = input
+        .provider
+        .clone()
+        .unwrap_or_else(|| "runner".to_owned())
+        .trim()
+        .to_ascii_lowercase();
+    let source_url = input
+        .source_url
+        .clone()
+        .filter(|source| !source.trim().is_empty());
+    let canonical_source = match (provider.as_str(), source_url.as_deref()) {
+        ("runner", source) => source.map(str::to_owned),
+        (_, Some(source)) => Some(imports::canonical(&provider, source)?),
+        (_, None) => {
+            return Err(ApiError::Invalid(
+                "A provider-backed runner post needs a source URL",
+            ))
+        }
+    };
+    if !["runner", "x", "reddit", "rss", "commons"].contains(&provider.as_str()) {
+        return Err(ApiError::Invalid("Runner provider is not supported"));
+    }
+    let source_author = input
+        .source_author
+        .clone()
+        .unwrap_or_else(|| author.to_owned());
+    let media = input
+        .media
+        .clone()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let source_comments = input
+        .source_comments
+        .clone()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let attribution = input.attribution.clone().unwrap_or_else(|| {
+        "Generated by a configured Swartzit content runner".to_owned()
+    });
+    let generation_config = input
+        .generation_config
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
     if title.is_empty() || title.len() > 300 || body.len() > 50000 {
         return Err(ApiError::Invalid(
             "Runner post title or body is outside the allowed length",
         ));
     }
-    if input
-        .media
-        .as_ref()
-        .is_some_and(|media| !media.is_array() || media.as_array().is_some_and(|media| media.len() > 8))
-    {
+    if source_author.trim().is_empty() || source_author.len() > 200 {
+        return Err(ApiError::Invalid("Runner source author is invalid"));
+    }
+    if !media.is_array() || media.as_array().is_some_and(|media| media.len() > 8) {
         return Err(ApiError::Invalid("Runner posts may contain at most 8 media items"));
     }
-    if input
-        .source_comments
-        .as_ref()
-        .is_some_and(|comments| !comments.is_array() || comments.as_array().is_some_and(|comments| comments.len() > 50))
+    if !source_comments.is_array()
+        || source_comments
+            .as_array()
+            .is_some_and(|comments| comments.len() > 50)
     {
         return Err(ApiError::Invalid("Runner source comments are too large"));
     }
-    if input.attribution.as_ref().is_some_and(|attribution| attribution.len() > 2000) {
+    if attribution.len() > 2000 {
         return Err(ApiError::Invalid("Runner attribution is too long"));
     }
-    if input
-        .generation_config
-        .as_ref()
-        .is_some_and(|config| !config.is_object())
-    {
+    if !generation_config.is_object() {
         return Err(ApiError::Invalid("Runner generation settings must be an object"));
+    }
+    if [input.source_views, input.source_likes, input.source_reposts, input.source_replies]
+        .into_iter()
+        .flatten()
+        .any(|value| !(0..=9_007_199_254_740_991).contains(&value))
+    {
+        return Err(ApiError::Invalid("Runner metrics must be nonnegative safe integers"));
+    }
+    if provider == "x" {
+        let typed_media: Vec<imports::Media> = serde_json::from_value(media.clone())
+            .map_err(|_| ApiError::Invalid("X runner media is invalid"))?;
+        for item in &typed_media {
+            imports::validate_media(item, "x")?;
+        }
     }
     let author_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle=$1")
         .bind(author)
@@ -2360,8 +2918,63 @@ pub async fn publish_content_runner(
     } else {
         ("none".to_owned(), serde_json::json!([]), false)
     };
-    let publication_status = if moderation_enabled { "pending" } else { "approved" };
     let mut tx = db.begin().await?;
+    if let Some(source) = canonical_source.as_ref() {
+        if let Some(existing_id) = sqlx::query_scalar::<_, i64>(
+            "SELECT post_id FROM external_posts WHERE source_url=$1 FOR UPDATE",
+        )
+        .bind(source)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            sqlx::query(
+                "UPDATE external_posts SET provider=$2,source_author=$3,
+                 published_at=COALESCE($4,published_at),observed_at=now(),
+                 source_views=COALESCE($5,source_views),source_likes=COALESCE($6,source_likes),
+                 source_reposts=COALESCE($7,source_reposts),source_replies=COALESCE($8,source_replies),
+                 media=$9,source_comments=$10,attribution=$11,profile_image_url=$12,
+                 profile_url=$13,profile_display_name=$14,profile_bio=$15,
+                 profile_followers=$16,profile_following=$17,profile_verified=$18,
+                 generation_config=$19 WHERE post_id=$1",
+            )
+            .bind(existing_id)
+            .bind(&provider)
+            .bind(&source_author)
+            .bind(input.published_at)
+            .bind(input.source_views)
+            .bind(input.source_likes)
+            .bind(input.source_reposts)
+            .bind(input.source_replies)
+            .bind(&media)
+            .bind(&source_comments)
+            .bind(&attribution)
+            .bind(&input.profile_image_url)
+            .bind(&input.profile_url)
+            .bind(&input.profile_display_name)
+            .bind(&input.profile_bio)
+            .bind(input.profile_followers)
+            .bind(input.profile_following)
+            .bind(input.profile_verified)
+            .bind(&generation_config)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            log_event(
+                &db,
+                "info",
+                "runner.post_deduplicated",
+                serde_json::json!({"post_id":existing_id,"provider":provider}),
+            )
+            .await;
+            return Ok(Json(serde_json::json!({
+                "post_id": existing_id,
+                "status": "existing",
+                "moderation_id": null,
+                "flags": []
+            })));
+        }
+    }
+    let publication_status = if moderation_enabled { "pending" } else { "approved" };
     let post_id:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,body,moderation_status) VALUES($1,$2,$3,$4,$5) RETURNING id").bind(community_id).bind(author_id).bind(title).bind(body.trim()).bind(publication_status).fetch_one(&mut *tx).await?;
     let moderation_id=if moderation_enabled {
         let moderation_id:i64=sqlx::query_scalar("INSERT INTO moderation_items(kind,target_id,author_id,status,severity,flags,rule_version,urgent) VALUES('post',$1,$2,'pending',$3,$4,$5,$6) RETURNING id").bind(post_id).bind(author_id).bind(&severity).bind(flags.clone()).bind(moderation::RULE_VERSION).bind(urgent).fetch_one(&mut *tx).await?;
@@ -2372,15 +2985,28 @@ pub async fn publish_content_runner(
             .await?;
         Some(moderation_id)
     } else { None };
-    if let Some(source) = input.source_url.filter(|source| !source.trim().is_empty()) {
-        sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,observed_at,media,source_comments,attribution,generation_config) VALUES($1,'runner',$2,$3,now(),$4,$5,$6,$7)")
+    if let Some(source) = canonical_source {
+        sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified,generation_config) VALUES($1,$2,$3,$4,$5,now(),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
             .bind(post_id)
-            .bind(source.trim())
-            .bind(author)
-            .bind(input.media.unwrap_or_else(|| serde_json::json!([])))
-            .bind(input.source_comments.unwrap_or_else(|| serde_json::json!([])))
-            .bind(input.attribution.unwrap_or_else(|| "Generated by a configured Swartzit content runner".to_owned()))
-            .bind(input.generation_config.unwrap_or_else(|| serde_json::json!({})))
+            .bind(&provider)
+            .bind(source)
+            .bind(&source_author)
+            .bind(input.published_at)
+            .bind(input.source_views)
+            .bind(input.source_likes)
+            .bind(input.source_reposts)
+            .bind(input.source_replies)
+            .bind(&media)
+            .bind(&source_comments)
+            .bind(&attribution)
+            .bind(&input.profile_image_url)
+            .bind(&input.profile_url)
+            .bind(&input.profile_display_name)
+            .bind(&input.profile_bio)
+            .bind(input.profile_followers)
+            .bind(input.profile_following)
+            .bind(input.profile_verified)
+            .bind(&generation_config)
             .execute(&mut *tx)
             .await?;
     }
@@ -2390,7 +3016,7 @@ pub async fn publish_content_runner(
         &db,
         "info",
         "runner.post_submitted",
-        serde_json::json!({"post_id":post_id,"author_id":author_id,"community":community,"moderation":if moderation_enabled {"enabled"} else {"disabled"}}),
+        serde_json::json!({"post_id":post_id,"author_id":author_id,"community":community,"provider":provider,"moderation":if moderation_enabled {"enabled"} else {"disabled"}}),
     )
     .await;
     Ok(Json(

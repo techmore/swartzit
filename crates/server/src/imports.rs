@@ -12,7 +12,7 @@ pub enum Media {
         alt: Option<String>,
     },
 }
-fn validate_media(media: &Media, provider: &str) -> Result<(), ApiError> {
+pub(crate) fn validate_media(media: &Media, provider: &str) -> Result<(), ApiError> {
     let (kind, src, poster, alt) = match media {
         Media::Image(src) => ("image", src, None, None),
         Media::Attachment {
@@ -121,7 +121,7 @@ fn https(raw: &str) -> Result<Url, ApiError> {
     }
     Ok(u)
 }
-fn canonical(provider: &str, raw: &str) -> Result<String, ApiError> {
+pub(crate) fn canonical(provider: &str, raw: &str) -> Result<String, ApiError> {
     let u = https(raw)?;
     match provider {
         "x" if ["x.com", "www.x.com", "twitter.com", "www.twitter.com"]

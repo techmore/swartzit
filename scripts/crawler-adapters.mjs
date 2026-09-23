@@ -20,6 +20,28 @@ export async function collectReddit(job){
   const data=await getJson(endpoint,{'user-agent':'Swartzit/0.1 (self-hosted public importer)'});
   const captured=now(); return data.data.children.map(({data:d})=>{if(!d?.id||d.author==='[deleted]'||!d.permalink)return null; const body=d.selftext||d.url||''; return {community:job.community,provider:'reddit',source_url:`https://www.reddit.com${d.permalink}`,source_author:d.author?`u/${d.author}`:'[deleted]',title:d.title||titleOf(body),body,published_at:d.created_utc?new Date(d.created_utc*1000).toISOString():null,observed_at:captured,source_views:null,source_likes:Number.isSafeInteger(d.score)?d.score:null,source_reposts:null,source_replies:Number.isSafeInteger(d.num_comments)?d.num_comments:null,media:[],attribution:`Imported from r/${d.subreddit}; source: https://www.reddit.com${d.permalink}`};}).filter(Boolean);
 }
+
+function xTime(value, label) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw Error(`X ${label} must be an ISO-8601 timestamp`);
+  return date.toISOString();
+}
+
+export function applyXWindow(params, job) {
+  const start = job.start_time ?? job.startTime;
+  const end = job.end_time ?? job.endTime;
+  const normalizedStart = start == null || start === '' ? null : xTime(start, 'start_time');
+  const normalizedEnd = end == null || end === '' ? null : xTime(end, 'end_time');
+  if (normalizedStart && normalizedEnd && Date.parse(normalizedStart) >= Date.parse(normalizedEnd)) {
+    throw Error('X start_time must be earlier than end_time');
+  }
+  if (normalizedStart) params.set('start_time', normalizedStart);
+  if (normalizedEnd) params.set('end_time', normalizedEnd);
+  const exclude = Array.isArray(job.exclude) ? job.exclude.filter(Boolean).join(',') : String(job.exclude || '');
+  if (exclude) params.set('exclude', exclude);
+  return {start_time: normalizedStart, end_time: normalizedEnd};
+}
+
 export async function collectX(job) {
   const token=process.env.X_BEARER_TOKEN;
   if (!token) throw Error('X_BEARER_TOKEN is not configured');
@@ -32,6 +54,7 @@ export async function collectX(job) {
   if (/^search:/i.test(job.source)) {
     if (!query || query.length > 512) throw Error('X search source must contain a query of at most 512 characters');
     const params=new URLSearchParams({query, max_results:String(Math.max(10,Math.min(job.max_items,100))), 'tweet.fields':fields, expansions:'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id', 'user.fields':'protected,profile_image_url,name,username,description,public_metrics,verified', 'media.fields':mediaFields});
+    applyXWindow(params, job);
     const d=await getJson(`https://api.x.com/2/tweets/search/recent?${params}`,h);
     tweets=d.data||[]; users=d.includes?.users||[]; media=d.includes?.media||[];
     var quotedTweets=d.includes?.tweets||[];
@@ -42,6 +65,7 @@ export async function collectX(job) {
     if (u.data?.protected) throw Error('The X source is protected');
     users=[u.data];
     const params=new URLSearchParams({max_results:String(Math.max(10,Math.min(job.max_items,100))), 'tweet.fields':fields, expansions:'attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id', 'user.fields':'protected,profile_image_url,name,username,description,public_metrics,verified', 'media.fields':mediaFields});
+    applyXWindow(params, job);
     const d=await getJson(`https://api.x.com/2/users/${u.data.id}/tweets?${params}`,h);
     tweets=d.data||[]; users=[...users,...(d.includes?.users||[])]; media=d.includes?.media||[];
     var quotedTweets=d.includes?.tweets||[];

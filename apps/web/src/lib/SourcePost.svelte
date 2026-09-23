@@ -8,6 +8,7 @@
   let failed = {};
   let activeMedia = 0;
   const attachment = m => typeof m === 'string' ? {kind:'image',src:m} : m;
+  const isLocalMedia = src => /^\/media\/\d+(?:\/[^?]+)?(?:\?|$)/i.test(String(src ?? ''));
   const clean = value => String(value ?? '').trim();
   function cleanSourceText(value) {
     let body = clean(value);
@@ -117,7 +118,7 @@
             <!-- Source videos have no caption tracks available. -->
             <!-- svelte-ignore a11y_media_has_caption -->
             <video use:observeMedia={media} muted controls playsinline preload="metadata" src={media.src} poster={media.poster || undefined} aria-label={media.alt || 'Video shared by '+source.source_author} onplay={(event) => announcePlay(event, media)} onpause={announcePause} onended={announceEnded} onerror={() => failed={...failed,[media.src]:true}}></video>
-          {:else}<a href={media.src} target="_blank" rel="noopener noreferrer"><img src={media.src} alt={media.alt || 'Image shared by '+source.source_author} loading="lazy" referrerpolicy="no-referrer" onerror={() => failed={...failed,[media.src]:true}} /></a>{/if}
+          {:else}<a href={media.src} target="_blank" rel="noopener noreferrer" aria-label="Open image in a new tab"><img src={media.src} alt={media.alt || 'Image shared by '+source.source_author} loading={isLocalMedia(media.src) ? 'eager' : 'lazy'} decoding="async" referrerpolicy="no-referrer" onerror={() => failed={...failed,[media.src]:true}} /></a>{/if}
           {#if media.kind === 'video' || media.alt}<figcaption>{media.alt || ''}{#if media.kind === 'video'} <a href={media.src} target="_blank" rel="noopener noreferrer">Open video ↗</a>{/if}</figcaption>{/if}
         </figure>
       {/each}

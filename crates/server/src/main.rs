@@ -6,7 +6,7 @@ use argon2::{
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post as post_method},
@@ -219,6 +219,26 @@ struct VoteResponse {
     score: i64,
     your_vote: Option<i16>,
 }
+#[derive(Deserialize)]
+struct DrawThingsFeedbackRequest {
+    overall: i16,
+    prompt_match: Option<i16>,
+    natural_color: Option<i16>,
+    realism: Option<i16>,
+    likeness: Option<i16>,
+    composition: Option<i16>,
+    detail: Option<i16>,
+}
+#[derive(Serialize, FromRow)]
+struct DrawThingsFeedbackMine {
+    overall: i16,
+    prompt_match: Option<i16>,
+    natural_color: Option<i16>,
+    realism: Option<i16>,
+    likeness: Option<i16>,
+    composition: Option<i16>,
+    detail: Option<i16>,
+}
 #[derive(Serialize, FromRow)]
 struct CurrentUser {
     handle: String,
@@ -294,6 +314,142 @@ impl FeedQuery {
     }
 }
 const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
+
+fn is_draw_things_source(source: &Option<serde_json::Value>) -> bool {
+    source
+        .as_ref()
+        .and_then(|value| value.get("generation_config"))
+        .and_then(|value| value.get("provider"))
+        .and_then(serde_json::Value::as_str)
+        == Some("draw_things")
+}
+
+async fn draw_things_feedback_summary(
+    db: &PgPool,
+    post_id: i64,
+) -> Result<serde_json::Value, ApiError> {
+    Ok(sqlx::query_scalar(
+        "SELECT json_build_object(
+           'responses', count(*)::bigint,
+           'overall', round(avg(overall)::numeric, 2),
+           'prompt_match', round(avg(prompt_match)::numeric, 2),
+           'natural_color', round(avg(natural_color)::numeric, 2),
+           'realism', round(avg(realism)::numeric, 2),
+           'likeness', round(avg(likeness)::numeric, 2),
+           'composition', round(avg(composition)::numeric, 2),
+           'detail', round(avg(detail)::numeric, 2)
+         )
+         FROM draw_things_feedback
+         WHERE post_id = $1",
+    )
+    .bind(post_id)
+    .fetch_one(db)
+    .await?)
+}
+
+async fn require_draw_things_post(db: &PgPool, post_id: i64) -> Result<(), ApiError> {
+    let available: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+           SELECT 1
+           FROM posts p
+           JOIN external_posts e ON e.post_id = p.id
+           WHERE p.id = $1
+             AND p.moderation_status = 'approved'
+             AND e.provider = 'runner'
+             AND e.generation_config->>'provider' = 'draw_things'
+         )",
+    )
+    .bind(post_id)
+    .fetch_one(db)
+    .await?;
+    if available {
+        Ok(())
+    } else {
+        Err(ApiError::Missing)
+    }
+}
+
+fn validate_draw_things_feedback(input: &DrawThingsFeedbackRequest) -> Result<(), ApiError> {
+    if !(1..=5).contains(&input.overall) {
+        return Err(ApiError::Invalid("Overall feedback must be between 1 and 5"));
+    }
+    for (value, label) in [
+        (input.prompt_match, "Prompt-match feedback"),
+        (input.natural_color, "Natural-color feedback"),
+        (input.realism, "Realism feedback"),
+        (input.likeness, "Likeness feedback"),
+        (input.composition, "Composition feedback"),
+        (input.detail, "Detail feedback"),
+    ] {
+        if value.is_some_and(|score| !(1..=5).contains(&score)) {
+            return Err(ApiError::Invalid(label));
+        }
+    }
+    Ok(())
+}
+
+async fn draw_things_feedback_get(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(post_id): Path<i64>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    require_draw_things_post(&db, post_id).await?;
+    let mine: Option<DrawThingsFeedbackMine> = sqlx::query_as(
+        "SELECT overall, prompt_match, natural_color, realism, likeness, composition, detail
+         FROM draw_things_feedback
+         WHERE post_id = $1 AND author_id = $2",
+    )
+    .bind(post_id)
+    .bind(author_id)
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "summary": draw_things_feedback_summary(&db, post_id).await?,
+        "mine": mine
+    })))
+}
+
+async fn draw_things_feedback_submit(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(post_id): Path<i64>,
+    Json(input): Json<DrawThingsFeedbackRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    validate_draw_things_feedback(&input)?;
+    require_draw_things_post(&db, post_id).await?;
+    sqlx::query(
+        "INSERT INTO draw_things_feedback(
+           post_id, author_id, overall, prompt_match, natural_color, realism,
+           likeness, composition, detail
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (post_id, author_id) DO UPDATE SET
+           overall = EXCLUDED.overall,
+           prompt_match = EXCLUDED.prompt_match,
+           natural_color = EXCLUDED.natural_color,
+           realism = EXCLUDED.realism,
+           likeness = EXCLUDED.likeness,
+           composition = EXCLUDED.composition,
+           detail = EXCLUDED.detail,
+           updated_at = now()",
+    )
+    .bind(post_id)
+    .bind(author_id)
+    .bind(input.overall)
+    .bind(input.prompt_match)
+    .bind(input.natural_color)
+    .bind(input.realism)
+    .bind(input.likeness)
+    .bind(input.composition)
+    .bind(input.detail)
+    .execute(&db)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "summary": draw_things_feedback_summary(&db, post_id).await?,
+        "message": "Your Draw Things feedback was saved."
+    })))
+}
 
 async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
     if id <= 0 {
@@ -391,6 +547,23 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
     let config = media_store::load_config(&db)
         .await
         .map_err(ApiError::Storage)?;
+    let secondary: Option<(String, String)> = if config.secondary_provider == "disabled" {
+        None
+    } else {
+        sqlx::query_as(
+            "SELECT provider, object_key
+             FROM media_replicas
+             WHERE media_id = $1 AND role = 'secondary' AND provider = $3
+               AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+             ORDER BY id DESC
+             LIMIT 1",
+        )
+        .bind(id)
+        .bind(variant)
+        .bind(&config.secondary_provider)
+        .fetch_optional(&db)
+        .await?
+    };
     let bytes = media_store::read_variant(
         &config,
         &hash,
@@ -398,6 +571,10 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
         (!metadata.object_key.is_empty()).then_some(metadata.object_key.as_str()),
         variant,
         legacy_bytes.as_deref(),
+        (!metadata.checksum.is_empty()).then_some(metadata.checksum.as_str()),
+        secondary
+            .as_ref()
+            .map(|(provider, key)| (provider.as_str(), key.as_str())),
     )
     .await
     .map_err(ApiError::Storage)?;
@@ -1653,8 +1830,13 @@ async fn post(
     let comments_truncated = comments.len() > 500;
     comments.truncate(500);
     let media: Vec<MediaAsset> = sqlx::query_as("SELECT m.id, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id WHERE pm.post_id = $1 ORDER BY pm.position, m.id").bind(id).fetch_all(&db).await?;
+    let draw_feedback = if is_draw_things_source(&post.source) {
+        Some(draw_things_feedback_summary(&db, id).await?)
+    } else {
+        None
+    };
     Ok(Json(
-        serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media}),
+        serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media, "draw_feedback": draw_feedback}),
     ))
 }
 async fn export(
@@ -1712,7 +1894,7 @@ async fn shutdown() {
 
 fn spawn_maintenance(db: PgPool) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         // Do not make startup wait on housekeeping. The first tick is consumed
         // here so cleanup never competes with the first request after launch.
         interval.tick().await;
@@ -1737,7 +1919,10 @@ fn spawn_maintenance(db: PgPool) {
                     tracing::warn!(%error, maintenance = label, "periodic maintenance failed");
                 }
             }
-            if let Err(error) = sqlx::query("UPDATE content_runner_runs SET status='failed', finished_at=now(), error='Worker lease expired', detail=jsonb_build_object('reaped', true) WHERE status='running' AND started_at < now() - interval '2 hours'").execute(&db).await {
+            if let Err(error) = admin::process_media_replication_jobs(&db).await {
+                tracing::warn!(%error, maintenance = "media replication", "periodic maintenance failed");
+            }
+            if let Err(error) = sqlx::query("UPDATE content_runner_runs SET status='failed', finished_at=now(), error='Worker lease expired', detail=jsonb_build_object('reaped', true), progress_phase='failed', eta_seconds=NULL, progress_updated_at=now() WHERE status='running' AND started_at < now() - interval '2 hours'").execute(&db).await {
                 tracing::warn!(%error, maintenance = "content runner leases", "periodic maintenance failed");
             }
         }
@@ -1891,6 +2076,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/admin/settings",
             get(admin::settings).post(admin::update_settings),
         )
+        .route("/api/admin/storage", get(admin::storage))
         .route("/api/admin/moderation", get(admin::moderation))
         .route(
             "/api/admin/moderation/{id}",
@@ -1983,6 +2169,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(admin::complete_content_runner),
         )
         .route(
+            "/api/admin/content-runner-runs/{run_id}/progress",
+            post_method(admin::update_content_runner_progress),
+        )
+        .route(
             "/api/admin/content-runner-runs",
             get(admin::content_runner_runs),
         )
@@ -1996,7 +2186,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route(
             "/api/admin/content-runners/media",
-            post_method(admin::upload_content_runner_media),
+            post_method(admin::upload_content_runner_media)
+                // Runner uploads are JSON-wrapped hex, so the request is
+                // roughly twice the size of the original image. Keep this
+                // larger limit scoped to the admin runner-media endpoint.
+                .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
         .route("/api/admin/media/test", post_method(admin::media_test))
         .route("/api/admin/media/migrate", post_method(admin::media_migrate))
@@ -2031,6 +2225,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/home", get(home_feed))
         .route("/api/posts/{id}/comments", post_method(create_comment))
         .route("/api/posts/{id}/vote", post_method(vote))
+        .route(
+            "/api/posts/{id}/draw-feedback",
+            get(draw_things_feedback_get).post(draw_things_feedback_submit),
+        )
         .route("/api/posts/{id}/views", post_method(views::record))
         .route("/api/reports", post_method(report))
         .route("/api/media/upload", post_method(admin::upload_media))
@@ -2123,6 +2321,24 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+    #[test]
+    fn draw_things_feedback_accepts_optional_dimensions() {
+        let valid = DrawThingsFeedbackRequest {
+            overall: 5,
+            prompt_match: Some(4),
+            natural_color: None,
+            realism: Some(3),
+            likeness: None,
+            composition: Some(4),
+            detail: Some(5),
+        };
+        assert!(validate_draw_things_feedback(&valid).is_ok());
+        assert!(validate_draw_things_feedback(&DrawThingsFeedbackRequest {
+            overall: 0,
+            ..valid
+        })
+        .is_err());
     }
     #[test]
     fn database_error_does_not_expose_details() {

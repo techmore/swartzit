@@ -6,6 +6,7 @@
   import ShareButton from '$lib/ShareButton.svelte';
   import PostViews from '$lib/PostViews.svelte';
   import SourcePost from '$lib/SourcePost.svelte';
+  import DrawThingsFeedback from '$lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
   let commentOrder = 'oldest';
   export let data;
@@ -72,6 +73,9 @@
     {:else}<div class="meta post-author"><AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · <a href={'/u/' + data.post.author}>u/{data.post.author}</a></span></div>{/if}
     {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}<p>{data.post.body}</p>{/if}
     {#if data.post.source}{#key data.post.id}<SourcePost source={data.post.source} text={data.post.body} />{/key}{/if}
+    {#if data.draw_feedback && data.post.source?.generation_config?.provider === 'draw_things'}
+      <DrawThingsFeedback postId={data.post.id} summary={data.draw_feedback} />
+    {/if}
     <div class="post-engagement"><div class="post-actions">{#key data.post.id}<BookmarkButton id={data.post.id} />{/key}
     <ShareButton id={data.post.public_id} title={data.post.title} /></div>
     <span class="local-score" aria-label="Swartzit score">{data.post.score} points</span>

@@ -2,18 +2,20 @@
 // scrapes a login session or claims success without a configured adapter.
 import {spawn} from 'node:child_process';
 import {writeFile, mkdir, readFile, stat} from 'node:fs/promises';
-import {homedir} from 'node:os';
-import {dirname, extname, isAbsolute, resolve} from 'node:path';
+import {dirname, extname} from 'node:path';
 import {collectReddit, collectX, collectRss} from './crawler-adapters.mjs';
+import {renderRunnerPrompt} from './runner-prompt.mjs';
+import {drawThingsArgs, drawThingsBody, drawThingsGeneration, expandHome, parseDrawThingsProgress, runnerOutputPath} from './draw-things-runner.mjs';
 const exec = (cmd, args, opts={}) => new Promise(resolve => {
   const started = Date.now();
-  const child = spawn(cmd, args, opts);
+  const {timeoutMs: configuredTimeoutMs = 0, onStdout, onStderr, ...spawnOptions} = opts;
+  const child = spawn(cmd, args, spawnOptions);
   let out='', err='', timedOut=false, finished=false;
-  const timeoutMs = Number(opts.timeoutMs ?? 0);
+  const timeoutMs = Number(configuredTimeoutMs);
   let timer;
   const finish = (result) => { if (finished) return; finished=true; if (timer) clearTimeout(timer); resolve({...result,durationMs:Date.now()-started}); };
-  child.stdout.on('data', data => { out += data; });
-  child.stderr.on('data', data => { err += data; });
+  child.stdout.on('data', data => { const text = String(data); out += text; try { onStdout?.(text); } catch {} });
+  child.stderr.on('data', data => { const text = String(data); err += text; try { onStderr?.(text); } catch {} });
   child.on('error', error => finish({code:null,signal:null,out,err:err || error.message,timedOut}));
   child.on('close', (code, signal) => finish({code,signal,out,err,timedOut}));
   if (timeoutMs > 0) timer=setTimeout(() => { timedOut=true; child.kill('SIGTERM'); setTimeout(() => { if (!finished) child.kill('SIGKILL'); }, 5000); }, timeoutMs);
@@ -23,7 +25,8 @@ const handle=process.env.SCHEDULER_HANDLE, password=process.env.SCHEDULER_PASSWO
 if(!handle||!password) throw Error('SCHEDULER_HANDLE and SCHEDULER_PASSWORD are required');
 async function call(path,method='GET',body){const r=await fetch(api+path,{method,headers:{'content-type':'application/json',authorization:'Bearer '+token},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)}); if(!r.ok) throw Error(`${path}: HTTP ${r.status}`); return r.status===204?null:r.json();}
 const token=(await (async()=>{const r=await fetch(api+'/api/sessions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({handle,password})}); if(!r.ok) throw Error('scheduler login failed'); return (await r.json()).token;})());
-let jobs=await call('/api/admin/crawler-jobs'); let processed=0;
+const skipCrawlers=process.env.SWARTZIT_WORKER_SKIP_CRAWLERS === '1';
+let jobs=skipCrawlers ? [] : await call('/api/admin/crawler-jobs'); let processed=0;
 for(const job of jobs.filter(j=>j.enabled)){
   let claim; try{claim=await call(`/api/admin/crawler-jobs/${job.id}/claim`,'POST')}catch{continue;}
   processed++;
@@ -55,60 +58,6 @@ const runnerContentType = file => ({
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.webp': 'image/webp', '.gif': 'image/gif'
 }[extname(file).toLowerCase()] || null);
-const expandHome = value => value === '~' ? homedir() : value.startsWith('~/') ? `${homedir()}/${value.slice(2)}` : value;
-function runnerOutputPath(template, claimId, index, total, startedAt) {
-  const raw = String(template || `.local/draw-things/${claimId}-${startedAt}-${index + 1}.png`);
-  let output = expandHome(raw)
-    .replaceAll('{runner_id}', String(claimId))
-    .replaceAll('{index}', String(index + 1))
-    .replaceAll('{timestamp}', String(startedAt));
-  if (total > 1 && index > 0 && !raw.includes('{index}')) {
-    const extension = extname(output);
-    output = `${output.slice(0, output.length - extension.length)}-${index + 1}${extension}`;
-  }
-  return isAbsolute(output) ? output : resolve(process.cwd(), output);
-}
-function drawThingsArgs(config, prompt, output, index) {
-  const args = ['generate'];
-  if (config.models_dir) args.push('--models-dir', expandHome(String(config.models_dir)));
-  args.push('--model', String(config.model), '--prompt', prompt);
-  for (const [key, flag] of [['width', '--width'], ['height', '--height'], ['steps', '--steps'], ['cfg', '--cfg']]) {
-    if (config[key] !== undefined && config[key] !== null && config[key] !== '') args.push(flag, String(config[key]));
-  }
-  if (config.seed !== undefined && config.seed !== null && config.seed !== '') args.push('--seed', String(Number(config.seed) + index));
-  if (Array.isArray(config.loras) && config.loras.length) args.push('--config-json', JSON.stringify({loras: config.loras}));
-  args.push('--output', output);
-  return args;
-}
-function drawThingsGeneration(config, prompt, seed, index) {
-  return {
-    provider: 'draw_things',
-    prompt,
-    model: config.model,
-    models_dir: config.models_dir || null,
-    loras: Array.isArray(config.loras) ? config.loras : [],
-    width: Number(config.width ?? 1024),
-    height: Number(config.height ?? 1024),
-    steps: Number(config.steps ?? 4),
-    cfg: Number(config.cfg ?? 3.5),
-    seed: seed ?? null,
-    variant: index + 1
-  };
-}
-function drawThingsBody(generation) {
-  const loras = generation.loras.length
-    ? generation.loras.map(lora => `${lora.file} (${lora.version}, weight ${lora.weight})`).join(', ')
-    : 'None';
-  return [
-    'Generated with Draw Things via Swartzit.',
-    '',
-    `Prompt: ${generation.prompt}`,
-    '',
-    `Model: ${generation.model}`,
-    `LoRAs: ${loras}`,
-    `Settings: ${generation.width}×${generation.height} · ${generation.steps} steps · CFG ${generation.cfg} · seed ${generation.seed ?? 'automatic'}`
-  ].join('\n');
-}
 async function uploadRunnerMedia(file) {
   const contentType = runnerContentType(file);
   if (!contentType) throw Error(`Unsupported runner image extension: ${extname(file) || '(none)'}`);
@@ -156,6 +105,83 @@ async function publishRunnerPosts(posts, claim, dryRun) {
   return {previews, published, warnings};
 }
 
+function createDrawThingsProgressReporter(runId, startedAt, index, total) {
+  let lineBuffer = '';
+  let queued = null;
+  let drainPromise = null;
+  let lastSentAt = 0;
+  let lastSignature = '';
+
+  const drain = async () => {
+    while (queued) {
+      const payload = queued;
+      queued = null;
+      try {
+        await call(`/api/admin/content-runner-runs/${runId}/progress`, 'POST', payload);
+      } catch {
+        // Progress is advisory. A temporary telemetry failure must never
+        // turn a successful local generation into a failed runner.
+      }
+    }
+    drainPromise = null;
+    if (queued) drainPromise = drain();
+  };
+
+  const queue = payload => {
+    queued = payload;
+    if (!drainPromise) drainPromise = drain();
+  };
+
+  const payloadFor = info => {
+    const localPercent = Math.min(100, Math.max(0, Number(info.percent) || 0));
+    const overallPercent = Math.min(100, Math.max(0, Math.round(((index + localPercent / 100) / total) * 100)));
+    const elapsedSeconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+    const etaSeconds = overallPercent > 0 && elapsedSeconds >= 3
+      ? Math.max(0, Math.round(elapsedSeconds * (100 - overallPercent) / overallPercent))
+      : null;
+    return {
+      progress_percent: overallPercent,
+      phase: info.phase,
+      message: total > 1 ? `Image ${index + 1}/${total}: ${info.message}` : info.message,
+      current_step: info.currentStep,
+      total_steps: info.totalSteps,
+      eta_seconds: etaSeconds
+    };
+  };
+
+  const observe = info => {
+    if (!info) return;
+    const payload = payloadFor(info);
+    const signature = `${payload.progress_percent}:${payload.phase}:${payload.current_step ?? ''}:${payload.message}`;
+    const now = Date.now();
+    const due = !lastSentAt || now - lastSentAt >= 4000 || payload.progress_percent >= 100;
+    if (!due || signature === lastSignature) return;
+    lastSentAt = now;
+    lastSignature = signature;
+    queue(payload);
+  };
+
+  const observeText = text => {
+    lineBuffer += String(text);
+    const lines = lineBuffer.split(/\r\n|\n|\r/);
+    lineBuffer = lines.pop() || '';
+    for (const line of lines) observe(parseDrawThingsProgress(line));
+  };
+
+  const start = () => observe({percent: 0, phase: 'starting', message: `Preparing image ${index + 1} of ${total}`, currentStep: null, totalSteps: null});
+  const flush = async () => {
+    if (lineBuffer) {
+      observe(parseDrawThingsProgress(lineBuffer));
+      lineBuffer = '';
+    }
+    if (queued && !drainPromise) drainPromise = drain();
+    if (drainPromise) await drainPromise;
+    if (queued) await flush();
+  };
+
+  return {start, observeText, flush};
+}
+
 // Content runners are deliberately processed in the API's priority order and
 // awaited one at a time. Generic runners print a JSON object or {"posts":[]}.
 // Draw Things runners use a structured config and turn local output files into
@@ -182,8 +208,16 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
           const output = runnerOutputPath(config.output_path, claim.id, index, total, runStarted);
           await mkdir(dirname(output), {recursive: true});
           const seed = config.seed === null || config.seed === undefined ? null : Number(config.seed) + index;
-          const argv = [expandHome(String(config.executable || 'draw-things-cli')), ...drawThingsArgs(config, claim.prompt, output, index)];
-          const r = await exec(argv[0], argv.slice(1), { cwd: process.cwd(), env: { ...runnerEnv, RUNNER_PROMPT: claim.prompt, RUNNER_OUTPUT_PATH: output, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000 });
+          const prompt = renderRunnerPrompt(claim.prompt, {now: runStarted, runner: claim.name, community: claim.community, author: claim.author, runId: claim.run_id, seed, index: index + 1, total, dryRun});
+          const argv = [expandHome(String(config.executable || 'draw-things-cli')), ...drawThingsArgs(config, prompt, output, index)];
+          const progress = createDrawThingsProgressReporter(claim.run_id, runStarted, index, total);
+          progress.start();
+          let r;
+          try {
+            r = await exec(argv[0], argv.slice(1), { cwd: process.cwd(), env: { ...runnerEnv, RUNNER_PROMPT: prompt, RUNNER_OUTPUT_PATH: output, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000, onStdout: progress.observeText });
+          } finally {
+            await progress.flush();
+          }
           if (claim.capture_output !== false) { result.stdout += r.out; result.stderr += r.err; }
           result.exit_code = r.code; result.duration_ms = (result.duration_ms || 0) + r.durationMs; result.timed_out ||= r.timedOut;
           if (r.timedOut) throw Error(`Runner exceeded its ${claim.timeout_seconds}s timeout`);
@@ -191,8 +225,8 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
           const file = await stat(output).catch(() => null);
           if (!file || !file.isFile()) throw Error(`Draw Things did not create ${output}`);
           generatedFiles.push(output);
-          const generation = drawThingsGeneration(config, claim.prompt, seed, index);
-          const media = dryRun ? [{kind: 'image', path: output, alt: claim.prompt}] : [{...(await uploadRunnerMedia(output)), alt: claim.prompt}];
+          const generation = drawThingsGeneration(config, prompt, seed, index);
+          const media = dryRun ? [{kind: 'image', path: output, alt: prompt}] : [{...(await uploadRunnerMedia(output)), alt: prompt}];
           const title = `${config.title_prefix || 'Draw Things generation'}${total > 1 ? ` · ${index + 1}` : ''}`;
           const payload = {title, body: drawThingsBody(generation), media, source_url: runnerSourceUrl(media, claim, index), attribution: 'Generated by Draw Things via a configured Swartzit runner.', generation_config: generation};
           if (dryRun) previews.push(payload);
@@ -204,7 +238,8 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
       } else {
         const argv = Array.isArray(claim.command) ? claim.command.map(String) : [];
         if (!argv.length || argv.length > 32) throw Error('Runner command must contain an executable and argv');
-        const r = await exec(argv[0], argv.slice(1), { cwd: process.cwd(), env: { ...runnerEnv, RUNNER_PROMPT: claim.prompt, RUNNER_OUTPUT_PATH: outputPath, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000 });
+        const prompt = renderRunnerPrompt(claim.prompt, {now: runStarted, runner: claim.name, community: claim.community, author: claim.author, runId: claim.run_id, dryRun});
+        const r = await exec(argv[0], argv.slice(1), { cwd: process.cwd(), env: { ...runnerEnv, RUNNER_PROMPT: prompt, RUNNER_OUTPUT_PATH: outputPath, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000 });
         if (claim.capture_output !== false) { result.stdout = r.out.slice(-maxLogBytes); result.stderr = r.err.slice(-maxLogBytes); }
         result.exit_code = r.code; result.duration_ms = r.durationMs; result.timed_out = r.timedOut;
         if (r.timedOut) throw Error(`Runner exceeded its ${claim.timeout_seconds}s timeout`);
