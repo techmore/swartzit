@@ -62,7 +62,7 @@ impl IntoResponse for ApiError {
         (status, Json(serde_json::json!({"error": message}))).into_response()
     }
 }
-#[derive(Serialize, FromRow)]
+#[derive(Deserialize, Serialize, FromRow)]
 struct Community {
     slug: String,
     name: String,
@@ -143,6 +143,10 @@ struct FeedQuery {
     community: Option<String>,
     q: Option<String>,
     page: Option<i64>,
+}
+#[derive(Deserialize, Default)]
+struct ProfileQuery {
+    tab: Option<String>,
 }
 #[derive(Deserialize)]
 struct SignupRequest {
@@ -279,7 +283,7 @@ impl FeedQuery {
         Ok((page - 1) * 20)
     }
 }
-const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.view_count, p.engaged_view_count, p.deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id AND cm.moderation_status = 'approved') AS comment_count, (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id";
+const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
 
 async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
     if id <= 0 {
@@ -309,7 +313,7 @@ async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
     Err(ApiError::Missing)
 }
 async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
-    sqlx::query("SELECT 1").execute(&db).await?;
+    operations::timed_query("health", sqlx::query("SELECT 1").execute(&db)).await?;
     let started_at = STARTED_AT.get().copied().unwrap_or_else(Utc::now);
     let uptime_seconds = Utc::now()
         .signed_duration_since(started_at)
@@ -320,6 +324,10 @@ async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, Api
         "started_at": started_at,
         "uptime_seconds": uptime_seconds
     })))
+}
+async fn ready(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
+    operations::timed_query("readiness", sqlx::query("SELECT 1").execute(&db)).await?;
+    Ok(Json(serde_json::json!({"status": "ready"})))
 }
 fn uptime_pulse_path() -> std::path::PathBuf {
     if let Ok(path) = std::env::var("SWARTZIT_PULSE_FILE") {
@@ -442,9 +450,6 @@ async fn authenticated_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, A
         return Err(ApiError::Invalid("Authentication required"));
     }
     let token_hash = Sha256::digest(token.as_bytes()).to_vec();
-    sqlx::query("DELETE FROM sessions WHERE expires_at <= now()")
-        .execute(db)
-        .await?;
     sqlx::query_scalar(
         "SELECT author_id FROM sessions WHERE token_hash = $1 AND expires_at > now()",
     )
@@ -544,121 +549,162 @@ async fn me(State(db): State<PgPool>, headers: HeaderMap) -> Result<Json<Current
     Ok(Json(user))
 }
 
-async fn profile_payload(db: &PgPool, handle: &str) -> Result<serde_json::Value, ApiError> {
-    let profile = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT row_to_json(t) FROM (
-           SELECT a.handle,
-                  NULLIF(a.display_name, '') AS display_name,
-                  NULLIF(a.bio, '') AS bio,
-                  a.avatar_url,
-                  a.created_at AS joined_at,
-                  (SELECT count(*) FROM posts p WHERE p.author_id = a.id AND p.moderation_status = 'approved') AS post_count,
+async fn profile_payload(
+    db: &PgPool,
+    handle: &str,
+    tab: Option<&str>,
+) -> Result<serde_json::Value, ApiError> {
+    let profile = operations::timed_query(
+        "profile.summary",
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT row_to_json(t) FROM (
+               SELECT a.handle,
+                      NULLIF(a.display_name, '') AS display_name,
+                      NULLIF(a.bio, '') AS bio,
+                      a.avatar_url,
+                      a.created_at AS joined_at,
+                      (SELECT count(*) FROM posts p WHERE p.author_id = a.id AND p.moderation_status = 'approved') AS post_count,
                   (SELECT count(*)
                    FROM comments cm
                    JOIN posts p ON p.id = cm.post_id
                    WHERE cm.author_id = a.id
                      AND cm.moderation_status = 'approved'
-                     AND p.moderation_status = 'approved') AS comment_count
-           FROM authors a
-           WHERE a.handle = $1
-         ) t",
+                     AND p.moderation_status = 'approved') AS comment_count,
+                  (SELECT count(*)
+                   FROM posts p
+                   JOIN external_posts e ON e.post_id = p.id
+                   WHERE p.author_id = a.id
+                     AND p.moderation_status = 'approved'
+                     AND jsonb_typeof(e.media) = 'array'
+                     AND jsonb_array_length(e.media) > 0) AS media_count
+               FROM authors a
+               WHERE a.handle = $1
+             ) t",
+        )
+        .bind(handle)
+        .fetch_optional(db),
     )
-    .bind(handle)
-    .fetch_optional(db)
     .await?
     .ok_or(ApiError::Missing)?;
-    let activity: Vec<serde_json::Value> = sqlx::query_scalar(
-        "SELECT row_to_json(activity) FROM (
-           SELECT kind, public_id, title, body, created_at, community FROM (
-             SELECT 'post'::text AS kind, p.public_id, p.title, p.body, p.created_at, c.slug AS community
-             FROM posts p
-             JOIN communities c ON c.id = p.community_id
-             JOIN authors a ON a.id = p.author_id
-             WHERE a.handle = $1 AND p.moderation_status = 'approved'
-             UNION ALL
-             SELECT 'comment'::text AS kind, p.public_id, NULL::text AS title, cm.body, cm.created_at, c.slug AS community
-             FROM comments cm
-             JOIN posts p ON p.id = cm.post_id
-             JOIN communities c ON c.id = p.community_id
-             JOIN authors a ON a.id = cm.author_id
-             WHERE a.handle = $1 AND cm.moderation_status = 'approved' AND p.moderation_status = 'approved'
-           ) activity
-           ORDER BY created_at DESC
-           LIMIT 20
-         ) activity",
-    )
-    .bind(handle)
-    .fetch_all(db)
-    .await?;
-    let posts: Vec<serde_json::Value> = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT row_to_json(t) FROM (
-           SELECT p.public_id,
-                  p.title,
-                  p.body,
-                  p.created_at,
-                  c.slug AS community,
-                  (SELECT count(*) FROM comments cm WHERE cm.post_id = p.id AND cm.moderation_status = 'approved') AS comment_count,
-                  (SELECT COALESCE(sum(value), 0)::bigint FROM post_votes v WHERE v.post_id = p.id) AS score,
-                  (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id = p.id) AS source
-           FROM posts p
-           JOIN communities c ON c.id = p.community_id
-           JOIN authors a ON a.id = p.author_id
-           WHERE a.handle = $1 AND p.moderation_status = 'approved'
-           ORDER BY p.created_at DESC, p.id DESC
-           LIMIT 50
-         ) t",
-    )
-    .bind(handle)
-    .fetch_all(db)
-    .await?;
-    let replies: Vec<serde_json::Value> = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT row_to_json(t) FROM (
-           SELECT cm.id,
-                  cm.body,
-                  cm.created_at,
-                  p.public_id AS post_public_id,
-                  p.title AS post_title,
-                  c.slug AS community
-           FROM comments cm
-           JOIN posts p ON p.id = cm.post_id
-           JOIN communities c ON c.id = p.community_id
-           JOIN authors a ON a.id = cm.author_id
-           WHERE a.handle = $1
-             AND cm.moderation_status = 'approved'
-             AND p.moderation_status = 'approved'
-           ORDER BY cm.created_at DESC, cm.id DESC
-           LIMIT 50
-         ) t",
-    )
-    .bind(handle)
-    .fetch_all(db)
-    .await?;
-    let media: Vec<serde_json::Value> = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT row_to_json(t) FROM (
-           SELECT p.public_id,
-                  p.title,
-                  p.created_at,
-                  c.slug AS community,
-                  (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id = p.id) AS source
-           FROM posts p
-           JOIN communities c ON c.id = p.community_id
-           JOIN authors a ON a.id = p.author_id
-           WHERE a.handle = $1
-             AND p.moderation_status = 'approved'
-             AND EXISTS (
-               SELECT 1
-               FROM external_posts e
-               WHERE e.post_id = p.id
-                 AND jsonb_typeof(e.media) = 'array'
-                 AND jsonb_array_length(e.media) > 0
-             )
-           ORDER BY p.created_at DESC, p.id DESC
-           LIMIT 50
-         ) t",
-    )
-    .bind(handle)
-    .fetch_all(db)
-    .await?;
+
+    let selected = tab.unwrap_or("all");
+    let mut activity: Vec<serde_json::Value> = Vec::new();
+    let mut posts: Vec<serde_json::Value> = Vec::new();
+    let mut replies: Vec<serde_json::Value> = Vec::new();
+    let mut media: Vec<serde_json::Value> = Vec::new();
+    if matches!(selected, "all" | "activity") {
+        activity = operations::timed_query(
+            "profile.activity",
+            sqlx::query_scalar(
+                "SELECT row_to_json(activity) FROM (
+                   SELECT kind, public_id, title, body, created_at, community FROM (
+                     SELECT 'post'::text AS kind, p.public_id, p.title, p.body, p.created_at, c.slug AS community
+                     FROM posts p
+                     JOIN communities c ON c.id = p.community_id
+                     JOIN authors a ON a.id = p.author_id
+                     WHERE a.handle = $1 AND p.moderation_status = 'approved'
+                     UNION ALL
+                     SELECT 'comment'::text AS kind, p.public_id, NULL::text AS title, cm.body, cm.created_at, c.slug AS community
+                     FROM comments cm
+                     JOIN posts p ON p.id = cm.post_id
+                     JOIN communities c ON c.id = p.community_id
+                     JOIN authors a ON a.id = cm.author_id
+                     WHERE a.handle = $1 AND cm.moderation_status = 'approved' AND p.moderation_status = 'approved'
+                   ) activity
+                   ORDER BY created_at DESC
+                   LIMIT 20
+                 ) activity",
+            )
+            .bind(handle)
+            .fetch_all(db),
+        )
+        .await?;
+    }
+    if matches!(selected, "all" | "posts") {
+        posts = operations::timed_query(
+            "profile.posts",
+            sqlx::query_scalar::<_, serde_json::Value>(
+                "SELECT row_to_json(t) FROM (
+                   SELECT p.public_id,
+                          p.title,
+                          p.body,
+                          p.created_at,
+                          c.slug AS community,
+                          COALESCE(ps.comment_count, 0) AS comment_count,
+                          COALESCE(ps.score, 0) AS score,
+                          (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id = p.id) AS source
+                   FROM posts p
+                   JOIN communities c ON c.id = p.community_id
+                   JOIN authors a ON a.id = p.author_id
+                   LEFT JOIN post_stats ps ON ps.post_id = p.id
+                   WHERE a.handle = $1 AND p.moderation_status = 'approved'
+                   ORDER BY p.created_at DESC, p.id DESC
+                   LIMIT 50
+                 ) t",
+            )
+            .bind(handle)
+            .fetch_all(db),
+        )
+        .await?;
+    }
+    if matches!(selected, "all" | "replies") {
+        replies = operations::timed_query(
+            "profile.replies",
+            sqlx::query_scalar::<_, serde_json::Value>(
+                "SELECT row_to_json(t) FROM (
+                   SELECT cm.id,
+                          cm.body,
+                          cm.created_at,
+                          p.public_id AS post_public_id,
+                          p.title AS post_title,
+                          c.slug AS community
+                   FROM comments cm
+                   JOIN posts p ON p.id = cm.post_id
+                   JOIN communities c ON c.id = p.community_id
+                   JOIN authors a ON a.id = cm.author_id
+                   WHERE a.handle = $1
+                     AND cm.moderation_status = 'approved'
+                     AND p.moderation_status = 'approved'
+                   ORDER BY cm.created_at DESC, cm.id DESC
+                   LIMIT 50
+                 ) t",
+            )
+            .bind(handle)
+            .fetch_all(db),
+        )
+        .await?;
+    }
+    if matches!(selected, "all" | "media") {
+        media = operations::timed_query(
+            "profile.media",
+            sqlx::query_scalar::<_, serde_json::Value>(
+                "SELECT row_to_json(t) FROM (
+                   SELECT p.public_id,
+                          p.title,
+                          p.created_at,
+                          c.slug AS community,
+                          (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id = p.id) AS source
+                   FROM posts p
+                   JOIN communities c ON c.id = p.community_id
+                   JOIN authors a ON a.id = p.author_id
+                   WHERE a.handle = $1
+                     AND p.moderation_status = 'approved'
+                     AND EXISTS (
+                       SELECT 1
+                       FROM external_posts e
+                       WHERE e.post_id = p.id
+                         AND jsonb_typeof(e.media) = 'array'
+                         AND jsonb_array_length(e.media) > 0
+                     )
+                   ORDER BY p.created_at DESC, p.id DESC
+                   LIMIT 50
+                 ) t",
+            )
+            .bind(handle)
+            .fetch_all(db),
+        )
+        .await?;
+    }
     Ok(serde_json::json!({
         "profile": profile,
         "activity": activity,
@@ -671,6 +717,7 @@ async fn profile_payload(db: &PgPool, handle: &str) -> Result<serde_json::Value,
 async fn user_profile(
     State(db): State<PgPool>,
     Path(handle): Path<String>,
+    Query(query): Query<ProfileQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let handle = handle.trim().trim_start_matches("u/").to_ascii_lowercase();
     if !(3..=32).contains(&handle.len())
@@ -680,7 +727,11 @@ async fn user_profile(
     {
         return Err(ApiError::Missing);
     }
-    Ok(Json(profile_payload(&db, &handle).await?))
+    let tab = match query.tab.as_deref() {
+        Some("activity") | Some("posts") | Some("replies") | Some("media") => query.tab.as_deref(),
+        _ => Some("posts"),
+    };
+    Ok(Json(profile_payload(&db, &handle, tab).await?))
 }
 
 async fn my_profile(
@@ -692,7 +743,7 @@ async fn my_profile(
         .bind(author_id)
         .fetch_one(&db)
         .await?;
-    let mut payload = profile_payload(&db, &handle).await?;
+    let mut payload = profile_payload(&db, &handle, None).await?;
     let pending: Option<serde_json::Value> = sqlx::query_scalar(
         "SELECT row_to_json(t) FROM (
            SELECT id, status, severity, flags, rule_version, created_at, payload
@@ -881,25 +932,53 @@ async fn admin_uptime(
 
 async fn activity(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
-    let value = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT jsonb_build_object(
-          'windows', jsonb_agg(jsonb_build_object(
-            'label', label,
-            'minutes', minutes,
-            'users', (SELECT count(DISTINCT author_id) FROM (SELECT author_id FROM posts WHERE created_at >= now()-make_interval(mins => minutes) UNION SELECT author_id FROM comments WHERE created_at >= now()-make_interval(mins => minutes)) active),
-            'posts', (SELECT count(*) FROM posts WHERE created_at >= now()-make_interval(mins => minutes)),
-            'comments', (SELECT count(*) FROM comments WHERE created_at >= now()-make_interval(mins => minutes))
-          ) ORDER BY minutes)
-        ) FROM (VALUES ('last 5 minutes',5),('last 30 minutes',30),('last 4 hours',240)) windows(label,minutes)"
-    )
-    .fetch_one(&db)
-    .await?;
+    let windows = if let Some(value) = operations::public_cache_get("activity.windows") {
+        value
+    } else {
+        let value = operations::timed_query(
+            "activity.windows",
+            sqlx::query_scalar::<_, serde_json::Value>(
+                "SELECT jsonb_agg(jsonb_build_object(
+                    'label', label,
+                    'minutes', minutes,
+                    'users', (SELECT count(DISTINCT author_id) FROM (SELECT author_id FROM posts WHERE created_at >= now()-make_interval(mins => minutes) UNION SELECT author_id FROM comments WHERE created_at >= now()-make_interval(mins => minutes)) active),
+                    'posts', (SELECT count(*) FROM posts WHERE created_at >= now()-make_interval(mins => minutes)),
+                    'comments', (SELECT count(*) FROM comments WHERE created_at >= now()-make_interval(mins => minutes))
+                 ) ORDER BY minutes)
+                 FROM (VALUES ('last 5 minutes',5),('last 30 minutes',30),('last 4 hours',240)) windows(label,minutes)",
+            )
+            .fetch_one(&db),
+        )
+        .await?;
+        operations::public_cache_put("activity.windows", value.clone());
+        value
+    };
     Ok(Json(serde_json::json!({
-        "windows": value.get("windows").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "windows": windows,
         "features": {
             "orchard_enabled": orchard_enabled
         }
     })))
+}
+async fn subscriptions(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<String>>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let slugs = operations::timed_query(
+        "subscriptions.batch",
+        sqlx::query_scalar::<_, String>(
+            "SELECT c.slug
+             FROM community_subscriptions s
+             JOIN communities c ON c.id = s.community_id
+             WHERE s.author_id = $1
+             ORDER BY c.slug",
+        )
+        .bind(author_id)
+        .fetch_all(&db),
+    )
+    .await?;
+    Ok(Json(slugs))
 }
 async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
     let value = headers
@@ -943,6 +1022,7 @@ async fn create_community(
         ));
     }
     let community = sqlx::query_as::<_, Community>("INSERT INTO communities (slug, name, description) VALUES ($1, $2, $3) RETURNING slug, name, description, 0::bigint AS post_count").bind(&slug).bind(name).bind(description).fetch_optional(&db).await.map_err(|e| if matches!(e, sqlx::Error::Database(ref db) if db.constraint() == Some("communities_slug_key")) { ApiError::Invalid("That community slug is already in use") } else { ApiError::Database(e) })?;
+    operations::clear_public_cache();
     Ok((
         StatusCode::CREATED,
         Json(community.ok_or(ApiError::Invalid("Could not create community"))?),
@@ -1145,6 +1225,7 @@ async fn create_post(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    operations::clear_public_cache();
     log_event(
         &db,
         "info",
@@ -1233,6 +1314,7 @@ async fn create_comment(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    operations::clear_public_cache();
     log_event(
         &db,
         "info",
@@ -1304,6 +1386,7 @@ async fn vote(
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
+    operations::clear_public_cache();
     Ok(Json(VoteResponse {
         post_id,
         score,
@@ -1311,7 +1394,20 @@ async fn vote(
     }))
 }
 async fn communities(State(db): State<PgPool>) -> Result<Json<Vec<Community>>, ApiError> {
-    Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count FROM communities c ORDER BY c.name").fetch_all(&db).await?))
+    if let Some(value) = operations::public_cache_get("communities")
+        && let Ok(rows) = serde_json::from_value::<Vec<Community>>(value)
+    {
+        return Ok(Json(rows));
+    }
+    let rows: Vec<Community> = operations::timed_query(
+        "communities.list",
+        sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count FROM communities c ORDER BY c.name").fetch_all(&db),
+    )
+    .await?;
+    if let Ok(value) = serde_json::to_value(&rows) {
+        operations::public_cache_put("communities", value);
+    }
+    Ok(Json(rows))
 }
 async fn community(
     State(db): State<PgPool>,
@@ -1329,17 +1425,35 @@ async fn posts(
     let sql = format!(
         "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY {order}, p.id DESC LIMIT 21 OFFSET $3"
     );
-    let mut posts: Vec<Post> = sqlx::query_as(&sql)
-        .bind(&query.community)
-        .bind(q)
-        .bind(offset)
-        .fetch_all(&db)
-        .await?;
+    let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
+        Some(format!(
+            "posts:{}",
+            query.sort.as_deref().unwrap_or("newest")
+        ))
+    } else {
+        None
+    };
+    if let Some(key) = &cache_key
+        && let Some(value) = operations::public_cache_get(key)
+    {
+        return Ok(Json(value));
+    }
+    let mut posts: Vec<Post> = operations::timed_query(
+        "feed.public",
+        sqlx::query_as(&sql)
+            .bind(&query.community)
+            .bind(q)
+            .bind(offset)
+            .fetch_all(&db),
+    )
+    .await?;
     let has_more = posts.len() > 20;
     posts.truncate(20);
-    Ok(Json(
-        serde_json::json!({"posts": posts, "has_more": has_more}),
-    ))
+    let value = serde_json::json!({"posts": posts, "has_more": has_more});
+    if let Some(key) = cache_key {
+        operations::public_cache_put(key, value.clone());
+    }
+    Ok(Json(value))
 }
 async fn home_feed(
     State(db): State<PgPool>,
@@ -1352,13 +1466,16 @@ async fn home_feed(
     let sql = format!(
         "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) ORDER BY {order}, p.id DESC LIMIT 21 OFFSET $4"
     );
-    let mut posts: Vec<Post> = sqlx::query_as(&sql)
-        .bind(author_id)
-        .bind(query.q.as_deref().unwrap_or("").trim())
-        .bind(&query.community)
-        .bind(offset)
-        .fetch_all(&db)
-        .await?;
+    let mut posts: Vec<Post> = operations::timed_query(
+        "feed.following",
+        sqlx::query_as(&sql)
+            .bind(author_id)
+            .bind(query.q.as_deref().unwrap_or("").trim())
+            .bind(&query.community)
+            .bind(offset)
+            .fetch_all(&db),
+    )
+    .await?;
     let has_more = posts.len() > 20;
     posts.truncate(20);
     Ok(Json(
@@ -1447,6 +1564,34 @@ async fn feed(State(db): State<PgPool>) -> Result<axum::response::Response, ApiE
 async fn shutdown() {
     let _ = tokio::signal::ctrl_c().await;
 }
+
+fn spawn_maintenance(db: PgPool) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+        // Do not make startup wait on housekeeping. The first tick is consumed
+        // here so cleanup never competes with the first request after launch.
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            for (label, statement) in [
+                ("sessions", "DELETE FROM sessions WHERE expires_at <= now()"),
+                (
+                    "view visits",
+                    "DELETE FROM post_view_visits WHERE started_at < now() - interval '1 hour'",
+                ),
+                (
+                    "ip activity",
+                    "DELETE FROM ip_activity WHERE created_at < now() - interval '7 days'",
+                ),
+            ] {
+                if let Err(error) = sqlx::query(statement).execute(&db).await {
+                    tracing::warn!(%error, maintenance = label, "periodic maintenance failed");
+                }
+            }
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     STARTED_AT.set(Utc::now()).ok();
@@ -1457,8 +1602,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
     let database_url = std::env::var("DATABASE_URL").map_err(|_| "DATABASE_URL is required")?;
+    let max_connections = std::env::var("SWARTZIT_DB_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(5)
+        .clamp(1, 32);
     let db = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(max_connections)
         .connect(&database_url)
         .await?;
     sqlx::migrate!().run(&db).await?;
@@ -1553,12 +1703,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         seed(&db).await?;
         return Ok(());
     }
+    spawn_maintenance(db.clone());
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
     let app = Router::new()
         .route("/health", get(health))
+        .route("/ready", get(ready))
         .route("/.well-known/nodeinfo", get(nodeinfo))
         .route("/api/accounts", post_method(signup))
         .route("/api/sessions", post_method(login).delete(logout))
@@ -1566,6 +1718,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/me/profile", get(my_profile).post(update_profile))
         .route("/api/users/{handle}", get(user_profile))
         .route("/api/bookmarks", get(bookmarks::list))
+        .route("/api/bookmarks/status", get(bookmarks::batch_status))
         .route(
             "/api/bookmark-folders",
             get(bookmarks::folders).post(bookmarks::create_folder),
@@ -1596,6 +1749,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(admin::moderation_history),
         )
         .route("/api/activity", get(activity))
+        .route("/api/subscriptions", get(subscriptions))
         .route("/api/admin/logs", get(admin::logs))
         .route("/api/admin/users", get(admin::users))
         .route(

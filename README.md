@@ -70,17 +70,30 @@ make perf-smoke PERF_REQUESTS=500 PERF_CONCURRENCY=8
 
 It emits JSON with completion count, errors, elapsed time, p50, p95, maximum latency, and response size. Keep results with the hardware profile and database fixture; do not compare numbers across machines without recording both.
 
+Startup scripts use the lightweight API readiness endpoint at `/ready` rather
+than loading a post. For a disposable database-scale check that applies the
+read-path indexes and `post_stats` projection, use:
+
+```bash
+make db-performance-benchmark
+```
+
+The benchmark creates and removes its own PostgreSQL database, exercises fresh
+10k/100k-post fixtures, and does not touch the live application data. See
+[`docs/performance-baseline.md`](docs/performance-baseline.md) for telemetry,
+`pg_stat_statements`, and result-recording guidance.
+
 ### macOS menu-bar status
 
-On macOS, install the small native status companion so end users can see at a glance whether Swartzit is running. It refreshes every 30 seconds and provides Open, Check Now, Start, Stop, and hot-reloadable web-interface binding actions:
+On macOS, install the small native status companion so end users can see at a glance whether Swartzit is running. It refreshes every 30 seconds and provides icon-assisted Open, Refresh, Start, Stop, and hot-reloadable web-interface binding actions:
 
 ```bash
 bash scripts/install-mac-status.sh
 ```
 
-The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Its first rows explicitly show `Swartzit: UP` or `DOWN`, the network binding (for example `Wi-Fi/LAN · Web en0 10.x.x.x · API loopback 127.0.0.1`), the server uptime, and the latest configurable uptime pulse. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
+The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Its first rows explicitly show `Swartzit · Up` or `Down`, the network binding (for example `Wi-Fi/LAN · Web en0 10.x.x.x · API loopback 127.0.0.1`), the server uptime, and the latest configurable uptime pulse. It uses the same Swartzit icon as the web app/favicon, shows native macOS symbols for actions and network types, runs as a per-user LaunchAgent, and does not store application data in the menu-bar app.
 
-Use **Bind web interface** in the menu to choose an active loopback, Wi-Fi/LAN,
+Use **Bind interface** in the menu to choose an active loopback, Wi-Fi/LAN,
 USB/Thunderbolt Ethernet adapter, WireGuard/VPN tunnel, or concrete macOS
 interface. Swartzit stops and restarts its API and web processes with the
 selected web binding, then rechecks health; the API remains loopback-only unless

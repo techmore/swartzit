@@ -6,11 +6,12 @@
   onMount(async () => {
     token = localStorage.getItem('swartzit_session') ?? '';
     if (!token) return;
-    const entries = await Promise.all(data.communities.map(async community => {
-      try { const response = await fetch(`/api/communities/${community.slug}/subscription`,{headers:{authorization:'Bearer '+token}}); const result = await response.json(); return [community.slug,response.ok && result.subscribed]; }
-      catch { return [community.slug,false]; }
-    }));
-    following = Object.fromEntries(entries);
+    try {
+      const response = await fetch('/api/subscriptions', {headers:{authorization:'Bearer '+token}});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not load followed communities.');
+      following = Object.fromEntries(result.map(slug => [slug, true]));
+    } catch (e) { error = e.message || 'Could not load followed communities.'; }
   });
   async function toggleFollow(community) {
     if (!token) { window.location.assign('/login'); return; }

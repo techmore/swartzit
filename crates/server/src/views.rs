@@ -36,8 +36,6 @@ pub async fn record(
     if exists.is_none() {
         return Err(ApiError::Missing);
     }
-    // Bounded cleanup work per write; aggregate counters survive expiry.
-    sqlx::query("DELETE FROM post_view_visits WHERE (post_id,visit_hash) IN (SELECT post_id,visit_hash FROM post_view_visits WHERE started_at<now()-interval '1 hour' ORDER BY started_at LIMIT 100)").execute(&mut *tx).await?;
     let added = if input.visible_seconds == 0 {
         sqlx::query("INSERT INTO post_view_visits(post_id,visit_hash) VALUES ($1,$2) ON CONFLICT DO NOTHING").bind(id).bind(&hash).execute(&mut *tx).await?.rows_affected() as i64
     } else {
@@ -69,6 +67,23 @@ pub async fn record(
         .await?;
     let counts=sqlx::query_as::<_,ViewCounts>("UPDATE posts SET view_count=view_count+$2,engaged_view_count=engaged_view_count+$3,deep_view_count=deep_view_count+$4 WHERE id=$1 RETURNING view_count,engaged_view_count,deep_view_count")
         .bind(id).bind(added).bind(i64::from(previous<10 && next>=10)).bind(i64::from(previous<30 && next>=30)).fetch_one(&mut *tx).await?;
+    sqlx::query(
+        "INSERT INTO post_stats(
+           post_id, view_count, engaged_view_count, deep_view_count, updated_at
+         )
+         VALUES ($1, $2, $3, $4, now())
+         ON CONFLICT (post_id) DO UPDATE SET
+           view_count = EXCLUDED.view_count,
+           engaged_view_count = EXCLUDED.engaged_view_count,
+           deep_view_count = EXCLUDED.deep_view_count,
+           updated_at = now()",
+    )
+    .bind(id)
+    .bind(counts.view_count)
+    .bind(counts.engaged_view_count)
+    .bind(counts.deep_view_count)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(counts))
 }

@@ -215,7 +215,7 @@ case "${1:-status}" in
     STATUS_SCRIPT="$HOME_DIR/scripts/status-local.sh"
     [[ -x "$STATUS_SCRIPT" ]] || STATUS_SCRIPT="$HOME_DIR/libexec/status-local.sh"
     if [[ -x "$STATUS_SCRIPT" ]]; then shift; exec "$STATUS_SCRIPT" "$@"; fi
-    if curl -fsS --max-time 3 "${API_URL:-http://127.0.0.1:18080}/api/posts?limit=1" >/dev/null; then echo 'API: ready'; else echo 'API: down'; fi
+    if curl -fsS --max-time 3 "${API_URL:-http://127.0.0.1:18080}/ready" >/dev/null; then echo 'API: ready'; else echo 'API: down'; fi
     ;;
   interfaces|network-options) shift; exec "$SCRIPT_HOME/network-options.sh" "$@" ;;
   caddy) shift; exec "$SCRIPT_HOME/swartzit-caddy.sh" "${1:-status}" ;;

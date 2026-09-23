@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.14-20260923T15
+
+- Refreshes the native macOS menu companion with the shared Swartzit icon,
+  compact SF Symbol rows, clearer up/down/pulse states, and a less crowded
+  action layout.
+- Keeps network binding choices visible by type and address, including
+  loopback, Wi-Fi/LAN, Ethernet, VPN, and WireGuard interfaces.
+- Adds the measured read-path optimization work: lightweight readiness,
+  targeted indexes, batched lookups, bounded aggregate caching, telemetry, and
+  reproducible 10k/100k-post benchmark tooling.
+
 ## 0.1.13-20260923T14
 
 - Keeps Caddy on a non-privileged wildcard listener while binding Swartzit's

@@ -51,6 +51,7 @@ struct Activity: Decodable { let windows: [ActivityWindow]; let features: Activi
 final class StatusApp: NSObject, NSApplicationDelegate {
     private var item: NSStatusItem!
     private var menu: NSMenu!
+    private var summaryItem: NSMenuItem!
     private var activitySeparator: NSMenuItem!
     private var activityRows: [NSMenuItem] = []
     private var orchardItems: [NSMenuItem] = []
@@ -80,40 +81,43 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         }
         item.button?.setAccessibilityLabel("Swartzit")
         menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Swartzit: Checking…", action: nil, keyEquivalent: ""))
-        versionItem = NSMenuItem(title: "Version: Checking…", action: nil, keyEquivalent: "")
+        summaryItem = menuItem("Swartzit  ·  Checking…", nil)
+        summaryItem.isEnabled = false
+        summaryItem.image = loadMenuIcon()
+        menu.addItem(summaryItem)
+        versionItem = menuItem("Release  ·  Checking…", nil, icon: "info.circle")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
-        networkItem = NSMenuItem(title: "Network: Checking…", action: nil, keyEquivalent: "")
+        networkItem = menuItem("Network  ·  Checking…", nil, icon: "network")
         networkItem.isEnabled = false
         menu.addItem(networkItem)
-        uptimeItem = NSMenuItem(title: "Uptime: Checking…", action: nil, keyEquivalent: "")
+        uptimeItem = menuItem("Uptime  ·  Checking…", nil, icon: "clock")
         uptimeItem.isEnabled = false
         menu.addItem(uptimeItem)
-        pulseItem = NSMenuItem(title: "Uptime pulse: Checking…", action: nil, keyEquivalent: "")
+        pulseItem = menuItem("Pulse  ·  Checking…", nil, icon: "dot.radiowaves.left.and.right")
         pulseItem.isEnabled = false
         menu.addItem(pulseItem)
-        bindingRootItem = NSMenuItem(title: "Bind web interface", action: nil, keyEquivalent: "")
+        bindingRootItem = menuItem("Bind interface", nil, icon: "arrow.triangle.2.circlepath")
         bindingRootItem.toolTip = "Hot-reload the web server on an available macOS interface. The API remains loopback-only by default."
         bindingMenu = NSMenu()
         bindingRootItem.submenu = bindingMenu
-        let checkingBindings = NSMenuItem(title: "Checking available interfaces…", action: nil, keyEquivalent: "")
+        let checkingBindings = menuItem("Checking available interfaces…", nil, icon: "ellipsis.circle")
         checkingBindings.isEnabled = false
         bindingMenu.addItem(checkingBindings)
         menu.addItem(bindingRootItem)
-        let activityHeader = NSMenuItem(title: "Activity", action: nil, keyEquivalent: "")
+        let activityHeader = menuItem("Recent activity", nil, icon: "chart.bar.fill")
         activityHeader.isEnabled = false
         menu.addItem(activityHeader)
         activitySeparator = .separator()
         menu.addItem(activitySeparator)
         renderActivity(nil)
         menu.addItem(.separator())
-        add("Open Swartzit", #selector(openSwartzit))
-        checkNowItem = add("Check Now", #selector(checkNow))
-        add("Start Swartzit", #selector(startSwartzit))
-        add("Stop Swartzit", #selector(stopSwartzit))
+        add("Open Swartzit", #selector(openSwartzit), icon: "arrow.up.forward.app")
+        checkNowItem = add("Refresh status", #selector(checkNow), icon: "arrow.clockwise")
+        add("Start service", #selector(startSwartzit), icon: "play.fill")
+        add("Stop service", #selector(stopSwartzit), icon: "stop.fill")
         menu.addItem(.separator())
-        add("Quit", #selector(quit))
+        add("Quit", #selector(quit), icon: "power")
         setOrchardEnabled(true)
         item.menu = menu
         checkNow()
@@ -121,24 +125,45 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     }
 
     @discardableResult
-    private func add(_ title: String, _ action: Selector) -> NSMenuItem {
-        let entry = menuItem(title, action)
+    private func add(_ title: String, _ action: Selector, icon: String? = nil) -> NSMenuItem {
+        let entry = menuItem(title, action, icon: icon)
         menu.addItem(entry)
         return entry
     }
 
-    private func menuItem(_ title: String, _ action: Selector) -> NSMenuItem {
+    private func menuItem(_ title: String, _ action: Selector?, icon: String? = nil) -> NSMenuItem {
         let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        entry.target = self
+        if action != nil {
+            entry.target = self
+        }
+        if let icon {
+            entry.image = symbol(icon)
+        }
         return entry
+    }
+
+    private func symbol(_ name: String) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else {
+            return nil
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 14, height: 14)
+        return image
+    }
+
+    private func loadMenuIcon() -> NSImage? {
+        guard let icon = loadIcon() else { return nil }
+        icon.size = NSSize(width: 16, height: 16)
+        icon.isTemplate = false
+        return icon
     }
 
     private func setOrchardEnabled(_ enabled: Bool) {
         if enabled {
             guard orchardItems.isEmpty else { return }
             let entries = [
-                menuItem("Open Orchard", #selector(openOrchard)),
-                menuItem("Install Orchard with Homebrew…", #selector(installOrchard))
+                menuItem("Open Orchard", #selector(openOrchard), icon: "square.grid.2x2"),
+                menuItem("Install Orchard with Homebrew…", #selector(installOrchard), icon: "arrow.down.circle")
             ]
             let checkNowIndex = menu.index(of: checkNowItem)
             guard checkNowIndex != NSNotFound else { return }
@@ -167,16 +192,18 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                 if self.item.button?.image == nil {
                     self.item.button?.title = localUp ? "● Swartzit" : "○ Swartzit"
                 }
-                let summary = self.menu.items[0]
-                summary.title = health == nil
-                    ? "Swartzit: UNAVAILABLE"
+                self.summaryItem.title = health == nil
+                    ? "Swartzit  ·  Unavailable"
                     : (localUp
-                        ? (publicDown ? "Swartzit: UP · Public DOWN" : (pulseDown ? "Swartzit: UP · Pulse DOWN" : "Swartzit: UP"))
-                        : "Swartzit: DOWN")
-                summary.toolTip = self.summary(health)
+                        ? (publicDown ? "Swartzit  ·  Up · Public down" : (pulseDown ? "Swartzit  ·  Up · Pulse down" : "Swartzit  ·  Up"))
+                        : "Swartzit  ·  Down")
+                self.summaryItem.image = self.symbol(health == nil
+                    ? "questionmark.circle.fill"
+                    : (localUp && !publicDown && !pulseDown ? "checkmark.circle.fill" : (localUp ? "exclamationmark.triangle.fill" : "xmark.circle.fill")))
+                self.summaryItem.toolTip = self.summary(health)
                 self.item.button?.toolTip = self.summary(health)
                 self.item.button?.setAccessibilityLabel(localUp ? "Swartzit up" : "Swartzit down")
-                self.versionItem.title = "Version: \(health?.version ?? "unknown")"
+                self.versionItem.title = "Release  ·  \(health?.version ?? "unknown")"
                 self.networkItem.title = self.networkTitle(health?.network)
                 self.uptimeItem.title = self.uptimeTitle(health?.uptime)
                 self.pulseItem.title = self.pulseTitle(health?.pulse, publicStatus: health?.public)
@@ -230,21 +257,21 @@ final class StatusApp: NSObject, NSApplicationDelegate {
 
         let currentMode = network?.mode
         let currentInterface = network?.web_interface
-        bindingRootItem.title = "Bind web interface (\(currentInterface ?? "unknown"))"
+        bindingRootItem.title = "Bind interface  ·  \(currentInterface ?? "unknown")"
 
         guard !options.isEmpty else {
-            let unavailable = NSMenuItem(title: "No active IPv4 interfaces found", action: nil, keyEquivalent: "")
+            let unavailable = menuItem("No active IPv4 interfaces found", nil, icon: "exclamationmark.triangle")
             unavailable.isEnabled = false
             bindingMenu.addItem(unavailable)
             return
         }
 
-        let note = NSMenuItem(title: "Choose an interface to hot-reload", action: nil, keyEquivalent: "")
+        let note = menuItem("Current  ·  \(currentInterface ?? "unknown")", nil, icon: "checkmark.circle")
         note.isEnabled = false
         bindingMenu.addItem(note)
         bindingMenu.addItem(.separator())
         for option in options {
-            let row = menuItem("\(option.label) · \(option.interface) · \(option.ip)", #selector(selectBinding(_:)))
+            let row = menuItem("\(option.label)  ·  \(option.interface)  ·  \(option.ip)", #selector(selectBinding(_:)), icon: bindingIcon(for: option))
             row.representedObject = option.id
             row.toolTip = "Restart Swartzit with the web server bound to \(option.interface) (\(option.ip))."
             if option.id == currentMode || (currentMode == "interface" && option.interface == currentInterface) {
@@ -267,7 +294,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                 let label = window.label.isEmpty
                     ? "Activity"
                     : window.label.prefix(1).uppercased() + String(window.label.dropFirst())
-                return "\(label) — \(window.users) users · \(window.posts) posts · \(window.comments) comments"
+                return "\(label)  ·  \(window.users) users  ·  \(window.posts) posts  ·  \(window.comments) comments"
             }
         } else {
             titles = ["Activity unavailable"]
@@ -278,7 +305,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             return
         }
         for (offset, title) in titles.enumerated() {
-            let row = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let row = menuItem(title, nil, icon: "chart.bar.fill")
             row.isEnabled = false
             menu.insertItem(row, at: separatorIndex + offset)
             activityRows.append(row)
@@ -294,7 +321,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     }
 
     private func networkTitle(_ network: Network?) -> String {
-        guard let network else { return "Network: unknown" }
+        guard let network else { return "Network  ·  unknown" }
         let label = network.label ?? network.mode ?? "unknown"
         let web = [network.web_interface, network.web_bind_ip]
             .compactMap { $0 }
@@ -304,28 +331,38 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             .compactMap { $0 }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        var value = "Bound: \(label)"
-        if !web.isEmpty { value += " · Web \(web)" }
-        if !api.isEmpty { value += " · API \(api)" }
+        var value = "Network  ·  \(label)"
+        if !web.isEmpty { value += "  ·  Web \(web)" }
+        if !api.isEmpty { value += "  ·  API \(api)" }
         return value
     }
 
     private func uptimeTitle(_ uptime: Uptime?) -> String {
-        guard let uptime else { return "Uptime: unknown" }
+        guard let uptime else { return "Uptime  ·  unknown" }
         let state = (uptime.status ?? "unknown").uppercased()
         let duration = uptime.duration ?? "unknown"
         guard let started = uptime.started_at, !started.isEmpty else {
-            return "Uptime: \(state) · \(duration)"
+            return "Uptime  ·  \(state)  ·  \(duration)"
         }
-        return "Uptime: \(state) · \(duration) · since \(shortTime(started))"
+        return "Uptime  ·  \(state)  ·  \(duration)  ·  since \(shortTime(started))"
     }
 
     private func pulseTitle(_ pulse: Pulse?, publicStatus: String?) -> String {
         let state = (pulse?.status ?? (publicStatus == "down" ? "down" : "unknown")).uppercased()
-        var value = "Uptime pulse: \(state)"
-        if let latency = pulse?.latency_ms { value += " · \(latency) ms" }
-        if let age = pulse?.age_seconds { value += " · checked \(age)s ago" }
+        var value = "Pulse  ·  \(state)"
+        if let latency = pulse?.latency_ms { value += "  ·  \(latency) ms" }
+        if let age = pulse?.age_seconds { value += "  ·  checked \(age)s ago" }
         return value
+    }
+
+    private func bindingIcon(for option: BindingOption) -> String {
+        switch option.kind.lowercased() {
+        case "wifi": return "wifi"
+        case "wireguard": return "lock.shield"
+        case "vpn": return "network"
+        case "loopback": return "arrow.triangle.2.circlepath"
+        default: return "cable.connector"
+        }
     }
 
     private func shortTime(_ value: String) -> String {
@@ -360,7 +397,8 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let result = self.run(["orchard", "install", "--yes"])
             DispatchQueue.main.async {
-                self.menu.items[0].title = result.code == 0 ? "Orchard: Installed" : "Orchard: Install failed"
+                self.summaryItem.title = result.code == 0 ? "Swartzit  ·  Orchard installed" : "Swartzit  ·  Orchard install failed"
+                self.summaryItem.image = self.symbol(result.code == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 self.checkNow()
             }
         }
@@ -370,7 +408,8 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         bindingInProgress = true
         bindingRootItem.isEnabled = false
         for row in bindingRows { row.isEnabled = false }
-        menu.items[0].title = "Swartzit: Restarting…"
+        summaryItem.title = "Swartzit  ·  Restarting…"
+        summaryItem.image = symbol("arrow.clockwise.circle.fill")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let result = self.run(["restart", binding])

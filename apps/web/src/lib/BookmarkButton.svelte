@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { getBookmarkFolders, getBookmarkStatus, setBookmarkStatus } from '$lib/bookmark-state.js';
   export let id;
   let token = '', saved = false, folder = '', folders = [], busy = false, ready = false, error = '';
   async function request(path, method = 'GET', body) {
@@ -11,7 +12,7 @@
     token = localStorage.getItem('swartzit_session') || '';
     if (!token) return;
     try {
-      const status = await request(`/api/posts/${id}/bookmark`);
+      const status = await getBookmarkStatus(token, id);
       saved = status.saved; folder = status.folder_id == null ? '' : String(status.folder_id); ready = true;
     } catch (e) {
       if (e.message === 'Authentication required') {
@@ -21,13 +22,14 @@
     }
   });
   async function loadFolders() {
-    try { folders = await request('/api/bookmark-folders'); } catch (e) { error = e.message; }
+    try { folders = await getBookmarkFolders(token); } catch (e) { error = e.message; }
   }
   async function save(remove = false) {
     busy = true; error = '';
     try {
       await request(`/api/posts/${id}/bookmark`, remove ? 'DELETE' : 'POST', remove ? undefined : {folder_id:folder ? Number(folder) : null});
       saved = !remove;
+      setBookmarkStatus(token, id, {saved, folder_id: saved && folder ? Number(folder) : null});
     } catch (e) { error = e.message; }
     finally { busy = false; }
   }

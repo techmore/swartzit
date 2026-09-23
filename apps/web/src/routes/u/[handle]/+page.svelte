@@ -5,7 +5,7 @@
 
   export let data;
   let token = '', viewer = null, pending = null, displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
-  let activeTab = 'posts';
+  let activeTab = data.tab ?? 'posts';
   const date = value => value ? new Date(value).toLocaleDateString() : '—';
   const attachment = value => {
     const media = typeof value === 'string' ? { kind: 'image', src: value } : value ?? {};
@@ -88,9 +88,9 @@
   <section class="activity">
     <div class="section-heading"><div><p class="eyebrow">PUBLIC TIMELINE</p><h2>Contributions</h2></div><a href="/">Browse discussions →</a></div>
     <div class="profile-tabs" role="tablist" aria-label="Profile timeline tabs">
-      <button type="button" role="tab" aria-selected={activeTab === 'posts'} aria-controls="profile-posts" class:active={activeTab === 'posts'} onclick={() => activeTab = 'posts'}>Posts <span>{data.profile.post_count}</span></button>
-      <button type="button" role="tab" aria-selected={activeTab === 'replies'} aria-controls="profile-replies" class:active={activeTab === 'replies'} onclick={() => activeTab = 'replies'}>Replies <span>{data.profile.comment_count}</span></button>
-      <button type="button" role="tab" aria-selected={activeTab === 'media'} aria-controls="profile-media" class:active={activeTab === 'media'} onclick={() => activeTab = 'media'}>Media <span>{media.length}</span></button>
+      <a role="tab" aria-selected={activeTab === 'posts'} aria-controls="profile-posts" class:active={activeTab === 'posts'} href="?tab=posts">Posts <span>{data.profile.post_count}</span></a>
+      <a role="tab" aria-selected={activeTab === 'replies'} aria-controls="profile-replies" class:active={activeTab === 'replies'} href="?tab=replies">Replies <span>{data.profile.comment_count}</span></a>
+      <a role="tab" aria-selected={activeTab === 'media'} aria-controls="profile-media" class:active={activeTab === 'media'} href="?tab=media">Media <span>{data.profile.media_count ?? '—'}</span></a>
     </div>
 
     {#if activeTab === 'posts'}
@@ -149,9 +149,9 @@
   .profile-stats{display:flex;gap:28px;margin:24px 0 0;border-top:1px solid var(--border,#dedfd7);padding-top:18px}.profile-stats div{display:grid;gap:3px}.profile-stats dt{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#77827d)}.profile-stats dd{margin:0;font-weight:700;color:var(--heading,#173d34)}
   .profile-editor{margin-top:20px}.profile-editor h2{margin-top:0}.profile-editor form{display:grid;gap:12px}.profile-editor textarea{resize:vertical}.profile-editor button{justify-self:start}.moderation-note,.form-message,.form-error{font-size:.84rem;margin-bottom:0}
   .activity{margin-top:40px}.section-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border,#dedfd7);padding-bottom:12px}.section-heading h2{margin:0;font:500 1.7rem/1.1 Georgia,serif;color:var(--heading,#173d34)}.section-heading a{color:var(--accent,#9b5e38);font-weight:700;font-size:.84rem}
-  .profile-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#dedfd7);margin-top:16px;overflow-x:auto}.profile-tabs button{position:relative;padding:13px 15px;border:0;border-radius:0;background:transparent;color:var(--muted,#66766c);font:600 .82rem/1 inherit;white-space:nowrap;cursor:pointer}.profile-tabs button span{margin-left:4px;font-size:.72rem;opacity:.75}.profile-tabs button:hover{color:var(--heading,#173d34)}.profile-tabs button.active{color:var(--heading,#173d34)}.profile-tabs button.active::after{content:'';position:absolute;right:12px;bottom:-1px;left:12px;height:3px;border-radius:3px 3px 0 0;background:var(--accent,#9b5e38)}
+  .profile-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#dedfd7);margin-top:16px;overflow-x:auto}.profile-tabs a{position:relative;padding:13px 15px;color:var(--muted,#66766c);font:600 .82rem/1 inherit;white-space:nowrap;text-decoration:none}.profile-tabs a span{margin-left:4px;font-size:.72rem;opacity:.75}.profile-tabs a:hover{color:var(--heading,#173d34)}.profile-tabs a.active{color:var(--heading,#173d34)}.profile-tabs a.active::after{content:'';position:absolute;right:12px;bottom:-1px;left:12px;height:3px;border-radius:3px 3px 0 0;background:var(--accent,#9b5e38)}
   .activity-item{padding:17px 0;border-bottom:1px solid var(--border,#dedfd7)}.activity-item h3{margin:8px 0 0;font:600 1.1rem/1.25 Georgia,serif}.activity-item h3 a{color:var(--heading,#173d34)}.activity-item p{margin:10px 0;white-space:pre-wrap}.timeline-body{line-height:1.5}.timeline-meta{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;color:var(--muted,#77827d);font-size:.76rem}.badge{display:inline-block;padding:3px 7px;border-radius:999px;background:var(--wash,#f0ece4);color:var(--muted,#66766c);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em}.context-link{font-size:.8rem;color:var(--accent,#9b5e38);font-weight:700}.empty-tab{padding:28px 0;border-bottom:1px solid var(--border,#dedfd7)}
   .media-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding-top:18px}.media-card{overflow:hidden;border:1px solid var(--border,#dedfd7);border-radius:10px;background:var(--surface,#fff)}.media-preview{background:var(--subtle,#f0f3ec);aspect-ratio:1/1;display:grid;place-items:center}.media-preview img,.media-preview video{width:100%;height:100%;object-fit:cover;display:block}.media-caption{padding:10px 12px}.media-caption>a{display:block;color:var(--heading,#173d34);font-weight:700;font-size:.84rem;line-height:1.3;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.media-caption small{display:block;margin-top:5px;color:var(--muted,#77827d);font-size:.72rem}.media-caption small a{color:var(--accent,#9b5e38);font-weight:700}
   @media(max-width:600px){.profile-page{padding-top:20px}.profile-card{padding:20px}.profile-card h1{font-size:1.6rem}.profile-stats{gap:18px}.section-heading{align-items:start;flex-direction:column;gap:8px}}
-  @media(max-width:460px){.media-grid{grid-template-columns:1fr}.profile-tabs button{padding-inline:10px}}
+  @media(max-width:460px){.media-grid{grid-template-columns:1fr}.profile-tabs a{padding-inline:10px}}
 </style>

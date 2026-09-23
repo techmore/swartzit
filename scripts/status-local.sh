@@ -30,7 +30,8 @@ json=0
 check_http() { curl -fsS --max-time "${SWARTZIT_CHECK_TIMEOUT:-5}" -o /dev/null "$1" >/dev/null 2>&1; }
 api_status=down; web_status=down; database_status=down; caddy_status=not-configured; worker_status=not-configured; public_status=not-configured
 api_health_json='{}'
-if api_health_json=$(curl -fsS --max-time "${SWARTZIT_CHECK_TIMEOUT:-5}" "$api/health" 2>/dev/null); then
+if curl -fsS --max-time "${SWARTZIT_CHECK_TIMEOUT:-5}" "$api/ready" >/dev/null 2>&1 \
+  && api_health_json=$(curl -fsS --max-time "${SWARTZIT_CHECK_TIMEOUT:-5}" "$api/health" 2>/dev/null); then
   api_status=ready
 else
   api_health_json='{}'

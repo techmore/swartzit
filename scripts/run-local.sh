@@ -152,7 +152,7 @@ if [[ "${SWARTZIT_BUILD:-0}" == 1 || ! -f apps/web/build/index.js ]]; then
   npm --prefix apps/web ci
   npm --prefix apps/web run build
 fi
-api_ok() { curl -fsS --max-time 2 "$API_URL/api/posts?limit=1" >/dev/null 2>&1; }
+api_ok() { curl -fsS --max-time 2 "$API_URL/ready" >/dev/null 2>&1; }
 web_ok() { curl -fsS --max-time 2 "http://$WEB_BIND_IP:$PORT/" >/dev/null 2>&1; }
 if ! api_ok; then
   # Keep the original first-run demo seeding behavior, but only do it while

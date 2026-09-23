@@ -13,6 +13,10 @@ pub struct ListInput {
     unfiled: Option<bool>,
     page: Option<i64>,
 }
+#[derive(Deserialize)]
+pub struct BatchStatusInput {
+    post_ids: String,
+}
 #[derive(Serialize, FromRow)]
 pub struct Folder {
     id: i64,
@@ -39,7 +43,10 @@ pub async fn folders(
     h: HeaderMap,
 ) -> Result<Json<Vec<Folder>>, ApiError> {
     let uid = owner(&h, &db).await?;
-    Ok(Json(sqlx::query_as("SELECT f.id,f.name,count(b.post_id) AS count FROM bookmark_folders f LEFT JOIN bookmarks b ON b.author_id=f.author_id AND b.folder_id=f.id WHERE f.author_id=$1 GROUP BY f.id ORDER BY lower(f.name),f.id").bind(uid).fetch_all(&db).await?))
+    Ok(Json(crate::operations::timed_query(
+        "bookmarks.folders",
+        sqlx::query_as("SELECT f.id,f.name,count(b.post_id) AS count FROM bookmark_folders f LEFT JOIN bookmarks b ON b.author_id=f.author_id AND b.folder_id=f.id WHERE f.author_id=$1 GROUP BY f.id ORDER BY lower(f.name),f.id").bind(uid).fetch_all(&db),
+    ).await?))
 }
 async fn write_folder(
     db: &PgPool,
@@ -131,15 +138,57 @@ pub async fn status(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let uid = owner(&h, &db).await?;
-    let row: Option<(Option<i64>,)> =
+    let row: Option<(Option<i64>,)> = crate::operations::timed_query(
+        "bookmarks.status",
         sqlx::query_as("SELECT folder_id FROM bookmarks WHERE author_id=$1 AND post_id=$2")
             .bind(uid)
             .bind(id)
-            .fetch_optional(&db)
-            .await?;
+            .fetch_optional(&db),
+    )
+    .await?;
     Ok(Json(
         serde_json::json!({"saved":row.is_some(),"folder_id":row.and_then(|r|r.0)}),
     ))
+}
+pub async fn batch_status(
+    State(db): State<PgPool>,
+    h: HeaderMap,
+    Query(input): Query<BatchStatusInput>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let uid = owner(&h, &db).await?;
+    let mut ids = input
+        .post_ids
+        .split(',')
+        .filter_map(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() || ids.len() > 100 {
+        return Err(ApiError::Invalid("Provide between 1 and 100 post ids"));
+    }
+    let rows: Vec<(i64, Option<i64>)> = crate::operations::timed_query(
+        "bookmarks.batch_status",
+        sqlx::query_as(
+            "SELECT post_id, folder_id
+             FROM bookmarks
+             WHERE author_id = $1 AND post_id = ANY($2::bigint[])",
+        )
+        .bind(uid)
+        .bind(&ids)
+        .fetch_all(&db),
+    )
+    .await?;
+    let saved = rows
+        .into_iter()
+        .map(|(post_id, folder_id)| {
+            (
+                post_id.to_string(),
+                serde_json::json!({"saved": true, "folder_id": folder_id}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    Ok(Json(serde_json::json!({"items": saved})))
 }
 pub async fn save(
     State(db): State<PgPool>,
