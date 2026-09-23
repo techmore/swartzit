@@ -7,8 +7,14 @@ SERVER="${SWARTZIT_SERVER:-$HOME_DIR/target/release/swartzit-server}"
 WEB_BUILD="${SWARTZIT_WEB_BUILD:-$HOME_DIR/apps/web/build}"
 if [[ ! -x "$SERVER" && -x "$SCRIPT_DIR/swartzit-server" ]]; then SERVER="$SCRIPT_DIR/swartzit-server"; fi
 if [[ ! -d "$WEB_BUILD" && -d "$HOME_DIR/libexec/build" ]]; then WEB_BUILD="$HOME_DIR/libexec/build"; fi
-mkdir -p "${SWARTZIT_STATE_DIR:-$HOME_DIR/.local}"
-STATE_DIR="${SWARTZIT_STATE_DIR:-$HOME_DIR/.local}"
+if [[ -n "${SWARTZIT_STATE_DIR:-}" ]]; then
+  STATE_DIR="$SWARTZIT_STATE_DIR"
+elif [[ -d "$HOME_DIR/.git" || -d "$HOME_DIR/.local" ]]; then
+  STATE_DIR="$HOME_DIR/.local"
+else
+  STATE_DIR="${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}"
+fi
+mkdir -p "$STATE_DIR"
 SCRIPT_HOME="$HOME_DIR/scripts"
 [[ -d "$SCRIPT_HOME" ]] || SCRIPT_HOME="$HOME_DIR/libexec"
 

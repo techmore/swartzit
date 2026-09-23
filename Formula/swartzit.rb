@@ -32,6 +32,8 @@ class Swartzit < Formula
       Swartzit requires PostgreSQL. Start the app with:
         swartzit start
       Configure DATABASE_URL and BIND_ADDR in #{etc}/swartzit.env.example.
+      Runtime state and backups default to ~/Library/Application Support/Swartzit;
+      set SWARTZIT_DATA_DIR to choose another persistent location.
       On macOS, run `swartzit-status` for a native menu-bar health indicator.
     EOS
   end
