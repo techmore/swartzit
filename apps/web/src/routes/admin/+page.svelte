@@ -8,7 +8,7 @@
   let runnerName = '', runnerKind = 'command', runnerCommand = '', runnerPrompt = '', runnerAuthor = '', runnerCommunity = '', runnerInterval = 1800, runnerDays = [1, 2, 3, 4, 5, 6, 7], runnerPriority = 100, runnerTimeout = 900, runnerAttempts = 3, runnerBackoff = 60, runnerThreshold = 3, runnerRetention = 30, runnerEnvironmentKeys = '', runnerCaptureOutput = true, runnerMaxLogBytes = 20000, editingRunner = null;
   let drawExecutable = 'draw-things-cli', drawModelsDir = '', drawModel = '', drawWidth = 1024, drawHeight = 1024, drawSteps = 4, drawCfg = 3.5, drawSeed = '', drawLoras = '[]', drawOutputPath = '', drawPostsPerRun = 1, drawTitlePrefix = 'Draw Things generation';
   let search = '', level = '', kind = 'posts', cursors = [], before = null, paused = false, refreshed = null, busy = false, security = null, blockIp = '', blockReason = '', blockExpiry = '';
-  let generation = 0;
+  let generation = 0, authState = 'checking', authError = '';
   const number = value => new Intl.NumberFormat().format(value ?? 0);
   const date = value => value ? new Date(value).toLocaleString() : '—';
   const size = value => (value / 1024 / 1024).toFixed(1) + ' MB';
@@ -16,8 +16,34 @@
     const token = localStorage.getItem('swartzit_session');
     if (!token) throw new Error('Sign in with an administrator account to continue.');
     const response = await fetch('/api/admin/' + path, { method, headers: { authorization: 'Bearer ' + token, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? 'Request failed');
+    if (!response.ok) {
+      if (response.status === 401) { localStorage.removeItem('swartzit_session'); authState = 'signed_out'; }
+      if (response.status === 403) authState = 'forbidden';
+      throw new Error((await response.json().catch(() => ({}))).error ?? 'Request failed');
+    }
     return response.status === 204 ? null : response.json();
+  }
+  async function establishAdminSession() {
+    const token = localStorage.getItem('swartzit_session');
+    if (!token) { authState = 'signed_out'; loading = false; return; }
+    try {
+      const response = await fetch('/api/me', { headers: { authorization: 'Bearer ' + token } });
+      if (response.status === 401) {
+        localStorage.removeItem('swartzit_session');
+        authState = 'signed_out';
+        loading = false;
+        return;
+      }
+      if (!response.ok) throw new Error('Unable to verify your session.');
+      const user = await response.json();
+      if (!user.is_admin) { authState = 'forbidden'; loading = false; return; }
+      authState = 'authenticated';
+      await refresh();
+    } catch (e) {
+      authState = 'error';
+      authError = e.message;
+      loading = false;
+    }
   }
   async function refresh() {
     const version = ++generation;
@@ -118,13 +144,32 @@
     const requested = new URLSearchParams(location.search).get('tab');
     tab = tabs.find(t => t.toLowerCase() === requested) ?? 'Overview';
     if (tab === 'Moderation') kind = '';
-    refresh();
-    const timer = setInterval(() => { if (!paused && !loading && !busy && !document.hidden) refresh(); }, 10000);
+    establishAdminSession();
+    const timer = setInterval(() => { if (authState === 'authenticated' && !paused && !loading && !busy && !document.hidden) refresh(); }, 10000);
     return () => { clearInterval(timer); generation++; };
   });
 </script>
 
 <svelte:head><title>Administration · Swartzit</title></svelte:head>
+{#if authState !== 'authenticated'}
+  <header><a class="brand" href="/">swartzit</a><span>Instance administration</span></header>
+  <main class="auth admin-auth" aria-live="polite">
+    {#if authState === 'checking'}
+      <p role="status">Checking administrator access…</p>
+    {:else if authState === 'forbidden'}
+      <p class="eyebrow">ADMINISTRATION</p><h1>Administrator access required</h1>
+      <p class="lede">You’re signed in, but this account does not have permission to open the control room.</p>
+      <p><a href="/">Return to Swartzit →</a> · <a href="/logout">Sign out</a></p>
+    {:else if authState === 'error'}
+      <p class="eyebrow">ADMINISTRATION</p><h1>We couldn’t verify your session</h1>
+      <p class="lede">{authError}</p><p><a href="/login?next=%2Fadmin">Try signing in again →</a></p>
+    {:else}
+      <p class="eyebrow">ADMINISTRATION</p><h1>Sign in to continue</h1>
+      <p class="lede">The Swartzit control room is only available to signed-in administrators.</p>
+      <p><a class="admin-sign-in" href="/login?next=%2Fadmin">Sign in to admin →</a></p>
+    {/if}
+  </main>
+{:else}
 <header><a class="brand" href="/">swartzit</a><span>Instance administration</span><SessionNav /></header>
 <main class="admin">
   <div class="admin-heading"><div><p class="eyebrow">YOUR COMMUNITY, YOUR INSTANCE</p><h1>Control room</h1><p class="muted">People, conversations, and the services that keep them connected.</p></div>
@@ -285,8 +330,12 @@
     {/if}
   {/if}
 </main>
+{/if}
 
 <style>
+  .admin-auth{max-width:620px}
+  .admin-sign-in{display:inline-block;background:var(--button-bg,#173d34);color:var(--button-text,#fff);border-radius:6px;padding:12px 20px;font-weight:700}
+  .admin-sign-in:hover{background:var(--heading,#28594a)}
   .runner-editor form{align-items:stretch}
   .runner-editor .wide-field{grid-column:1/-1}
   .runner-settings{border:1px solid var(--border,#c7d0c6);border-radius:10px;padding:12px;background:var(--subtle,#f0f3ec)}
