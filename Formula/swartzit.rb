@@ -3,7 +3,7 @@ class Swartzit < Formula
   homepage "https://stoverparc.org"
   url "https://github.com/techmore/swartzit/archive/refs/tags/v0.1.16-20260923T17.tar.gz"
   version "0.1.16.20260923.17"
-  sha256 "b6e1801eabed60dfff1d0bad9acd67968e56ccccd504211c41195d465c63d6da"
+  sha256 "9f2c305b9b0dc51d6733e756ad7d61a0b1e00ada95eda4a618c526c546dcafb6"
 
   depends_on "node" => :build
   depends_on "rust" => :build
