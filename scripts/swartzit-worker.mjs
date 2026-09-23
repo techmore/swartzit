@@ -105,14 +105,40 @@ function runnerSourceUrl(media, claim, index) {
   if (!src) return null;
   return `${src}${src.includes('?') ? '&' : '?'}runner=${claim.run_id}-${index + 1}`;
 }
+async function existingRunnerSourceUrls(posts) {
+  const grouped = new Map();
+  for (const post of posts) {
+    const provider = String(post?.provider || '').trim().toLowerCase();
+    const sourceUrl = typeof post?.source_url === 'string' ? post.source_url.trim() : '';
+    if (!['x', 'reddit', 'rss', 'commons'].includes(provider) || !sourceUrl) continue;
+    if (!grouped.has(provider)) grouped.set(provider, new Set());
+    grouped.get(provider).add(sourceUrl);
+  }
+  const existing = new Set();
+  for (const [provider, sourceUrls] of grouped) {
+    const result = await call('/api/admin/content-runners/source-status', 'POST', {provider, source_urls: [...sourceUrls]});
+    for (const sourceUrl of (result?.existing_source_urls || [])) existing.add(String(sourceUrl));
+  }
+  return existing;
+}
 async function publishRunnerPosts(posts, claim, dryRun) {
-  const previews = [], published = [], warnings = [];
+  const previews = [], published = [], warnings = [], skippedExisting = [];
+  const payloads = [];
   for (let index = 0; index < posts.length; index += 1) {
     const raw = posts[index];
     if (!raw || typeof raw !== 'object') throw Error(`Runner post ${index + 1} is not an object`);
     const media = await materializeRunnerMedia(raw.media, dryRun);
     const payload = {...raw, author: claim.author, community: claim.community, media};
     if (!payload.source_url) payload.source_url = runnerSourceUrl(media, claim, index);
+    payloads.push(payload);
+  }
+  const existing = await existingRunnerSourceUrls(payloads);
+  for (let index = 0; index < payloads.length; index += 1) {
+    const payload = payloads[index];
+    if (payload.source_url && existing.has(String(payload.source_url).trim())) {
+      skippedExisting.push({index: index + 1, source_url: payload.source_url});
+      continue;
+    }
     if (dryRun) { previews.push(payload); continue; }
     try {
       const response = await call('/api/admin/content-runners/publish', 'POST', payload);
@@ -121,7 +147,7 @@ async function publishRunnerPosts(posts, claim, dryRun) {
       warnings.push(`Post ${index + 1}: ${error.message}`);
     }
   }
-  return {previews, published, warnings};
+  return {previews, published, warnings, skippedExisting};
 }
 
 function createDrawThingsProgressReporter(runId, startedAt, index, total) {
@@ -219,7 +245,7 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
       const runnerEnv = Object.fromEntries(inheritedKeys.filter(key => process.env[key]).map(key => [key, process.env[key]]));
       for (const key of (Array.isArray(claim.environment_keys) ? claim.environment_keys : [])) if (process.env[key] !== undefined) runnerEnv[key] = process.env[key];
       const runStarted = Date.now();
-      const generatedFiles = [], previews = [], published = [], warnings = [];
+      const generatedFiles = [], previews = [], published = [], warnings = [], skippedExisting = [];
       if (claim.kind === 'draw_things') {
         const config = claim.command && typeof claim.command === 'object' ? claim.command : {};
         const total = Math.min(8, Math.max(1, Number(config.posts_per_run ?? 1)));
@@ -265,13 +291,18 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
         if (r.code !== 0) throw Error(r.err.slice(-1500) || `Runner exited with ${r.code}`);
         const parsed = JSON.parse(r.out.trim().split('\n').at(-1));
         const posts = Array.isArray(parsed.posts) ? parsed.posts : [parsed];
-        if (!posts.length || posts.length > 8) throw Error('Runner output must contain between 1 and 8 posts');
-        const outcome = await publishRunnerPosts(posts, claim, dryRun);
+        if (!posts.length && claim.kind !== 'cross_post') throw Error('Runner output must contain between 1 and 8 posts');
+        if (posts.length > 8) throw Error('Runner output must contain at most 8 posts');
+        const outcome = posts.length ? await publishRunnerPosts(posts, claim, dryRun) : {previews: [], published: [], warnings: [], skippedExisting: []};
         previews.push(...outcome.previews); published.push(...outcome.published); warnings.push(...outcome.warnings);
+        skippedExisting.push(...outcome.skippedExisting);
       }
-      if (!dryRun && !published.length) throw Error(warnings.join('; ') || 'Runner did not publish a post');
-      result.status = 'success'; result.post_id = published[0]?.post_id ?? null; result.error = warnings.length ? warnings.join('; ') : null;
-      result.detail = {dry_run: dryRun, generated_files: generatedFiles, previews, published, warnings};
+      if (!dryRun && !published.length) {
+        if (warnings.length) throw Error(warnings.join('; '));
+        if (!skippedExisting.length && claim.kind !== 'cross_post') throw Error('Runner did not publish a post');
+      }
+      result.status = !dryRun && !published.length && skippedExisting.length ? 'skipped' : 'success'; result.post_id = published[0]?.post_id ?? null; result.error = warnings.length ? warnings.join('; ') : null;
+      result.detail = {dry_run: dryRun, generated_files: generatedFiles, previews, published, skipped_existing: skippedExisting, warnings};
     } catch (e) { result.status = result.timed_out ? 'timeout' : 'failed'; result.error = e.message; result.detail = { command: claim.command, attempt: claim.attempt }; }
     if (claim.capture_output !== false) { result.stdout = result.stdout.slice(-maxLogBytes); result.stderr = result.stderr.slice(-maxLogBytes); }
     await call(`/api/admin/content-runner-runs/${claim.run_id}/complete`, 'POST', result);

@@ -55,6 +55,12 @@ pub struct UpdateContentRunner {
     max_log_bytes: Option<i32>,
 }
 
+#[derive(Deserialize)]
+pub struct ContentRunnerSourceStatus {
+    provider: String,
+    source_urls: Vec<String>,
+}
+
 #[derive(Deserialize, Default)]
 pub struct Filter {
     q: Option<String>,
@@ -1220,6 +1226,45 @@ pub async fn content_runner(
         .await?
         .map(Json)
         .ok_or(ApiError::Missing)
+}
+
+/// Let the worker remove already-imported provider posts before a runner's
+/// dry-run preview or publication attempt. The publish transaction still
+/// performs its own locked lookup, so this is an optimization and a clearer
+/// preview rather than the final duplicate-safety boundary.
+pub async fn content_runner_source_status(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<ContentRunnerSourceStatus>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin(&headers, &db).await?;
+    let provider = input.provider.trim().to_ascii_lowercase();
+    if !["x", "reddit", "rss", "commons"].contains(&provider.as_str()) {
+        return Err(ApiError::Invalid("Source status provider is not supported"));
+    }
+    if input.source_urls.len() > 100 {
+        return Err(ApiError::Invalid("Source status accepts at most 100 URLs"));
+    }
+    let mut existing = Vec::new();
+    for raw in input.source_urls {
+        let source_url = raw.trim();
+        if source_url.is_empty() {
+            continue;
+        }
+        let canonical = imports::canonical(&provider, source_url)?;
+        let present: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM external_posts WHERE source_url=$1)")
+                .bind(canonical)
+                .fetch_one(&db)
+                .await?;
+        if present {
+            existing.push(source_url.to_owned());
+        }
+    }
+    Ok(Json(serde_json::json!({
+        "provider": provider,
+        "existing_source_urls": existing
+    })))
 }
 
 pub async fn create_content_runner(

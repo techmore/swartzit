@@ -209,3 +209,19 @@ errors are recorded as a failed runner attempt.
 The existing crawler jobs remain the right choice for broad recurring imports.
 Use the X cross-post runner when the source list, topic window, and destination
 need to be versioned together as one bounded scheduled workflow.
+
+### Two-account labeling demo
+
+For a repeatable verification run, use a `cross_post` runner with:
+
+```json
+["node", "scripts/x-two-account-demo-runner.mjs"]
+```
+
+This recipe checks the last seven days (168 hours) of `@beautyshowcase` and `@Rawpkw`, caps
+the batch at eight posts, labels each result as provider `x`, and defaults the
+content rating to `general`. Before a test preview or publication, the worker
+checks canonical provider URLs already present in `external_posts` and removes
+those candidates. The publish transaction retains its locked duplicate check as
+the final safety boundary. `X_BEARER_TOKEN` remains the only required worker
+secret; the accounts are fixed in the demo script so the test is reproducible.

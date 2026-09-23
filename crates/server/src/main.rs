@@ -2191,6 +2191,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(admin::content_runners).post(admin::create_content_runner),
         )
         .route(
+            "/api/admin/content-runners/source-status",
+            post_method(admin::content_runner_source_status),
+        )
+        .route(
             "/api/admin/content-runners/{id}",
             get(admin::content_runner)
                 .post(admin::update_content_runner)
