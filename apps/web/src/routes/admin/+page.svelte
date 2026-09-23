@@ -15,6 +15,8 @@
   let generation = 0, authState = 'signed_out', authError = '';
   const number = value => new Intl.NumberFormat().format(value ?? 0);
   const date = value => value ? new Date(value).toLocaleString() : '—';
+  const replicaCount = (replicas, role, state) => (replicas ?? []).filter(item => item.role === role && item.state === state).reduce((total, item) => total + Number(item.replica_count || 0), 0);
+  const replicaBytes = (replicas, role, state) => (replicas ?? []).filter(item => item.role === role && item.state === state).reduce((total, item) => total + Number(item.bytes || 0), 0);
   const size = value => {
     if (value == null) return '—';
     const bytes = Number(value);
@@ -197,7 +199,7 @@
       if (before) params.set('before', before);
       const endpoint = { Users: 'users', Content: 'content', Reports: 'reports', Moderation: 'moderation', Logs: 'logs' }[tab];
       const [stats, storageData, items, daily, scheduled, history, runnerData, runnerLogData, securityData, uptimeData, settingsData, moderationHistoryData] = await Promise.all([
-        api('overview'), tab === 'Settings' || tab === 'Server' ? api('storage') : Promise.resolve(null), endpoint ? api(endpoint + '?' + params) : Promise.resolve([]),
+        api('overview'), tab === 'Settings' || tab === 'Server' ? api('storage').catch(() => null) : Promise.resolve(null), endpoint ? api(endpoint + '?' + params) : Promise.resolve([]),
         tab === 'Analytics' ? api('analytics') : Promise.resolve([]),
         tab === 'Crawler Jobs' ? api('crawler-jobs') : Promise.resolve([]),
         tab === 'Crawler Jobs' ? api('crawler-runs') : Promise.resolve([]),
@@ -205,11 +207,11 @@
         tab === 'Content Runners' ? api('content-runner-runs') : Promise.resolve([]),
         tab === 'Security' ? api('security') : Promise.resolve(null),
         tab === 'Settings' ? api('uptime') : Promise.resolve(null),
-        tab === 'Settings' || tab === 'Content Runners' || tab === 'Moderation' ? api('settings') : Promise.resolve(null),
+        tab === 'Settings' || tab === 'Server' || tab === 'Content Runners' || tab === 'Moderation' ? api('settings').catch(() => null) : Promise.resolve(null),
         tab === 'Moderation' ? api('moderation-history') : Promise.resolve([])
       ]);
       if (version !== generation) return;
-      overview = stats; storage = storageData; rows = items; trend = daily; jobs = scheduled; runs = history; runners = runnerData; runnerRuns = runnerLogData; moderationHistory = tab === 'Moderation' ? moderationHistoryData : []; security = tab === 'Security' ? securityData : null; uptime = tab === 'Settings' ? uptimeData : null; settings = ['Settings', 'Content Runners', 'Moderation'].includes(tab) ? settingsData : null; error = ''; refreshed = new Date();
+      overview = stats; storage = storageData; rows = items; trend = daily; jobs = scheduled; runs = history; runners = runnerData; runnerRuns = runnerLogData; moderationHistory = tab === 'Moderation' ? moderationHistoryData : []; security = tab === 'Security' ? securityData : null; uptime = tab === 'Settings' ? uptimeData : null; settings = ['Settings', 'Server', 'Content Runners', 'Moderation'].includes(tab) ? settingsData : null; error = ''; refreshed = new Date();
     } catch (e) { if (version === generation) { error = e.message; overview = null; storage = null; rows = []; trend = []; jobs = []; runs = []; runners = []; runnerRuns = []; moderationHistory = []; uptime = null; settings = null; } }
     finally { if (version === generation) loading = false; }
   }
@@ -549,7 +551,7 @@
             <div><span>Project footprint</span><strong>{size(storage?.project_size_bytes)}</strong><small>Database + local media + cache</small></div>
             <div><span>Database</span><strong>{size(storage?.database_size_bytes ?? overview?.database_size_bytes)}</strong><small>PostgreSQL physical size</small></div>
             <div><span>Canonical media</span><strong>{size(storage?.canonical_media_bytes)}</strong><small>{number(storage?.canonical_media_assets)} assets · originals only</small></div>
-            <div><span>Replica work</span><strong>{number((storage?.replication?.pending_jobs ?? 0) + (storage?.replication?.running_jobs ?? 0))}</strong><small>{number(storage?.replication?.failed_jobs)} failed · {number(storage?.replication?.ready_jobs)} jobs complete</small></div>
+            <div><span>Secondary replicas</span><strong>{number(replicaCount(storage?.replicas, 'secondary', 'ready'))}</strong><small>{size(replicaBytes(storage?.replicas, 'secondary', 'ready'))} verified · {number((storage?.replication?.pending_jobs ?? 0) + (storage?.replication?.running_jobs ?? 0))} queued</small></div>
           </div>
           <div class="storage-grid">
             <div>
@@ -572,7 +574,7 @@
         </section>
       </div>
     {:else if tab === 'Server'}
-      <section class="metrics"><div><span>Database</span><strong>{size(storage?.database_size_bytes ?? overview.database_size_bytes)}</strong><small>PostgreSQL physical size</small></div><div><span>Project footprint</span><strong>{size(storage?.project_size_bytes)}</strong><small>Database + local media + cache</small></div><div><span>Canonical media</span><strong>{size(storage?.canonical_media_bytes)}</strong><small>{number(storage?.canonical_media_assets)} logical assets</small></div><div><span>Replica queue</span><strong>{number((storage?.replication?.pending_jobs ?? 0) + (storage?.replication?.running_jobs ?? 0))}</strong><small>{number(storage?.replication?.failed_jobs)} failed · {number(storage?.replication?.ready_jobs)} jobs complete</small></div></section>
+      <section class="metrics"><div><span>Database</span><strong>{size(storage?.database_size_bytes ?? overview.database_size_bytes)}</strong><small>PostgreSQL physical size</small></div><div><span>Project footprint</span><strong>{size(storage?.project_size_bytes)}</strong><small>Database + local media + cache</small></div><div><span>Canonical media</span><strong>{size(storage?.canonical_media_bytes)}</strong><small>{number(storage?.canonical_media_assets)} logical assets</small></div><div><span>Secondary replicas</span><strong>{number(replicaCount(storage?.replicas, 'secondary', 'ready'))}</strong><small>{size(replicaBytes(storage?.replicas, 'secondary', 'ready'))} verified · {number((storage?.replication?.pending_jobs ?? 0) + (storage?.replication?.running_jobs ?? 0))} queued · {number(storage?.replication?.failed_jobs)} failed</small></div></section>
       <section class="panel"><h3>Runtime</h3><dl><dt>Started</dt><dd>{date(overview.started_at)}</dd><dt>Host load · 1 / 5 / 15 minutes</dt><dd>{overview.runtime.host_load?.map(v => v.toFixed(2)).join(' / ') ?? 'Unavailable'}</dd><dt>Average API handler latency</dt><dd>{overview.runtime.mean_latency_ms.toFixed(1)} ms</dd><dt>Server errors</dt><dd>{overview.runtime.server_errors}</dd><dt>Unexpired sign-ins</dt><dd>{overview.active_sessions}</dd><dt>Retained operational events</dt><dd>{overview.log_entries} / 1,000</dd></dl><p class="muted">Host load covers the entire machine. Runtime metrics reset on restart. Unexpired sign-ins do not represent online people.</p></section>
     {:else if tab === 'Analytics'}
       <section class="metrics"><div><span>Page loads</span><strong>{number(overview.runtime.page_views)}</strong><small>Since API restart</small></div><div><span>API requests</span><strong>{number(overview.runtime.requests)}</strong><small>Since API restart</small></div><div><span>Mean throughput</span><strong>{overview.runtime.requests_per_second.toFixed(2)}/s</strong><small>Since API restart</small></div><div><span>Mean handler latency</span><strong>{overview.runtime.mean_latency_ms.toFixed(1)} ms</strong><small>Since API restart</small></div></section>
