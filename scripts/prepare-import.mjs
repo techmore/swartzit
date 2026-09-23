@@ -1,7 +1,7 @@
 // Read an existing Hermes archive or Daddario manifest. Never invokes Signal.
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { enrichX } from './x-media.mjs';
+import { appendQuotedText, enrichX } from './x-media.mjs';
 const args=process.argv.slice(2);
 const option=name=>{const i=args.indexOf(name);return i<0?undefined:args[i+1];};
 const archive=option('--archive'), manifest=option('--manifest');
@@ -26,7 +26,7 @@ if(archive) {
     const p=JSON.parse(await readFile(join(archive,file),'utf8'));
     if(!p.url || !p.text || p.error) continue;
     if(author && String(p.handle??'').replace(/^@/,'').toLowerCase()!==author)continue;
-    items.push({community,provider:'x',source_url:p.url,source_author:bounded(p.handle||p.display||'Unknown source author',200),title:bounded((p.display||p.handle||'From X')+' on X',300),body:p.text,
+    items.push({community,provider:'x',source_url:p.url,source_author:bounded(p.handle||p.display||'Unknown source author',200),title:bounded((p.display||p.handle||'From X')+' on X',300),body:appendQuotedText(p.text,p.quoted_tweet?.text,p.quoted_tweet?.handle||p.quoted_tweet?.user?.screen_name),
       published_at:p.time||null, observed_at:p.scrapedAt?new Date(p.scrapedAt*1000).toISOString():null,
       source_views:metric(p.views),source_likes:metric(p.likes),source_reposts:metric(p.reposts),source_replies:metric(p.replies),
       media:(p.media??[]).filter(u=>typeof u==='string'&&u.startsWith('https://pbs.twimg.com/')).slice(0,4),

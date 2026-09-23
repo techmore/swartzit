@@ -10,7 +10,7 @@ try {
   for(let page=1;page<=100;page++) {
     const feed=await api('/posts?page='+page);
     for(const p of feed.posts.filter(p=>p.source?.provider==='x')) {
-      try{const item=await enrichX({...p.source,community:p.community,title:p.title,body:p.body});if(JSON.stringify(item.media)===JSON.stringify(p.source.media)&&item.profile_image_url===p.source.profile_image_url&&item.profile_url===p.source.profile_url&&item.profile_display_name===p.source.profile_display_name&&item.profile_verified===p.source.profile_verified)continue;await api('/admin/imports',item);summary.updated.push(p.id);}
+      try{const item=await enrichX({...p.source,community:p.community,title:p.title,body:p.body});if(item.body===p.body&&JSON.stringify(item.media)===JSON.stringify(p.source.media)&&item.profile_image_url===p.source.profile_image_url&&item.profile_url===p.source.profile_url&&item.profile_display_name===p.source.profile_display_name&&item.profile_verified===p.source.profile_verified)continue;await api('/admin/imports',item);summary.updated.push(p.id);}
       catch(e){summary.failed.push({id:p.id,error:e.message});}
     }
     if(!feed.has_more)break;

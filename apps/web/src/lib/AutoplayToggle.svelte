@@ -18,9 +18,9 @@
   });
 </script>
 <button class="autoplay-toggle" type="button" aria-label="Autoplay videos" aria-pressed={enabled} title={enabled ? 'Turn off video autoplay' : 'Turn on muted video autoplay'} on:click={toggle}>
-  <span aria-hidden="true">{enabled ? '▶' : 'Ⅱ'}</span> Autoplay {enabled ? 'on' : 'off'}
+  <span aria-hidden="true">{enabled ? '▶' : 'Ⅱ'}</span><span class="toggle-label">Autoplay {enabled ? 'on' : 'off'}</span>
 </button>
 <style>
   .autoplay-toggle{position:fixed;right:16px;bottom:70px;z-index:100;padding:9px 13px;min-height:40px;border-radius:999px;border:1px solid var(--border,#c7ccc3);background:var(--surface,#fff);color:var(--heading,#173d34);box-shadow:0 3px 16px #0002;font:inherit;font-size:.8rem;cursor:pointer;display:flex;gap:7px;align-items:center}
-  @media(max-width:520px){.autoplay-toggle{right:10px;bottom:62px;font-size:.76rem;padding:8px 11px}}
+  @media(max-width:520px){.autoplay-toggle{right:10px;bottom:62px;width:40px;height:40px;min-height:40px;padding:0;justify-content:center;font-size:.8rem}.autoplay-toggle .toggle-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}}
 </style>

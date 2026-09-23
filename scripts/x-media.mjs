@@ -1,4 +1,11 @@
 // Resolve public X attachments without browser cookies or downloading media.
+export function appendQuotedText(text, quotedText, quotedHandle) {
+  const body=String(text??'').trim();
+  const quote=String(quotedText??'').trim();
+  const handle=String(quotedHandle??'').replace(/^@/,'').trim();
+  if(!body||!quote||!handle||body.includes(`Quoted post by @${handle}:`))return body;
+  return `${body}\n\nQuoted post by @${handle}: ${quote}`;
+}
 export function mediaFromTweet(tweet) {
   const result=[];
   const trusted=(url,host)=>{try{const u=new URL(url);return u.protocol==='https:'&&u.hostname===host&&!u.username&&!u.password&&!u.port;}catch{return false;}};
@@ -37,7 +44,10 @@ export async function enrichX(item) {
   // Retain previously collected attachments if this response omitted them.
   if(!media.length && item.media?.length)return {...item, ...profile, profile_image_url:profileImage??item.profile_image_url};
   const attribution=(item.attribution??'').replace(/Source includes a video; open the original to watch it\.?/g,'').trim();
-  return {...item,media, ...profile, profile_image_url:profileImage??item.profile_image_url,attribution};
+  const quoted=tweet.quoted_tweet;
+  const quotedHandle=quoted?.user?.screen_name||quoted?.user?.username;
+  const body=appendQuotedText(item.body,quoted?.text||quoted?.full_text,quotedHandle);
+  return {...item,body,media, ...profile, profile_image_url:profileImage??item.profile_image_url,attribution};
 }
 function profileFromUser(user) {
   const handle=String(user?.screen_name??'').trim();

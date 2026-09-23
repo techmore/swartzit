@@ -468,6 +468,23 @@ async fn admin_overview(
         log_entries: row.8,
     }))
 }
+
+async fn activity(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
+    let value = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT jsonb_build_object(
+          'windows', jsonb_agg(jsonb_build_object(
+            'label', label,
+            'minutes', minutes,
+            'users', (SELECT count(DISTINCT author_id) FROM (SELECT author_id FROM posts WHERE created_at >= now()-make_interval(mins => minutes) UNION SELECT author_id FROM comments WHERE created_at >= now()-make_interval(mins => minutes)) active),
+            'posts', (SELECT count(*) FROM posts WHERE created_at >= now()-make_interval(mins => minutes)),
+            'comments', (SELECT count(*) FROM comments WHERE created_at >= now()-make_interval(mins => minutes))
+          ) ORDER BY minutes)
+        ) FROM (VALUES ('last 5 minutes',5),('last 30 minutes',30),('last 4 hours',240)) windows(label,minutes)"
+    )
+    .fetch_one(&db)
+    .await?;
+    Ok(Json(value))
+}
 async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
     let value = headers
         .get("authorization")
@@ -773,11 +790,12 @@ async fn home_feed(
     let order = imports::order(query.sort.as_deref())?;
     let offset = query.validate()?;
     let sql = format!(
-        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY {order}, p.id DESC LIMIT 21 OFFSET $3"
+        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) ORDER BY {order}, p.id DESC LIMIT 21 OFFSET $4"
     );
     let mut posts: Vec<Post> = sqlx::query_as(&sql)
         .bind(author_id)
         .bind(query.q.as_deref().unwrap_or("").trim())
+        .bind(&query.community)
         .bind(offset)
         .fetch_all(&db)
         .await?;
@@ -997,6 +1015,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .delete(bookmarks::remove),
         )
         .route("/api/admin/overview", get(admin_overview))
+        .route("/api/activity", get(activity))
         .route("/api/admin/logs", get(admin::logs))
         .route("/api/admin/users", get(admin::users))
         .route(
@@ -1044,6 +1063,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(admin::complete_crawler_job),
         )
         .route("/api/admin/imports", post_method(imports::ingest))
+        .route("/api/posts/cross-post", post_method(imports::cross_post))
         .route("/profile-images/{id}", get(profile_image))
         .route("/api/views", post_method(operations::view))
         .route("/api/posts", post_method(create_post).get(posts))

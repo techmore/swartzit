@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+HOME_DIR="${SWARTZIT_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+SERVER="${SWARTZIT_SERVER:-$HOME_DIR/target/release/swartzit-server}"
+WEB_BUILD="${SWARTZIT_WEB_BUILD:-$HOME_DIR/apps/web/build}"
+if [[ ! -x "$SERVER" && -x "$SCRIPT_DIR/swartzit-server" ]]; then SERVER="$SCRIPT_DIR/swartzit-server"; fi
+if [[ ! -d "$WEB_BUILD" && -d "$HOME_DIR/libexec/build" ]]; then WEB_BUILD="$HOME_DIR/libexec/build"; fi
+mkdir -p "${SWARTZIT_STATE_DIR:-$HOME_DIR/.local}"
+STATE_DIR="${SWARTZIT_STATE_DIR:-$HOME_DIR/.local}"
+SCRIPT_HOME="$HOME_DIR/scripts"
+[[ -d "$SCRIPT_HOME" ]] || SCRIPT_HOME="$HOME_DIR/libexec"
+
+case "${1:-status}" in
+  start)
+    : "${DATABASE_URL:=postgres://swartzit:swartzit-local-only@127.0.0.1:54329/swartzit}"
+    : "${BIND_ADDR:=127.0.0.1:18080}"
+    : "${API_URL:=http://127.0.0.1:18080}"
+    : "${HOST:=127.0.0.1}"
+    : "${PORT:=4173}"
+    export DATABASE_URL BIND_ADDR API_URL HOST PORT
+    [[ -x "$SERVER" ]] || { echo "Missing Swartzit server: $SERVER" >&2; exit 1; }
+    [[ -f "$WEB_BUILD/index.js" ]] || { echo "Missing web build: $WEB_BUILD/index.js" >&2; exit 1; }
+    nohup "$SERVER" >"$STATE_DIR/api.log" 2>&1 < /dev/null & echo $! > "$STATE_DIR/api.pid"
+    nohup node "$WEB_BUILD" >"$STATE_DIR/web.log" 2>&1 < /dev/null & echo $! > "$STATE_DIR/web.pid"
+    echo "Swartzit started: $HOST:$PORT"
+    ;;
+  stop)
+    for name in api web; do if [[ -f "$STATE_DIR/$name.pid" ]]; then kill "$(cat "$STATE_DIR/$name.pid")" 2>/dev/null || true; rm -f "$STATE_DIR/$name.pid"; fi; done
+    echo 'Swartzit stopped; database data was preserved.'
+    ;;
+  status)
+    STATUS_SCRIPT="$HOME_DIR/scripts/status-local.sh"
+    [[ -x "$STATUS_SCRIPT" ]] || STATUS_SCRIPT="$HOME_DIR/libexec/status-local.sh"
+    if [[ -x "$STATUS_SCRIPT" ]]; then exec "$STATUS_SCRIPT" "${2:-}"; fi
+    if curl -fsS --max-time 3 "${API_URL:-http://127.0.0.1:18080}/api/posts?limit=1" >/dev/null; then echo 'API: ready'; else echo 'API: down'; fi
+    ;;
+  backup) exec "$SCRIPT_HOME/db-backup.sh" ;;
+  restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify.sh" "$@" ;;
+  monitor) shift; exec "$SCRIPT_HOME/swartzit-monitor.sh" "$@" ;;
+  *) echo 'Usage: swartzit {start|stop|status|backup|restore-verify|monitor}' >&2; exit 2 ;;
+esac

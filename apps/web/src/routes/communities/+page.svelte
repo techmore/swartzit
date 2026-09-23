@@ -2,8 +2,27 @@
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
   export let data;
-  let token = '', slug = '', name = '', description = '', error = '', busy = false;
-  onMount(() => { token = localStorage.getItem('swartzit_session') ?? ''; });
+  let token = '', slug = '', name = '', description = '', error = '', busy = false, busySlug = '', following = {};
+  onMount(async () => {
+    token = localStorage.getItem('swartzit_session') ?? '';
+    if (!token) return;
+    const entries = await Promise.all(data.communities.map(async community => {
+      try { const response = await fetch(`/api/communities/${community.slug}/subscription`,{headers:{authorization:'Bearer '+token}}); const result = await response.json(); return [community.slug,response.ok && result.subscribed]; }
+      catch { return [community.slug,false]; }
+    }));
+    following = Object.fromEntries(entries);
+  });
+  async function toggleFollow(community) {
+    if (!token) { window.location.assign('/login'); return; }
+    busySlug = community.slug; error = '';
+    try {
+      const response = await fetch(`/api/communities/${community.slug}/subscription`,{method:following[community.slug]?'DELETE':'POST',headers:{authorization:'Bearer '+token}});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not update followed communities.');
+      following = {...following,[community.slug]:result.subscribed};
+    } catch (e) { error = e.message || 'Could not reach Swartzit.'; }
+    finally { busySlug = ''; }
+  }
   async function create() {
     busy = true; error = '';
     try {
@@ -25,7 +44,7 @@
   <form method="GET" class="community-search"><input name="q" value={data.q} placeholder="Search topics and communities" aria-label="Search communities" maxlength="200" /><button>Search</button></form>
   <p class="muted">{data.total} communities {data.q ? 'matching “' + data.q + '”' : 'to explore'}</p>
   <div class="community-grid">{#each data.communities as community}
-    <article><small>c/{community.slug}</small><h2><a href={'/?community=' + community.slug}>{community.name}</a></h2><p>{community.description}</p><a href={'/?community=' + community.slug}>{community.post_count} posts · Browse discussions →</a></article>
+    <article><small>c/{community.slug}</small><h2><a href={'/?community=' + community.slug}>{community.name}</a></h2><p>{community.description}</p><a href={'/?community=' + community.slug}>{community.post_count} posts · Browse →</a><button class="follow-button" disabled={busySlug === community.slug} onclick={() => toggleFollow(community)}>{busySlug === community.slug ? 'Saving…' : following[community.slug] ? 'Following' : 'Follow'}</button></article>
   {/each}</div>
   {#if !data.communities.length}<p>No communities found. Try another search or create one below.</p>{/if}
   <nav class="community-pages" aria-label="Community result pages">
@@ -54,6 +73,7 @@
   article>a{margin-top:auto;font-size:.8rem;color:var(--link,#215e47)}
   article small{color:var(--accent,#9b5e38)}
   .community-pages{display:flex;gap:24px;margin-top:24px}
+  .follow-button{margin-top:12px;border:1px solid var(--border,#9aaba3);border-radius:6px;padding:8px 12px;background:var(--surface,#fff);color:var(--text,#1d2a27);cursor:pointer}
   .compose{margin:40px 0;max-width:650px}
   @media(max-width:900px){.community-grid{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:600px){.community-grid{grid-template-columns:1fr}}

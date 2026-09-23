@@ -241,8 +241,131 @@ pub async fn ingest(
         serde_json::json!({"id":id,"created":existing.is_none(),"updated":changed}),
     ))
 }
+
+pub async fn cross_post(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<Import>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let actor = authenticated_author(&headers, &db).await?;
+    if input.provider != "x" {
+        return Err(ApiError::Invalid(
+            "Only public X post links are supported right now",
+        ));
+    }
+    let source = canonical(&input.provider, &input.source_url)?;
+    if input.title.trim().is_empty()
+        || input.title.len() > 300
+        || input.body.len() > 50000
+        || input.source_author.trim().is_empty()
+        || input.source_author.len() > 200
+        || input.attribution.len() > 2000
+        || input.media.len() > 8
+        || input.observed_at > Utc::now() + chrono::Duration::minutes(5)
+    {
+        return Err(ApiError::Invalid("Imported content exceeds allowed bounds"));
+    }
+    for value in [
+        input.source_views,
+        input.source_likes,
+        input.source_reposts,
+        input.source_replies,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !(0..=9_007_199_254_740_991).contains(&value) {
+            return Err(ApiError::Invalid(
+                "Metrics must be nonnegative safe integers or null",
+            ));
+        }
+    }
+    for media in &input.media {
+        validate_media(media, "x")?;
+    }
+    if let Some(url) = &input.profile_image_url {
+        let u = https(url)?;
+        if u.host_str() != Some("pbs.twimg.com") || !u.path().contains("/profile_images/") {
+            return Err(ApiError::Invalid("Invalid profile image source"));
+        }
+    }
+    if let Some(url) = &input.profile_url {
+        let u = https(url)?;
+        if !matches!(u.host_str(), Some("x.com") | Some("www.x.com"))
+            || u.path().split('/').filter(|part| !part.is_empty()).count() != 1
+        {
+            return Err(ApiError::Invalid("Invalid profile URL"));
+        }
+    }
+    if input
+        .profile_display_name
+        .as_ref()
+        .is_some_and(|s| s.len() > 200)
+        || input.profile_bio.as_ref().is_some_and(|s| s.len() > 2000)
+        || [input.profile_followers, input.profile_following]
+            .into_iter()
+            .flatten()
+            .any(|n| !(0..=9_007_199_254_740_991).contains(&n))
+    {
+        return Err(ApiError::Invalid("Invalid profile metadata"));
+    }
+
+    let community_slug = input.community.trim().to_ascii_lowercase();
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
+        .bind(&source)
+        .execute(&mut *tx)
+        .await?;
+    let existing: Option<(String, String)> = sqlx::query_as(
+        "SELECT p.public_id,c.slug FROM external_posts e JOIN posts p ON p.id=e.post_id JOIN communities c ON c.id=p.community_id WHERE e.source_url=$1"
+    ).bind(&source).fetch_optional(&mut *tx).await?;
+    if let Some((public_id, community)) = existing {
+        tx.rollback().await?;
+        return Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "already_shared": true, "public_id": public_id, "community": community
+            })),
+        ));
+    }
+    let community_id: Option<i64> = sqlx::query_scalar("SELECT id FROM communities WHERE slug=$1")
+        .bind(&community_slug)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let community_id = community_id.ok_or(ApiError::Invalid("Community not found"))?;
+    let (id, public_id): (i64, String) = sqlx::query_as(
+        "INSERT INTO posts(community_id,author_id,title,body) VALUES($1,$2,$3,$4) RETURNING id,public_id"
+    ).bind(community_id).bind(actor).bind(input.title.trim()).bind(&input.body)
+        .fetch_one(&mut *tx).await?;
+    sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,'x',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)")
+        .bind(id).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at)
+        .bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies)
+        .bind(serde_json::json!(input.media)).bind(&input.attribution).bind(&input.profile_image_url)
+        .bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio)
+        .bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified)
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    log_event(
+        &db,
+        "info",
+        "source.cross_posted",
+        serde_json::json!({
+            "actor_id": actor, "post_id": id, "community": community_slug, "provider": "x"
+        }),
+    )
+    .await;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "id": id, "public_id": public_id, "created": true,
+            "already_shared": false, "community": community_slug
+        })),
+    ))
+}
+
 pub fn order(sort: Option<&str>) -> Result<&'static str, ApiError> {
     Ok(match sort.unwrap_or("newest") {
+        "recommended" => "(2.0*LN(1.0+p.engaged_view_count)+1.5*LN(1.0+(SELECT count(*) FROM comments cm WHERE cm.post_id=p.id))+LN(1.0+GREATEST(0,(SELECT COALESCE(sum(value),0) FROM post_votes v WHERE v.post_id=p.id)))+0.5*LN(1.0+p.view_count))/(1.0+GREATEST(0.0,EXTRACT(EPOCH FROM(now()-p.created_at))/604800.0)) DESC",
         "newest" => "p.created_at DESC",
         "score" => "score DESC",
         "comments" => "comment_count DESC",

@@ -1,5 +1,81 @@
 # Swartzit
 
+Swartzit is a self-hosted discussion commons: a public, readable timeline with
+communities, pseudonymous accounts, local voting and comments, source-aware
+imports, media metadata, bookmarks, reading history, and a small admin surface.
+It is designed to run on a Mac or a small server that you control, with the
+database and public web address kept separate from the application process.
+
+![Swartzit timeline](docs/screenshots/home.png)
+
+## What the app includes
+
+![Browse communities](docs/screenshots/communities.png)
+
+Browse communities without an account, follow topics when signed in, open a
+discussion with source attribution, and export public data. Imported posts keep
+their original source link and metrics distinct from Swartzit’s local score,
+views, and comments.
+
+![Discussion view](docs/screenshots/discussion.png)
+
+The About page explains the public-first model and the app also includes sign-in,
+signup, bookmarks, reading history, dark mode, media controls, and admin tools
+for crawler jobs, reports, logs, users, and runtime health.
+
+![About Swartzit](docs/screenshots/about.png)
+
+## Homebrew installation
+
+The repository includes a formula at `Formula/swartzit.rb`. Once this repository
+is pushed, the development formula can install the current `main` branch:
+
+```sh
+brew install --HEAD --build-from-source ./Formula/swartzit.rb
+swartzit start
+swartzit status
+```
+
+### macOS menu-bar status
+
+On macOS, install the small native status companion so end users can see at a glance whether Swartzit is running. It refreshes every 30 seconds and provides Open, Check Now, Start, and Stop actions:
+
+```bash
+bash scripts/install-mac-status.sh
+```
+
+The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
+
+For a public tap, publish this repository with a version tag and replace the
+formula’s release URL and SHA256 with that tagged archive. Then users can run:
+
+```sh
+brew tap techmore/swartzit
+brew install swartzit
+```
+
+The formula builds the Rust API and SvelteKit web app. PostgreSQL remains an
+external dependency so its data directory can be upgraded, backed up, and
+restored independently.
+
+## Database backup and recovery
+
+Use the PostgreSQL custom-format backup rather than treating the public JSON
+export as a disaster-recovery backup:
+
+```sh
+scripts/db-backup.sh
+scripts/db-restore-verify.sh \
+  .local/backups/<timestamp>/swartzit.dump
+```
+
+The backup command writes a dump, SHA256 checksum, table row counts, and a gzip
+archive under `.local/backups/`. The verification command creates a temporary
+second PostgreSQL container, restores the dump, compares every application table
+against the source counts, and removes only that temporary verification instance.
+Keep at least one dump and one `.tgz` archive off the Mac as well; the local
+artifacts are intentionally ignored by Git because they contain private data.
+
 > Read freely. Participate under a pseudonym. Take your community with you.
 
 ## Instance administration
@@ -155,6 +231,51 @@ Caddy obtains and renews the certificate automatically once DNS points to the
 router and both forwards are active. If the Mac changes Wi-Fi networks, use
 the new LAN address printed by the launcher or reserve a DHCP lease in the
 router; the public DNS record does not change.
+
+The launcher accepts a network mode or a concrete macOS interface so you do
+not need to hand-edit bind addresses:
+
+```sh
+bash scripts/run-local.sh local                 # this Mac only
+bash scripts/run-local.sh lan                   # Wi-Fi/LAN; prints the URL
+bash scripts/run-local.sh ethernet              # Ethernet (en1 by default)
+bash scripts/run-local.sh en0                  # bind to this exact interface
+bash scripts/run-local.sh vpn                   # Tailscale or utun VPN URL
+SWARTZIT_ORIGIN=https://your-hostname \
+  bash scripts/run-local.sh public              # localhost + Caddy/HTTPS
+bash scripts/network-status.sh                  # list detected addresses
+bash scripts/status-local.sh                   # all local components
+bash scripts/status-local.sh --json             # machine-readable status
+```
+
+`lan` is the default and keeps the API/database private. VPN mode prefers a
+Tailscale IPv4 address and otherwise reports the first macOS `utun` address;
+use `SWARTZIT_ORIGIN` when a VPN DNS name is the address people should use.
+The public mode requires an explicit origin and only exposes the web server
+through Caddy.
+
+For `stoverparc.org`, a typical public setup is:
+
+```sh
+SWARTZIT_ORIGIN=https://stoverparc.org \
+  SWARTZIT_CHECK_URL=https://stoverparc.org/ \
+  SWARTZIT_CADDY=1 bash scripts/run-local.sh public
+SWARTZIT_CHECK_URL=https://stoverparc.org/ \
+  SWARTZIT_CHECK_INTERVAL=300 bash scripts/swartzit-monitor.sh --once
+```
+
+The monitor can run continuously, or as a native macOS LaunchAgent that starts
+when you log in:
+
+```sh
+SWARTZIT_CHECK_URL=https://stoverparc.org/ \
+  SWARTZIT_CHECK_INTERVAL=300 bash scripts/install-mac-monitor.sh
+```
+
+`status-local.sh` reports API, web, PostgreSQL, Caddy, worker, and (when
+configured) public URL state. The API defaults to loopback even when the web
+interface is bound to Wi-Fi or Ethernet; set `SWARTZIT_API_INTERFACE` only when
+you intentionally want the API exposed on another interface.
 
 This is a local prototype. Federation, full community migration/import, media
 transfer, and moderator workflows are not implemented yet.

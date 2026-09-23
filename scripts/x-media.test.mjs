@@ -1,6 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mediaFromTweet} from './x-media.mjs';
+import {appendQuotedText,mediaFromTweet} from './x-media.mjs';
+test('preserves quoted post text alongside the commentator',()=>{
+  assert.equal(appendQuotedText('This is wrong.','The post being criticized.','target_user'),'This is wrong.\n\nQuoted post by @target_user: The post being criticized.');
+  assert.equal(appendQuotedText('This is wrong.','The post being criticized.','@target_user'),'This is wrong.\n\nQuoted post by @target_user: The post being criticized.');
+  assert.equal(appendQuotedText('This is wrong.','', 'target_user'),'This is wrong.');
+});
 test('photos, highest-quality MP4, quoted media, and host validation',()=>{
   const video={type:'video',media_url_https:'https://pbs.twimg.com/poster.jpg',video_info:{variants:[{content_type:'video/mp4',bitrate:10,url:'https://video.twimg.com/low.mp4'},{content_type:'video/mp4',bitrate:20,url:'https://video.twimg.com/high.mp4'},{content_type:'video/mp4',bitrate:30,url:'https://evil.test/bad.mp4'}]}};
   const items=mediaFromTweet({mediaDetails:[{type:'photo',media_url_https:'https://pbs.twimg.com/photo.jpg'},video],quoted_tweet:{user:{screen_name:'quoted'},mediaDetails:[{type:'photo',media_url_https:'https://pbs.twimg.com/quote.jpg'}]}});
