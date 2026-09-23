@@ -371,7 +371,9 @@ async fn require_draw_things_post(db: &PgPool, post_id: i64) -> Result<(), ApiEr
 
 fn validate_draw_things_feedback(input: &DrawThingsFeedbackRequest) -> Result<(), ApiError> {
     if !(1..=5).contains(&input.overall) {
-        return Err(ApiError::Invalid("Overall feedback must be between 1 and 5"));
+        return Err(ApiError::Invalid(
+            "Overall feedback must be between 1 and 5",
+        ));
     }
     for (value, label) in [
         (input.prompt_match, "Prompt-match feedback"),
@@ -478,10 +480,7 @@ async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
     }
     Err(ApiError::Missing)
 }
-async fn runner_media(
-    State(db): State<PgPool>,
-    Path(id): Path<i64>,
-) -> Result<Response, ApiError> {
+async fn runner_media(State(db): State<PgPool>, Path(id): Path<i64>) -> Result<Response, ApiError> {
     serve_media(db, id, "original").await
 }
 
@@ -517,7 +516,18 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
     .bind(id)
     .fetch_optional(&db)
     .await?;
-    let Some((hash, legacy_bytes, byte_size, mime_type, content_type, provider, object_key, status, variants)) = row else {
+    let Some((
+        hash,
+        legacy_bytes,
+        byte_size,
+        mime_type,
+        content_type,
+        provider,
+        object_key,
+        status,
+        variants,
+    )) = row
+    else {
         return Err(ApiError::Missing);
     };
     if status == "deleted" {
@@ -1432,7 +1442,17 @@ async fn media(
     .bind(id)
     .fetch_optional(&db)
     .await?;
-    let Some((id, content_hash, media_type, byte_size, magnet_uri, mime_type, storage_backend, variants)) = row else {
+    let Some((
+        id,
+        content_hash,
+        media_type,
+        byte_size,
+        magnet_uri,
+        mime_type,
+        storage_backend,
+        variants,
+    )) = row
+    else {
         return Err(ApiError::Missing);
     };
     Ok(Json(serde_json::json!({
@@ -1473,7 +1493,11 @@ async fn create_post(
     } else {
         ("none".to_owned(), serde_json::json!([]), false)
     };
-    let publication_status = if moderation_enabled { "pending" } else { "approved" };
+    let publication_status = if moderation_enabled {
+        "pending"
+    } else {
+        "approved"
+    };
     let mut tx = db.begin().await?;
     let result = sqlx::query_as::<_, CreatedPost>(
         "INSERT INTO posts (
@@ -1575,7 +1599,11 @@ async fn create_comment(
     } else {
         ("none".to_owned(), serde_json::json!([]), false)
     };
-    let publication_status = if moderation_enabled { "pending" } else { "approved" };
+    let publication_status = if moderation_enabled {
+        "pending"
+    } else {
+        "approved"
+    };
     let mut tx = db.begin().await?;
     let result = sqlx::query_as::<_, CreatedComment>(
         "INSERT INTO comments (
@@ -2193,7 +2221,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
         )
         .route("/api/admin/media/test", post_method(admin::media_test))
-        .route("/api/admin/media/migrate", post_method(admin::media_migrate))
+        .route(
+            "/api/admin/media/migrate",
+            post_method(admin::media_migrate),
+        )
         .route("/api/admin/media/verify", post_method(admin::media_verify))
         .route(
             "/api/admin/media/cache/clear",
@@ -2334,11 +2365,13 @@ mod tests {
             detail: Some(5),
         };
         assert!(validate_draw_things_feedback(&valid).is_ok());
-        assert!(validate_draw_things_feedback(&DrawThingsFeedbackRequest {
-            overall: 0,
-            ..valid
-        })
-        .is_err());
+        assert!(
+            validate_draw_things_feedback(&DrawThingsFeedbackRequest {
+                overall: 0,
+                ..valid
+            })
+            .is_err()
+        );
     }
     #[test]
     fn database_error_does_not_expose_details() {

@@ -276,7 +276,11 @@ pub async fn ingest(
     } else {
         ("none".to_owned(), serde_json::json!([]), false)
     };
-    let publication_status = if moderation_enabled { "pending" } else { "approved" };
+    let publication_status = if moderation_enabled {
+        "pending"
+    } else {
+        "approved"
+    };
     let mut tx = db.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(&source)
@@ -439,7 +443,11 @@ pub async fn cross_post(
     } else {
         ("none".to_owned(), serde_json::json!([]), false)
     };
-    let publication_status = if moderation_enabled { "pending" } else { "approved" };
+    let publication_status = if moderation_enabled {
+        "pending"
+    } else {
+        "approved"
+    };
     let mut tx = db.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(&source)

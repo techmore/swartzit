@@ -535,9 +535,7 @@ pub async fn update_settings(
         && input.media_cache_max_bytes.is_none()
         && input.media_share.is_none()
     {
-        return Err(ApiError::Invalid(
-            "No supported setting was provided",
-        ));
+        return Err(ApiError::Invalid("No supported setting was provided"));
     }
     let actor = actor;
     if let Some(orchard_enabled) = input.orchard_enabled {
@@ -607,7 +605,9 @@ pub async fn update_settings(
     }
     if let Some(share) = input.media_share.as_deref() {
         if !["disabled", "catbox"].contains(&share) {
-            return Err(ApiError::Invalid("Media sharing must be disabled or catbox"));
+            return Err(ApiError::Invalid(
+                "Media sharing must be disabled or catbox",
+            ));
         }
     }
     if let Some(max_bytes) = input.media_cache_max_bytes {
@@ -623,9 +623,7 @@ pub async fn update_settings(
             .map_err(ApiError::Storage)?;
         let mut candidate = current;
         if let Some(primary) = input.media_primary.as_deref() {
-            if candidate.primary_source == "environment"
-                && candidate.primary_provider != primary
-            {
+            if candidate.primary_source == "environment" && candidate.primary_provider != primary {
                 return Err(ApiError::Invalid(
                     "SWARTZIT_MEDIA_PRIMARY is set in the environment; change that override first",
                 ));
@@ -1011,15 +1009,23 @@ fn validate_runner_command(command: &serde_json::Value) -> Result<(), ApiError> 
 
 fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiError> {
     let Some(config) = command.as_object() else {
-        return Err(ApiError::Invalid("Draw Things configuration must be an object"));
+        return Err(ApiError::Invalid(
+            "Draw Things configuration must be an object",
+        ));
     };
     let string_field = |key: &str, required: bool| -> Result<(), ApiError> {
         match config.get(key) {
-            Some(value) if value.as_str().is_some_and(|value| {
-                !value.trim().is_empty() && value.len() <= 4096 && !value.contains('\0')
-            }) => Ok(()),
+            Some(value)
+                if value.as_str().is_some_and(|value| {
+                    !value.trim().is_empty() && value.len() <= 4096 && !value.contains('\0')
+                }) =>
+            {
+                Ok(())
+            }
             Some(_) => Err(ApiError::Invalid("Draw Things text setting is invalid")),
-            None if required => Err(ApiError::Invalid("Draw Things is missing a required setting")),
+            None if required => Err(ApiError::Invalid(
+                "Draw Things is missing a required setting",
+            )),
             None => Ok(()),
         }
     };
@@ -1030,7 +1036,10 @@ fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiErr
     string_field("title_prefix", false)?;
     let bounded_u64 = |key: &str, min: u64, max: u64| -> Result<(), ApiError> {
         if let Some(value) = config.get(key) {
-            if value.as_u64().is_none_or(|value| !(min..=max).contains(&value)) {
+            if value
+                .as_u64()
+                .is_none_or(|value| !(min..=max).contains(&value))
+            {
                 return Err(ApiError::Invalid("Draw Things numeric setting is invalid"));
             }
         }
@@ -1041,7 +1050,10 @@ fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiErr
     bounded_u64("steps", 1, 200)?;
     bounded_u64("posts_per_run", 1, 8)?;
     if let Some(value) = config.get("cfg") {
-        if value.as_f64().is_none_or(|value| !value.is_finite() || !(0.0..=50.0).contains(&value)) {
+        if value
+            .as_f64()
+            .is_none_or(|value| !value.is_finite() || !(0.0..=50.0).contains(&value))
+        {
             return Err(ApiError::Invalid("Draw Things CFG setting is invalid"));
         }
     }
@@ -1061,20 +1073,30 @@ fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiErr
             let Some(lora) = lora.as_object() else {
                 return Err(ApiError::Invalid("Each Draw Things LoRA must be an object"));
             };
-            if lora.get("file").and_then(serde_json::Value::as_str).is_none_or(|file| {
-                file.trim().is_empty() || file.len() > 4096 || file.contains('\0')
-            }) {
+            if lora
+                .get("file")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|file| {
+                    file.trim().is_empty() || file.len() > 4096 || file.contains('\0')
+                })
+            {
                 return Err(ApiError::Invalid("Each Draw Things LoRA needs a file"));
             }
-            if lora.get("version").and_then(serde_json::Value::as_str).is_none_or(|version| {
-                version.trim().is_empty() || version.len() > 64
-            }) {
+            if lora
+                .get("version")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|version| version.trim().is_empty() || version.len() > 64)
+            {
                 return Err(ApiError::Invalid("Each Draw Things LoRA needs a version"));
             }
-            if lora.get("weight").and_then(serde_json::Value::as_f64).is_none_or(|weight| {
-                !weight.is_finite() || !(-5.0..=5.0).contains(&weight)
-            }) {
-                return Err(ApiError::Invalid("Each Draw Things LoRA needs a valid weight"));
+            if lora
+                .get("weight")
+                .and_then(serde_json::Value::as_f64)
+                .is_none_or(|weight| !weight.is_finite() || !(-5.0..=5.0).contains(&weight))
+            {
+                return Err(ApiError::Invalid(
+                    "Each Draw Things LoRA needs a valid weight",
+                ));
             }
         }
     }
@@ -1288,8 +1310,7 @@ pub async fn update_content_runner(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
     let existing: Option<ExistingContentRunner>=sqlx::query_as("SELECT name,kind,command,prompt,(SELECT handle FROM authors WHERE id=author_id) AS author,interval_seconds,days_of_week,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes FROM content_runners WHERE id=$1 AND state<>'archived'").bind(id).fetch_optional(&db).await?;
-    let Some(existing) = existing
-    else {
+    let Some(existing) = existing else {
         return Err(ApiError::Missing);
     };
     let name = input.name.as_deref().unwrap_or(&existing.name).trim();
@@ -1300,8 +1321,12 @@ pub async fn update_content_runner(
     let priority = input.priority.unwrap_or(existing.priority);
     let timeout = input.timeout_seconds.unwrap_or(existing.timeout_seconds);
     let attempts = input.max_attempts.unwrap_or(existing.max_attempts);
-    let backoff = input.retry_backoff_seconds.unwrap_or(existing.retry_backoff_seconds);
-    let threshold = input.failure_threshold.unwrap_or(existing.failure_threshold);
+    let backoff = input
+        .retry_backoff_seconds
+        .unwrap_or(existing.retry_backoff_seconds);
+    let threshold = input
+        .failure_threshold
+        .unwrap_or(existing.failure_threshold);
     let retention = input.retention_days.unwrap_or(existing.retention_days);
     let command = input.command.unwrap_or(existing.command);
     let environment_keys = input.environment_keys.unwrap_or(existing.environment_keys);
@@ -1517,7 +1542,9 @@ pub async fn update_content_runner_progress(
         .progress_percent
         .ok_or(ApiError::Invalid("Runner progress requires a percentage"))?;
     if !(0..=100).contains(&percent) {
-        return Err(ApiError::Invalid("Runner progress must be between 0 and 100"));
+        return Err(ApiError::Invalid(
+            "Runner progress must be between 0 and 100",
+        ));
     }
     let phase = input
         .phase
@@ -1542,7 +1569,10 @@ pub async fn update_content_runner_progress(
     {
         return Err(ApiError::Invalid("Runner progress steps are invalid"));
     }
-    if input.eta_seconds.is_some_and(|value| !(0..=604_800).contains(&value)) {
+    if input
+        .eta_seconds
+        .is_some_and(|value| !(0..=604_800).contains(&value))
+    {
         return Err(ApiError::Invalid("Runner progress ETA is invalid"));
     }
     let updated = sqlx::query(
@@ -1668,7 +1698,8 @@ pub async fn complete_content_runner(
     let mut tx = db.begin().await?;
     type C = (i64, i32, i32, i32, i32, i32, String, bool);
     let run:Option<C>=sqlx::query_as("SELECT r.runner_id,r.attempt,c.max_attempts,c.retry_backoff_seconds,c.failure_threshold,c.consecutive_failures,c.state,r.dry_run FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=$1 AND r.status='running' FOR UPDATE").bind(run_id).fetch_optional(&mut *tx).await?;
-    let Some((runner_id, attempt, max_attempts, backoff, threshold, consecutive, _state, dry_run)) = run
+    let Some((runner_id, attempt, max_attempts, backoff, threshold, consecutive, _state, dry_run)) =
+        run
     else {
         return Err(ApiError::Missing);
     };
@@ -1781,7 +1812,10 @@ async fn media_source(db: &PgPool, id: i64) -> Result<MediaSource, ApiError> {
     .ok_or(ApiError::Missing)
 }
 
-fn source_variant(source: &MediaSource, variant: &str) -> Result<media_store::StoredVariant, ApiError> {
+fn source_variant(
+    source: &MediaSource,
+    variant: &str,
+) -> Result<media_store::StoredVariant, ApiError> {
     if variant != "original" && variant != "thumbnail" {
         return Err(ApiError::Missing);
     }
@@ -1918,14 +1952,7 @@ async fn record_secondary_replicas(
             variants: secondary.variants.clone(),
             secondary: None,
         };
-        record_replicas(
-            db,
-            media_id,
-            "secondary",
-            &replica,
-            &secondary.variants,
-        )
-        .await?;
+        record_replicas(db, media_id, "secondary", &replica, &secondary.variants).await?;
         for variant in &secondary.variants {
             sqlx::query(
                 "UPDATE media_replication_jobs
@@ -2120,18 +2147,24 @@ pub async fn upload_content_runner_media(
         content_type.as_str(),
         "image/png" | "image/jpeg" | "image/webp" | "image/gif"
     ) {
-        return Err(ApiError::Invalid("Runner media must be a supported image type"));
+        return Err(ApiError::Invalid(
+            "Runner media must be a supported image type",
+        ));
     }
     if input.data_hex.is_empty()
         || input.data_hex.len() > 10_485_760
         || input.data_hex.len() % 2 != 0
     {
-        return Err(ApiError::Invalid("Runner images must be between 1 byte and 5 MB"));
+        return Err(ApiError::Invalid(
+            "Runner images must be between 1 byte and 5 MB",
+        ));
     }
     let bytes = hex::decode(input.data_hex.trim())
         .map_err(|_| ApiError::Invalid("Runner media is not valid hexadecimal data"))?;
     if bytes.is_empty() || bytes.len() > 5_242_880 {
-        return Err(ApiError::Invalid("Runner images must be between 1 byte and 5 MB"));
+        return Err(ApiError::Invalid(
+            "Runner images must be between 1 byte and 5 MB",
+        ));
     }
     let digest = media_store::checksum(&bytes);
     let config = media_store::load_config(&db)
@@ -2170,9 +2203,7 @@ struct MediaReplicationJob {
     attempts: i32,
 }
 
-async fn claim_media_replication_job(
-    db: &PgPool,
-) -> Result<Option<MediaReplicationJob>, String> {
+async fn claim_media_replication_job(db: &PgPool) -> Result<Option<MediaReplicationJob>, String> {
     sqlx::query_as(
         "WITH stale AS (
              UPDATE media_replication_jobs
@@ -2305,7 +2336,9 @@ async fn fail_media_replication_job(
     .bind(&error)
     .execute(db)
     .await
-    .map_err(|update_error| format!("could not record media replication failure: {update_error}"))?;
+    .map_err(|update_error| {
+        format!("could not record media replication failure: {update_error}")
+    })?;
     sqlx::query(
         "UPDATE media_replicas
          SET state = 'failed', error = $4, updated_at = now()
@@ -2713,14 +2746,10 @@ pub async fn share_media(
         .filter(|value| value.len() <= 8)
         .unwrap_or("bin");
     let filename = format!("swartzit-{}-{}.{}", id, variant, extension);
-    let (external_url, external_id) = media_store::share_catbox(
-        &config,
-        &bytes,
-        &metadata.mime_type,
-        &filename,
-    )
-    .await
-    .map_err(ApiError::Storage)?;
+    let (external_url, external_id) =
+        media_store::share_catbox(&config, &bytes, &metadata.mime_type, &filename)
+            .await
+            .map_err(ApiError::Storage)?;
     sqlx::query(
         "INSERT INTO media_replicas
             (media_id, provider, role, variant, external_url, external_id,
@@ -2834,7 +2863,7 @@ pub async fn publish_content_runner(
         (_, None) => {
             return Err(ApiError::Invalid(
                 "A provider-backed runner post needs a source URL",
-            ))
+            ));
         }
     };
     if !["runner", "x", "reddit", "rss", "commons"].contains(&provider.as_str()) {
@@ -2844,17 +2873,15 @@ pub async fn publish_content_runner(
         .source_author
         .clone()
         .unwrap_or_else(|| author.to_owned());
-    let media = input
-        .media
-        .clone()
-        .unwrap_or_else(|| serde_json::json!([]));
+    let media = input.media.clone().unwrap_or_else(|| serde_json::json!([]));
     let source_comments = input
         .source_comments
         .clone()
         .unwrap_or_else(|| serde_json::json!([]));
-    let attribution = input.attribution.clone().unwrap_or_else(|| {
-        "Generated by a configured Swartzit content runner".to_owned()
-    });
+    let attribution = input
+        .attribution
+        .clone()
+        .unwrap_or_else(|| "Generated by a configured Swartzit content runner".to_owned());
     let generation_config = input
         .generation_config
         .clone()
@@ -2868,7 +2895,9 @@ pub async fn publish_content_runner(
         return Err(ApiError::Invalid("Runner source author is invalid"));
     }
     if !media.is_array() || media.as_array().is_some_and(|media| media.len() > 8) {
-        return Err(ApiError::Invalid("Runner posts may contain at most 8 media items"));
+        return Err(ApiError::Invalid(
+            "Runner posts may contain at most 8 media items",
+        ));
     }
     if !source_comments.is_array()
         || source_comments
@@ -2881,14 +2910,23 @@ pub async fn publish_content_runner(
         return Err(ApiError::Invalid("Runner attribution is too long"));
     }
     if !generation_config.is_object() {
-        return Err(ApiError::Invalid("Runner generation settings must be an object"));
+        return Err(ApiError::Invalid(
+            "Runner generation settings must be an object",
+        ));
     }
-    if [input.source_views, input.source_likes, input.source_reposts, input.source_replies]
-        .into_iter()
-        .flatten()
-        .any(|value| !(0..=9_007_199_254_740_991).contains(&value))
+    if [
+        input.source_views,
+        input.source_likes,
+        input.source_reposts,
+        input.source_replies,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !(0..=9_007_199_254_740_991).contains(&value))
     {
-        return Err(ApiError::Invalid("Runner metrics must be nonnegative safe integers"));
+        return Err(ApiError::Invalid(
+            "Runner metrics must be nonnegative safe integers",
+        ));
     }
     if provider == "x" {
         let typed_media: Vec<imports::Media> = serde_json::from_value(media.clone())
@@ -2974,9 +3012,13 @@ pub async fn publish_content_runner(
             })));
         }
     }
-    let publication_status = if moderation_enabled { "pending" } else { "approved" };
+    let publication_status = if moderation_enabled {
+        "pending"
+    } else {
+        "approved"
+    };
     let post_id:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,body,moderation_status) VALUES($1,$2,$3,$4,$5) RETURNING id").bind(community_id).bind(author_id).bind(title).bind(body.trim()).bind(publication_status).fetch_one(&mut *tx).await?;
-    let moderation_id=if moderation_enabled {
+    let moderation_id = if moderation_enabled {
         let moderation_id:i64=sqlx::query_scalar("INSERT INTO moderation_items(kind,target_id,author_id,status,severity,flags,rule_version,urgent) VALUES('post',$1,$2,'pending',$3,$4,$5,$6) RETURNING id").bind(post_id).bind(author_id).bind(&severity).bind(flags.clone()).bind(moderation::RULE_VERSION).bind(urgent).fetch_one(&mut *tx).await?;
         sqlx::query("UPDATE posts SET moderation_item_id=$2 WHERE id=$1")
             .bind(post_id)
@@ -2984,7 +3026,9 @@ pub async fn publish_content_runner(
             .execute(&mut *tx)
             .await?;
         Some(moderation_id)
-    } else { None };
+    } else {
+        None
+    };
     if let Some(source) = canonical_source {
         sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified,generation_config) VALUES($1,$2,$3,$4,$5,now(),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
             .bind(post_id)
@@ -3070,11 +3114,13 @@ mod tests {
             "output_path": "~/DrawThings/lighthouse-{index}.png"
         });
         assert!(validate_runner_definition("draw_things", &config).is_ok());
-        assert!(validate_runner_definition(
-            "draw_things",
-            &serde_json::json!({"executable":"draw-things-cli","model":"flux.ckpt","width":8})
-        )
-        .is_err());
+        assert!(
+            validate_runner_definition(
+                "draw_things",
+                &serde_json::json!({"executable":"draw-things-cli","model":"flux.ckpt","width":8})
+            )
+            .is_err()
+        );
     }
 
     #[test]
