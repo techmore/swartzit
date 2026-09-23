@@ -8,6 +8,7 @@ web process.
 | --- | --- | --- | --- |
 | `scripts/run-local.sh` | Mac | PostgreSQL, API, LAN web server, optional Caddy | `bash scripts/run-local.sh` |
 | `scripts/swartzit-worker.mjs` | Linux/Incus | Claims enabled admin crawler jobs and records run results | systemd timer |
+| Content runners | Worker host | Runs administrator-configured command/cross-post publishers with lifecycle, retry, timeout, and log policy | Admin → Content Runners |
 | `scripts/hermes-content-sync.mjs` | Local Hermes machine | Publishes collector JSON from an inbox, leaving failures for retry | `node scripts/hermes-content-sync.mjs --inbox .local/hermes/inbox` |
 | `scripts/scheduled-imports.mjs` | Local or hosted | **The only source submitter**; validates, enriches, deduplicates, and sends imports to the moderation gate | called by the runners |
 | Codex content-sync heartbeat | Mac + signed-in Brave | Collects Following/For You X posts and runs the bounded Daddario check | Codex automation |
@@ -18,6 +19,11 @@ The remaining scripts are helpers or one-shot maintenance tools:
 `crawler-adapters.mjs` contains provider adapters, `prepare-import.mjs` turns a
 Commons manifest into records, and `backfill-x-media.mjs` repairs old X posts.
 They are not independent schedulers.
+
+Content runners are the publishing side of the worker. They are disabled at the
+module level by default, execute one at a time in priority order, and submit
+their output to the normal moderation queue. See [content-runners.md](content-runners.md)
+for the command contract and lifecycle behavior.
 
 ## Rules for every runner
 

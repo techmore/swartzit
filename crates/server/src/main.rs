@@ -1583,10 +1583,17 @@ fn spawn_maintenance(db: PgPool) {
                     "ip activity",
                     "DELETE FROM ip_activity WHERE created_at < now() - interval '7 days'",
                 ),
+                (
+                    "content runner logs",
+                    "DELETE FROM content_runner_runs r USING content_runners c WHERE r.runner_id=c.id AND r.finished_at IS NOT NULL AND r.finished_at < now() - make_interval(days => c.retention_days)",
+                ),
             ] {
                 if let Err(error) = sqlx::query(statement).execute(&db).await {
                     tracing::warn!(%error, maintenance = label, "periodic maintenance failed");
                 }
+            }
+            if let Err(error) = sqlx::query("UPDATE content_runner_runs SET status='failed', finished_at=now(), error='Worker lease expired', detail=jsonb_build_object('reaped', true) WHERE status='running' AND started_at < now() - interval '2 hours'").execute(&db).await {
+                tracing::warn!(%error, maintenance = "content runner leases", "periodic maintenance failed");
             }
         }
     });
@@ -1795,6 +1802,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/admin/crawler-runs/{run_id}/complete",
             post_method(admin::complete_crawler_job),
+        )
+        .route(
+            "/api/admin/content-runners",
+            get(admin::content_runners).post(admin::create_content_runner),
+        )
+        .route(
+            "/api/admin/content-runners/{id}",
+            get(admin::content_runner)
+                .post(admin::update_content_runner)
+                .delete(admin::delete_content_runner),
+        )
+        .route(
+            "/api/admin/content-runners/{id}/toggle",
+            post_method(admin::toggle_content_runner),
+        )
+        .route(
+            "/api/admin/content-runners/{id}/run-now",
+            post_method(admin::run_content_runner_now),
+        )
+        .route(
+            "/api/admin/content-runners/{id}/archive",
+            post_method(admin::archive_content_runner),
+        )
+        .route(
+            "/api/admin/content-runners/{id}/claim",
+            post_method(admin::claim_content_runner),
+        )
+        .route(
+            "/api/admin/content-runner-runs/{run_id}/complete",
+            post_method(admin::complete_content_runner),
+        )
+        .route(
+            "/api/admin/content-runner-runs",
+            get(admin::content_runner_runs),
+        )
+        .route(
+            "/api/admin/content-runner-runs/{run_id}/replay",
+            post_method(admin::replay_content_runner),
+        )
+        .route(
+            "/api/admin/content-runners/publish",
+            post_method(admin::publish_content_runner),
         )
         .route("/api/admin/imports", post_method(imports::ingest))
         .route("/api/posts/cross-post", post_method(imports::cross_post))
