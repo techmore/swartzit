@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2-20260923T12
+
+- Fixed the Homebrew launcher to resolve its keg path when invoked through the
+  `/opt/homebrew/bin/swartzit` symlink, so installed status, start, update, and
+  rollback commands use the persistent application layout.
+
 ## 0.1.1-20260923T12
 
 - Added explicit, confirmation-gated database rollback with a preserved

@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPT_PATH="$0"
+while [[ -L "$SCRIPT_PATH" ]]; do
+  SCRIPT_LINK_DIR=$(cd "$(dirname "$SCRIPT_PATH")" && pwd)
+  SCRIPT_LINK=$(readlink "$SCRIPT_PATH")
+  if [[ "$SCRIPT_LINK" == /* ]]; then
+    SCRIPT_PATH="$SCRIPT_LINK"
+  else
+    SCRIPT_PATH="$SCRIPT_LINK_DIR/$SCRIPT_LINK"
+  fi
+done
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_PATH")" && pwd)
 HOME_DIR="${SWARTZIT_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 SERVER="${SWARTZIT_SERVER:-$HOME_DIR/target/release/swartzit-server}"
 WEB_BUILD="${SWARTZIT_WEB_BUILD:-$HOME_DIR/apps/web/build}"
