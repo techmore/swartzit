@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8-20260923T14
+
+- Refreshes the backup and uptime-monitor LaunchAgents during Homebrew updates,
+  preserving their configured settings as Cellar paths change.
+- Preserves the configured menu open URL when refreshing the native companion.
+
 ## 0.1.7-20260923T14
 
 - Fixes the macOS menu LaunchAgent environment so version, network, uptime, and

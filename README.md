@@ -165,9 +165,10 @@ and archive. It requires `--yes` because PostgreSQL objects are replaced. Add
 application.
 
 `swartzit update --yes` always creates a pre-upgrade dump and archive before
-Homebrew changes the package, then refreshes the native menu companion from the
-new release and records the recovery paths. Use that command instead of a bare
-`brew upgrade swartzit` when preserving a recovery point matters.
+Homebrew changes the package, then refreshes the native menu, backup, and uptime
+monitor LaunchAgents from the new release while preserving their settings. Use
+that command instead of a bare `brew upgrade swartzit` when preserving a
+recovery point matters.
 
 > Read freely. Participate under a pseudonym. Take your community with you.
 

@@ -7,6 +7,12 @@ INSTALL_DIR="${SWARTZIT_STATUS_DIR:-$HOME/Library/Application Support/Swartzit}"
 PLIST="$HOME/Library/LaunchAgents/org.stoverparc.swartzit-status.plist"
 mkdir -p "$INSTALL_DIR" "$HOME/Library/LaunchAgents"
 
+plist_value() {
+  local key="$1"
+  [[ -f "$PLIST" && -x /usr/libexec/PlistBuddy ]] || return 0
+  /usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:$key" "$PLIST" 2>/dev/null || true
+}
+
 status_binary="${SWARTZIT_STATUS_BINARY:-}"
 command_path="${SWARTZIT_COMMAND:-}"
 icon_source="${SWARTZIT_ICON_SOURCE:-}"
@@ -40,7 +46,10 @@ xml_escape() {
   printf '%s' "$1" | sed -e 's/\&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&apos;/g"
 }
 command_path_xml=$(xml_escape "$command_path")
-open_url_xml=$(xml_escape "${SWARTZIT_OPEN_URL:-http://127.0.0.1:4173}")
+open_url="${SWARTZIT_OPEN_URL:-}"
+[[ -n "$open_url" ]] || open_url="$(plist_value SWARTZIT_OPEN_URL)"
+open_url="${open_url:-http://127.0.0.1:4173}"
+open_url_xml=$(xml_escape "$open_url")
 icon_path_xml=$(xml_escape "$INSTALL_DIR/swartzit-icon.png")
 status_version_xml=$(xml_escape "$status_version")
 launch_path_xml=$(xml_escape "$launch_path")

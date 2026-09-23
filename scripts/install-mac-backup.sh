@@ -16,11 +16,35 @@ BACKUP_SCRIPT="$SCRIPT_DIR/db-backup.sh"
 [[ -x "$BACKUP_SCRIPT" ]] || { echo "Missing backup script: $BACKUP_SCRIPT" >&2; exit 1; }
 
 LABEL="${SWARTZIT_BACKUP_LAUNCHD_LABEL:-org.stoverparc.swartzit-backup}"
-INTERVAL="${SWARTZIT_BACKUP_INTERVAL:-21600}"
-RETENTION="${SWARTZIT_BACKUP_RETENTION:-7}"
-STATE_DIR="${SWARTZIT_STATE_DIR:-${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}}"
-BACKUP_DIR="${SWARTZIT_BACKUP_DIR:-$STATE_DIR/backups}"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+plist_value() {
+  local key="$1"
+  [[ -f "$PLIST" && -x /usr/libexec/PlistBuddy ]] || return 0
+  /usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:$key" "$PLIST" 2>/dev/null || true
+}
+
+INTERVAL="${SWARTZIT_BACKUP_INTERVAL:-}"
+[[ -n "$INTERVAL" ]] || INTERVAL="$(plist_value SWARTZIT_BACKUP_INTERVAL)"
+INTERVAL="${INTERVAL:-21600}"
+RETENTION="${SWARTZIT_BACKUP_RETENTION:-}"
+[[ -n "$RETENTION" ]] || RETENTION="$(plist_value SWARTZIT_BACKUP_RETENTION)"
+RETENTION="${RETENTION:-7}"
+STATE_DIR="${SWARTZIT_STATE_DIR:-}"
+[[ -n "$STATE_DIR" ]] || STATE_DIR="$(plist_value SWARTZIT_STATE_DIR)"
+STATE_DIR="${STATE_DIR:-${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}}"
+BACKUP_DIR="${SWARTZIT_BACKUP_DIR:-}"
+[[ -n "$BACKUP_DIR" ]] || BACKUP_DIR="$(plist_value SWARTZIT_BACKUP_DIR)"
+BACKUP_DIR="${BACKUP_DIR:-$STATE_DIR/backups}"
+DB_CONTAINER="${SWARTZIT_DB_CONTAINER:-}"
+[[ -n "$DB_CONTAINER" ]] || DB_CONTAINER="$(plist_value SWARTZIT_DB_CONTAINER)"
+DB_CONTAINER="${DB_CONTAINER:-swartzit-db}"
+DB_USER="${SWARTZIT_DB_USER:-}"
+[[ -n "$DB_USER" ]] || DB_USER="$(plist_value SWARTZIT_DB_USER)"
+DB_USER="${DB_USER:-swartzit}"
+DB_NAME="${SWARTZIT_DB_NAME:-}"
+[[ -n "$DB_NAME" ]] || DB_NAME="$(plist_value SWARTZIT_DB_NAME)"
+DB_NAME="${DB_NAME:-swartzit}"
 
 [[ "$INTERVAL" =~ ^[1-9][0-9]*$ ]] || { echo 'SWARTZIT_BACKUP_INTERVAL must be a positive integer.' >&2; exit 2; }
 [[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || { echo 'SWARTZIT_BACKUP_RETENTION must be a positive integer.' >&2; exit 2; }
@@ -43,9 +67,9 @@ BACKUP_SCRIPT_XML=$(xml_escape "$BACKUP_SCRIPT")
 BACKUP_DIR_XML=$(xml_escape "$BACKUP_DIR")
 STATE_DIR_XML=$(xml_escape "$STATE_DIR")
 LAUNCH_PATH_XML=$(xml_escape "$LAUNCH_PATH")
-DB_CONTAINER_XML=$(xml_escape "${SWARTZIT_DB_CONTAINER:-swartzit-db}")
-DB_USER_XML=$(xml_escape "${SWARTZIT_DB_USER:-swartzit}")
-DB_NAME_XML=$(xml_escape "${SWARTZIT_DB_NAME:-swartzit}")
+DB_CONTAINER_XML=$(xml_escape "$DB_CONTAINER")
+DB_USER_XML=$(xml_escape "$DB_USER")
+DB_NAME_XML=$(xml_escape "$DB_NAME")
 
 mkdir -p "$HOME/Library/LaunchAgents" "$STATE_DIR" "$BACKUP_DIR"
 cat > "$PLIST" <<EOF

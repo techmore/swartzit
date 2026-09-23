@@ -2,15 +2,30 @@
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 LABEL="${SWARTZIT_LAUNCHD_LABEL:-org.stoverparc.swartzit-monitor}"
-INTERVAL="${SWARTZIT_CHECK_INTERVAL:-300}"
-URL="${SWARTZIT_CHECK_URL:-https://stoverparc.org/}"
-TIMEOUT="${SWARTZIT_CHECK_TIMEOUT:-10}"
-STATE_DIR="${SWARTZIT_STATE_DIR:-${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}}"
-PULSE_FILE="${SWARTZIT_PULSE_FILE:-$STATE_DIR/uptime-pulse.json}"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+plist_value() {
+  local key="$1"
+  [[ -f "$PLIST" && -x /usr/libexec/PlistBuddy ]] || return 0
+  /usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:$key" "$PLIST" 2>/dev/null || true
+}
+INTERVAL="${SWARTZIT_CHECK_INTERVAL:-}"
+[[ -n "$INTERVAL" ]] || INTERVAL="$(plist_value SWARTZIT_CHECK_INTERVAL)"
+INTERVAL="${INTERVAL:-300}"
+URL="${SWARTZIT_CHECK_URL:-}"
+[[ -n "$URL" ]] || URL="$(plist_value SWARTZIT_CHECK_URL)"
+URL="${URL:-https://stoverparc.org/}"
+TIMEOUT="${SWARTZIT_CHECK_TIMEOUT:-}"
+[[ -n "$TIMEOUT" ]] || TIMEOUT="$(plist_value SWARTZIT_CHECK_TIMEOUT)"
+TIMEOUT="${TIMEOUT:-10}"
+STATE_DIR="${SWARTZIT_STATE_DIR:-}"
+[[ -n "$STATE_DIR" ]] || STATE_DIR="$(plist_value SWARTZIT_STATE_DIR)"
+STATE_DIR="${STATE_DIR:-${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}}"
+PULSE_FILE="${SWARTZIT_PULSE_FILE:-}"
+[[ -n "$PULSE_FILE" ]] || PULSE_FILE="$(plist_value SWARTZIT_PULSE_FILE)"
+PULSE_FILE="${PULSE_FILE:-$STATE_DIR/uptime-pulse.json}"
 BREW_PREFIX="$(brew --prefix 2>/dev/null || true)"
 LAUNCH_PATH="${PATH:-/usr/bin:/bin}"
 [[ -n "$BREW_PREFIX" ]] && LAUNCH_PATH="$BREW_PREFIX/bin:$LAUNCH_PATH"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 [[ "$INTERVAL" =~ ^[1-9][0-9]*$ ]] || { echo 'SWARTZIT_CHECK_INTERVAL must be a positive integer.' >&2; exit 2; }
 [[ "$TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo 'SWARTZIT_CHECK_TIMEOUT must be a positive integer.' >&2; exit 2; }
 [[ "$LABEL" =~ ^[A-Za-z0-9._-]+$ ]] || { echo 'SWARTZIT_LAUNCHD_LABEL contains unsupported characters.' >&2; exit 2; }
