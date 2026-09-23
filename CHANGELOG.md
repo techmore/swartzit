@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.18-20260923T18
+
+- Makes macOS `start`, `restart`, and `stop` understand the existing API and
+  web LaunchAgents, preventing duplicate processes and making interface changes
+  restart the actual managed services.
+- Repairs stale Caddy LaunchAgents that still point at a removed Homebrew keg
+  before refreshing the public HTTPS proxy.
+- Keeps all runner worker scripts in the Homebrew tap so packaged Draw Things
+  and cross-post runners are available after installation.
+
 ## 0.1.17-20260923T18
 
 - Makes runner duplication explicit: copied definitions open at the editor,

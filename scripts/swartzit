@@ -28,6 +28,94 @@ mkdir -p "$STATE_DIR"
 SCRIPT_HOME="$HOME_DIR/scripts"
 [[ -d "$SCRIPT_HOME" ]] || SCRIPT_HOME="$HOME_DIR/libexec"
 
+MACOS_LAUNCHD_DOMAIN="gui/$(id -u)"
+MACOS_API_LAUNCHD_LABEL="${SWARTZIT_API_LAUNCHD_LABEL:-org.stoverparc.swartzit-homebrew-api}"
+MACOS_WEB_LAUNCHD_LABEL="${SWARTZIT_WEB_LAUNCHD_LABEL:-org.stoverparc.swartzit-homebrew-web}"
+
+macos_launchd_available() {
+  [[ "$(uname -s)" == Darwin && -x /bin/launchctl ]]
+}
+
+macos_agent_target() {
+  echo "$MACOS_LAUNCHD_DOMAIN/$1"
+}
+
+macos_agent_plist() {
+  echo "$HOME/Library/LaunchAgents/$1.plist"
+}
+
+macos_agent_loaded() {
+  macos_launchd_available || return 1
+  launchctl print "$(macos_agent_target "$1")" >/dev/null 2>&1
+}
+
+macos_agent_configured() {
+  macos_launchd_available || return 1
+  macos_agent_loaded "$1" || [[ -f "$(macos_agent_plist "$1")" ]]
+}
+
+start_macos_agent() {
+  local label="$1"
+  local target
+  target="$(macos_agent_target "$label")"
+  if macos_agent_loaded "$label"; then
+    launchctl kickstart -k "$target"
+  elif [[ -f "$(macos_agent_plist "$label")" ]]; then
+    launchctl bootstrap "$MACOS_LAUNCHD_DOMAIN" "$(macos_agent_plist "$label")"
+  else
+    return 1
+  fi
+}
+
+stop_macos_agent() {
+  local label="$1"
+  macos_agent_loaded "$label" || return 0
+  launchctl bootout "$(macos_agent_target "$label")"
+}
+
+stop_direct_process() {
+  local name="$1"
+  local pid command
+  [[ -f "$STATE_DIR/$name.pid" ]] || return 0
+  pid="$(cat "$STATE_DIR/$name.pid")"
+  command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  if [[ "$name" == api && ( "$command" == *swartzit-server* || "$command" == *"$SERVER"* ) ]]; then
+    kill "$pid" 2>/dev/null || true
+  elif [[ "$name" == web && "$command" == *"$WEB_BUILD"* ]]; then
+    kill "$pid" 2>/dev/null || true
+  fi
+  rm -f "$STATE_DIR/$name.pid"
+}
+
+start_service_processes() {
+  if macos_agent_configured "$MACOS_API_LAUNCHD_LABEL"; then
+    stop_direct_process api
+    start_macos_agent "$MACOS_API_LAUNCHD_LABEL" || {
+      echo "Could not start macOS API LaunchAgent: $MACOS_API_LAUNCHD_LABEL" >&2
+      return 1
+    }
+  else
+    nohup "$SERVER" >"$STATE_DIR/api.log" 2>&1 < /dev/null & echo $! > "$STATE_DIR/api.pid"
+  fi
+
+  if macos_agent_configured "$MACOS_WEB_LAUNCHD_LABEL"; then
+    stop_direct_process web
+    start_macos_agent "$MACOS_WEB_LAUNCHD_LABEL" || {
+      echo "Could not start macOS web LaunchAgent: $MACOS_WEB_LAUNCHD_LABEL" >&2
+      return 1
+    }
+  else
+    nohup node "$WEB_BUILD" >"$STATE_DIR/web.log" 2>&1 < /dev/null & echo $! > "$STATE_DIR/web.pid"
+  fi
+}
+
+stop_service_processes() {
+  stop_direct_process api
+  stop_direct_process web
+  stop_macos_agent "$MACOS_API_LAUNCHD_LABEL" || true
+  stop_macos_agent "$MACOS_WEB_LAUNCHD_LABEL" || true
+}
+
 interface_ip() {
   local interface="$1"
   if [[ "$interface" == "loopback" || "$interface" == "localhost" || "$interface" == "lo0" ]]; then
@@ -136,6 +224,25 @@ refresh_caddy() {
     return 1
   fi
 
+  # Homebrew upgrades replace versioned kegs. If a previously installed
+  # LaunchAgent still points at the removed keg, refresh would kickstart a
+  # dead path and make the whole restart look unhealthy. Reinstall the agent
+  # against this release before attempting the refresh.
+  if macos_launchd_available; then
+    local caddy_plist="$HOME/Library/LaunchAgents/org.stoverparc.swartzit-caddy.plist"
+    if [[ -f "$caddy_plist" && -x /usr/libexec/PlistBuddy ]]; then
+      local configured_caddy_script
+      configured_caddy_script=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$caddy_plist" 2>/dev/null || true)
+      if [[ "$configured_caddy_script" != "$caddy_script" ]]; then
+        if ! SWARTZIT_STATE_DIR="$STATE_DIR" "$SCRIPT_HOME/install-mac-caddy.sh"; then
+          echo "Caddy LaunchAgent could not be refreshed for this release." >&2
+          return 1
+        fi
+        return 0
+      fi
+    fi
+  fi
+
   export SWARTZIT_CADDY=1
   if ! SWARTZIT_STATE_DIR="$STATE_DIR" "$caddy_script" refresh; then
     echo "Caddy failed to refresh for $WEB_BIND_IP:$PORT." >&2
@@ -190,8 +297,7 @@ case "${1:-status}" in
     } > "$STATE_DIR/runtime.env"
     [[ -x "$SERVER" ]] || { echo "Missing Swartzit server: $SERVER" >&2; exit 1; }
     [[ -f "$WEB_BUILD/index.js" ]] || { echo "Missing web build: $WEB_BUILD/index.js" >&2; exit 1; }
-    nohup "$SERVER" >"$STATE_DIR/api.log" 2>&1 < /dev/null & echo $! > "$STATE_DIR/api.pid"
-    nohup node "$WEB_BUILD" >"$STATE_DIR/web.log" 2>&1 < /dev/null & echo $! > "$STATE_DIR/web.pid"
+    start_service_processes
     echo "Swartzit started: $HOST:$PORT ($NETWORK_LABEL; $WEB_INTERFACE)"
     echo "Web URL: http://$HOST:$PORT"
     echo "API bind: $BIND_ADDR ($API_INTERFACE)"
@@ -244,7 +350,7 @@ case "${1:-status}" in
     exec "$0" start "$NETWORK_REQUESTED"
     ;;
   stop)
-    for name in api web; do if [[ -f "$STATE_DIR/$name.pid" ]]; then kill "$(cat "$STATE_DIR/$name.pid")" 2>/dev/null || true; rm -f "$STATE_DIR/$name.pid"; fi; done
+    stop_service_processes
     echo 'Swartzit stopped; database data was preserved.'
     ;;
   status)
