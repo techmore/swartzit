@@ -60,7 +60,7 @@ case "$MODE" in
     SWARTZIT_DOMAIN="${SWARTZIT_DOMAIN%%/*}"
     SWARTZIT_CADDY="${SWARTZIT_CADDY:-1}"
     ;;
-  en[0-9]|en[0-9][0-9]|utun[0-9]|bridge[0-9])
+  en[0-9]*|utun[0-9]*|bridge[0-9]*)
     WEB_BIND_IP="$(interface_ip "$MODE" || true)"
     [[ -n "$WEB_BIND_IP" ]] || { echo "No IPv4 address found on interface $MODE." >&2; exit 1; }
     DEFAULT_ORIGIN="http://$WEB_BIND_IP:$PORT"

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.11-20260923T14
+
+- Shows each active WireGuard/VPN tunnel and USB/Thunderbolt Ethernet adapter
+  as a distinct menu binding choice.
+- Uses macOS hardware-port names for dongled and hardline adapters and supports
+  multi-digit interface names such as `en15` and `utun10`.
+
 ## 0.1.10-20260923T14
 
 - Adds a native menu submenu for selecting an active web-binding interface.

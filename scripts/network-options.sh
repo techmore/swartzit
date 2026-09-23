@@ -11,6 +11,26 @@ interface_ip() {
     ifconfig "$interface" 2>/dev/null | awk '$1 == "inet" { print $2; exit }'
 }
 
+hardware_port_name() {
+  local interface="$1"
+  networksetup -listallhardwareports 2>/dev/null | awk -v device="$interface" '
+    /^Hardware Port: / { name=$0; sub(/^Hardware Port: /, "", name) }
+    /^Device: / { current=$0; sub(/^Device: /, "", current); if (current == device) { print name; exit } }
+  '
+}
+
+wireguard_interfaces=''
+if command -v wg >/dev/null 2>&1; then
+  wireguard_interfaces="$(wg show interfaces 2>/dev/null || true)"
+fi
+is_wireguard_interface() {
+  local interface="$1"
+  case " $wireguard_interfaces " in
+    *" $interface "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 rows=''
 add_option() {
   local id="$1" label="$2" interface="$3" ip="$4" kind="$5"
@@ -48,13 +68,28 @@ if [[ -z "$vpn_ip" ]]; then
     break
   done < <(ifconfig 2>/dev/null | awk '/^utun[0-9]+:/{iface=$1; sub(":", "", iface)} iface && /inet /{print iface "\t" $2}')
 fi
-add_option vpn VPN "${vpn_interface:-utun}" "$vpn_ip" vpn
+add_option vpn 'VPN (auto)' "${vpn_interface:-utun}" "$vpn_ip" vpn
 
 for interface in $(ifconfig -l 2>/dev/null || true); do
   if [[ "$interface" =~ ^(en|bridge|utun)[0-9]+$ ]]; then
-    if [[ "$interface" != "$wifi_interface" && "$interface" != "$ethernet_interface" && "$interface" != "${vpn_interface:-}" ]]; then
+    if [[ "$interface" != "$wifi_interface" && "$interface" != "$ethernet_interface" ]]; then
       ip="$(interface_ip "$interface" || true)"
-      add_option "$interface" "Interface $interface" "$interface" "$ip" interface
+      [[ -n "$ip" ]] || continue
+      if [[ "$interface" == utun* ]]; then
+        if is_wireguard_interface "$interface"; then
+          label='WireGuard'
+          kind=wireguard
+        else
+          label='VPN tunnel'
+          kind=vpn
+        fi
+      else
+        label="$(hardware_port_name "$interface")"
+        [[ -n "$label" ]] || label="Interface $interface"
+        kind=ethernet
+        [[ "$label" == *Wi-Fi* ]] && kind=wifi
+      fi
+      add_option "$interface" "$label" "$interface" "$ip" "$kind"
     fi
   fi
 done

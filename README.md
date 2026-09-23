@@ -81,9 +81,11 @@ bash scripts/install-mac-status.sh
 The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Its first rows explicitly show `Swartzit: UP` or `DOWN`, the network binding (for example `Wi-Fi/LAN · Web en0 10.x.x.x · API loopback 127.0.0.1`), the server uptime, and the latest configurable uptime pulse. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
 
 Use **Bind web interface** in the menu to choose an active loopback, Wi-Fi/LAN,
-Ethernet, VPN, or concrete macOS interface. Swartzit stops and restarts its API
-and web processes with the selected web binding, then rechecks health; the API
-remains loopback-only unless `SWARTZIT_API_INTERFACE` was explicitly configured.
+USB/Thunderbolt Ethernet adapter, WireGuard/VPN tunnel, or concrete macOS
+interface. Swartzit stops and restarts its API and web processes with the
+selected web binding, then rechecks health; the API remains loopback-only unless
+`SWARTZIT_API_INTERFACE` was explicitly configured. A generic VPN option is
+also retained for automatically selecting the first active tunnel.
 The same options are available to scripts with:
 
 ```sh
