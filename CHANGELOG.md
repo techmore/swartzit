@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3-20260923T12
+
+- Aligns the release archive with the audited Homebrew formula: the installed
+  version file lives in `libexec`, and the launcher reads it from there.
+- Uses Homebrew’s standard Cargo install path and leaves only executables in
+  the formula’s `bin` directory.
+
 ## 0.1.2-20260923T12
 
 - Fixed the Homebrew launcher to resolve its keg path when invoked through the

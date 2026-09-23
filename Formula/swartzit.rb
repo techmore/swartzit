@@ -1,8 +1,8 @@
 class Swartzit < Formula
   desc "Self-hosted, pseudonymous discussion community"
   homepage "https://stoverparc.org"
-  version "0.1.2.20260923.12"
   url "https://github.com/techmore/swartzit/archive/refs/tags/v0.1.2-20260923T12.tar.gz"
+  version "0.1.2.20260923.12"
   sha256 "4628f030448f3f2dc80e1a26195f14e772c308e7a2e76287e10dfcc69131dc7c"
 
   depends_on "node" => :build
@@ -10,7 +10,7 @@ class Swartzit < Formula
 
   def install
     ENV.prepend_path "PATH", HOMEBREW_PREFIX/"bin"
-    system "cargo", "build", "--locked", "--release", "-p", "swartzit-server"
+    system "cargo", "install", *std_cargo_args(path: "crates/server")
     system "npm", "--prefix", "apps/web", "ci"
     system "npm", "--prefix", "apps/web", "run", "build"
 
@@ -19,10 +19,8 @@ class Swartzit < Formula
       bin.install "swartzit-status"
     end
 
-    bin.install "target/release/swartzit-server"
     bin.install "scripts/swartzit"
-    bin.install "VERSION"
-    libexec.install "apps/web/build"
+    libexec.install "VERSION", "apps/web/build"
     libexec.install "scripts/status-local.sh", "scripts/db-backup.sh",
       "scripts/db-restore-verify.sh", "scripts/db-restore.sh",
       "scripts/swartzit-update.sh",

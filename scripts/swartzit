@@ -32,6 +32,7 @@ case "${1:-status}" in
   version)
     VERSION_FILE="${SWARTZIT_VERSION_FILE:-$SCRIPT_DIR/VERSION}"
     [[ -f "$VERSION_FILE" ]] || VERSION_FILE="$HOME_DIR/VERSION"
+    [[ -f "$VERSION_FILE" ]] || VERSION_FILE="$HOME_DIR/libexec/VERSION"
     [[ -f "$VERSION_FILE" ]] || VERSION_FILE="$HOME_DIR/../VERSION"
     if [[ -f "$VERSION_FILE" ]]; then cat "$VERSION_FILE"; else echo "development"; fi
     ;;
