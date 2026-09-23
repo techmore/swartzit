@@ -106,6 +106,10 @@ export API_URL="${API_URL:-http://$API_BIND_IP:$API_PORT}"
 export HOST="${HOST:-$WEB_BIND_IP}"
 export PORT
 export ORIGIN="${ORIGIN:-${SWARTZIT_ORIGIN:-$DEFAULT_ORIGIN}}"
+if [[ "$MODE" == public && -z "${SWARTZIT_CADDY_BIND_IP:-}" ]]; then
+  SWARTZIT_CADDY_BIND_IP=0.0.0.0
+fi
+SWARTZIT_CADDY_UPSTREAM="${SWARTZIT_CADDY_UPSTREAM:-$WEB_BIND_IP:$PORT}"
 {
   printf 'API_URL=%q\n' "$API_URL"
   printf 'PORT=%q\n' "$PORT"
@@ -118,6 +122,9 @@ export ORIGIN="${ORIGIN:-${SWARTZIT_ORIGIN:-$DEFAULT_ORIGIN}}"
   printf 'SWARTZIT_API_BIND_IP=%q\n' "$API_BIND_IP"
   printf 'SWARTZIT_CHECK_URL=%q\n' "${SWARTZIT_CHECK_URL:-${SWARTZIT_ORIGIN:-}}"
   printf 'SWARTZIT_CADDY=%q\n' "${SWARTZIT_CADDY:-0}"
+  printf 'SWARTZIT_DOMAIN=%q\n' "${SWARTZIT_DOMAIN:-}"
+  printf 'SWARTZIT_CADDY_BIND_IP=%q\n' "${SWARTZIT_CADDY_BIND_IP:-}"
+  printf 'SWARTZIT_CADDY_UPSTREAM=%q\n' "$SWARTZIT_CADDY_UPSTREAM"
   printf 'SWARTZIT_STATE_DIR=%q\n' "$SWARTZIT_STATE_DIR"
 } > .local/runtime.env
 API_LOG=.local/api.log
@@ -173,8 +180,9 @@ if [[ "${SWARTZIT_CADDY:-0}" == 1 ]] && command -v caddy >/dev/null && [[ -n "${
   admin off
 }
 ${SWARTZIT_DOMAIN} {
+  bind ${SWARTZIT_CADDY_BIND_IP:-0.0.0.0}
   encode zstd gzip
-  reverse_proxy 127.0.0.1:${PORT}
+  reverse_proxy ${SWARTZIT_CADDY_UPSTREAM}
 }
 EOF
   if ! pgrep -f "caddy run --config .local/caddy-runtime.caddyfile" >/dev/null 2>&1; then

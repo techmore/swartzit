@@ -156,6 +156,9 @@ case "${1:-status}" in
       printf 'SWARTZIT_STARTED_AT=%q\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
       printf 'SWARTZIT_CHECK_URL=%q\n' "${SWARTZIT_CHECK_URL:-}"
       printf 'SWARTZIT_CADDY=%q\n' "${SWARTZIT_CADDY:-0}"
+      printf 'SWARTZIT_DOMAIN=%q\n' "${SWARTZIT_DOMAIN:-}"
+      printf 'SWARTZIT_CADDY_BIND_IP=%q\n' "${SWARTZIT_CADDY_BIND_IP:-$WEB_BIND_IP}"
+      printf 'SWARTZIT_CADDY_UPSTREAM=%q\n' "${SWARTZIT_CADDY_UPSTREAM:-$WEB_BIND_IP:$PORT}"
       printf 'SWARTZIT_STATE_DIR=%q\n' "$STATE_DIR"
     } > "$STATE_DIR/runtime.env"
     [[ -x "$SERVER" ]] || { echo "Missing Swartzit server: $SERVER" >&2; exit 1; }
@@ -165,10 +168,26 @@ case "${1:-status}" in
     echo "Swartzit started: $HOST:$PORT ($NETWORK_LABEL; $WEB_INTERFACE)"
     echo "Web URL: http://$HOST:$PORT"
     echo "API bind: $BIND_ADDR ($API_INTERFACE)"
+    if [[ "${SWARTZIT_CADDY:-0}" == 1 ]]; then
+      CADDY_SCRIPT="$SCRIPT_HOME/swartzit-caddy.sh"
+      if [[ -x "$CADDY_SCRIPT" ]]; then
+        "$CADDY_SCRIPT" refresh
+      else
+        echo "Caddy requested but launcher is missing: $CADDY_SCRIPT" >&2
+      fi
+    fi
     ;;
   restart)
     shift
     NETWORK_REQUESTED="${1:-${SWARTZIT_MODE:-${SWARTZIT_BIND_INTERFACE:-wifi}}}"
+    CADDY_OVERRIDE_SET=0
+    DOMAIN_OVERRIDE_SET=0
+    CADDY_BIND_OVERRIDE_SET=0
+    CADDY_UPSTREAM_OVERRIDE_SET=0
+    if [[ -n "${SWARTZIT_CADDY+x}" ]]; then CADDY_OVERRIDE_SET=1; CADDY_OVERRIDE="$SWARTZIT_CADDY"; fi
+    if [[ -n "${SWARTZIT_DOMAIN+x}" ]]; then DOMAIN_OVERRIDE_SET=1; DOMAIN_OVERRIDE="$SWARTZIT_DOMAIN"; fi
+    if [[ -n "${SWARTZIT_CADDY_BIND_IP+x}" ]]; then CADDY_BIND_OVERRIDE_SET=1; CADDY_BIND_OVERRIDE="$SWARTZIT_CADDY_BIND_IP"; fi
+    if [[ -n "${SWARTZIT_CADDY_UPSTREAM+x}" ]]; then CADDY_UPSTREAM_OVERRIDE_SET=1; CADDY_UPSTREAM_OVERRIDE="$SWARTZIT_CADDY_UPSTREAM"; fi
     if [[ -f "$STATE_DIR/runtime.env" ]]; then
       set -a
       source "$STATE_DIR/runtime.env"
@@ -179,8 +198,12 @@ case "${1:-status}" in
       unset API_URL BIND_ADDR HOST ORIGIN SWARTZIT_LOCAL_URL \
         SWARTZIT_NETWORK_MODE SWARTZIT_NETWORK_LABEL SWARTZIT_WEB_INTERFACE \
         SWARTZIT_WEB_BIND_IP SWARTZIT_API_BIND_INTERFACE SWARTZIT_API_BIND_IP \
-        SWARTZIT_STARTED_AT
+        SWARTZIT_STARTED_AT SWARTZIT_CADDY_BIND_IP SWARTZIT_CADDY_UPSTREAM
     fi
+    if (( CADDY_OVERRIDE_SET )); then SWARTZIT_CADDY="$CADDY_OVERRIDE"; fi
+    if (( DOMAIN_OVERRIDE_SET )); then SWARTZIT_DOMAIN="$DOMAIN_OVERRIDE"; fi
+    if (( CADDY_BIND_OVERRIDE_SET )); then SWARTZIT_CADDY_BIND_IP="$CADDY_BIND_OVERRIDE"; fi
+    if (( CADDY_UPSTREAM_OVERRIDE_SET )); then SWARTZIT_CADDY_UPSTREAM="$CADDY_UPSTREAM_OVERRIDE"; fi
     "$0" stop >/dev/null
     exec "$0" start "$NETWORK_REQUESTED"
     ;;
@@ -195,6 +218,8 @@ case "${1:-status}" in
     if curl -fsS --max-time 3 "${API_URL:-http://127.0.0.1:18080}/api/posts?limit=1" >/dev/null; then echo 'API: ready'; else echo 'API: down'; fi
     ;;
   interfaces|network-options) shift; exec "$SCRIPT_HOME/network-options.sh" "$@" ;;
+  caddy) shift; exec "$SCRIPT_HOME/swartzit-caddy.sh" "${1:-status}" ;;
+  caddy-install) shift; exec "$SCRIPT_HOME/install-mac-caddy.sh" "$@" ;;
   backup) exec "$SCRIPT_HOME/db-backup.sh" ;;
   backup-install) shift; exec "$SCRIPT_HOME/install-mac-backup.sh" "$@" ;;
   restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify.sh" "$@" ;;
@@ -204,5 +229,5 @@ case "${1:-status}" in
   monitor-install) shift; exec "$SCRIPT_HOME/install-mac-monitor.sh" "$@" ;;
   status-install) shift; exec "$SCRIPT_HOME/install-mac-status.sh" "$@" ;;
   orchard) shift; exec "$SCRIPT_HOME/swartzit-orchard.sh" "$@" ;;
-  *) echo 'Usage: swartzit {version|start|restart|stop|status|interfaces|status-install|backup|backup-install|restore-verify|rollback|update|monitor|monitor-install|orchard}' >&2; exit 2 ;;
+  *) echo 'Usage: swartzit {version|start|restart|stop|status|interfaces|caddy|caddy-install|status-install|backup|backup-install|restore-verify|rollback|update|monitor|monitor-install|orchard}' >&2; exit 2 ;;
 esac

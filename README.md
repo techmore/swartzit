@@ -394,6 +394,23 @@ swartzit monitor-install                # install/reinstall the macOS LaunchAgen
 swartzit status --json                  # local components plus the latest pulse
 ```
 
+For the WireGuard-backed public path used by `stoverparc.org`, bind the web
+server and Caddy to the tunnel address. Caddy listens on 80/443, obtains and
+renews the domain certificate, and proxies to the same selected web address;
+the API remains on loopback:
+
+```sh
+swartzit caddy-install
+SWARTZIT_CADDY=1 SWARTZIT_DOMAIN=stoverparc.org \
+  swartzit restart utun4
+swartzit status
+```
+
+The menu item's **Bind web interface** action keeps this upstream synchronized
+when switching between Wi-Fi, Ethernet, and WireGuard. The public server or
+router must forward TCP 80 and 443 through the WireGuard path to
+`192.168.3.250`.
+
 Orchard is an optional native macOS companion for inspecting Apple containers.
 The admin **Settings** tab stores its module toggle in the database; disabling
 it removes the Orchard controls and native menu actions without uninstalling

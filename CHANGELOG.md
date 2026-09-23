@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.12-20260923T14
+
+- Keeps the public Caddy reverse proxy synchronized with the selected Swartzit
+  web interface and upstream address.
+- Adds a persistent macOS Caddy LaunchAgent for WireGuard-backed HTTPS exposure.
+- Supports `stoverparc.org` on `192.168.3.250:443` while keeping the API on
+  loopback and preserving hot interface switching.
+
 ## 0.1.11-20260923T14
 
 - Shows each active WireGuard/VPN tunnel and USB/Thunderbolt Ethernet adapter

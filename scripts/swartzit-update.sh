@@ -64,6 +64,11 @@ if [[ "$(uname -s)" == Darwin ]] && ! "$LAUNCHER" monitor-install; then
   echo "Run: $LAUNCHER monitor-install" >&2
   exit 1
 fi
+if [[ "$(uname -s)" == Darwin && -f "$HOME/Library/LaunchAgents/org.stoverparc.swartzit-caddy.plist" ]] && ! "$LAUNCHER" caddy-install; then
+  echo "Updated Swartzit is healthy, but the Caddy LaunchAgent could not be refreshed." >&2
+  echo "Run: $LAUNCHER caddy-install" >&2
+  exit 1
+fi
 new_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)
 printf '{"completed_at":"%s","previous_version":"%s","new_version":"%s","backup":"%s","archive":"%s","status":"healthy"}\n' \
   "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$previous_version" "$new_version" "$backup_path" "$archive_path" > "$manifest"
