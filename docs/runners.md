@@ -15,6 +15,7 @@ web process.
 | `scripts/x-faith-runner.mjs` | Opt-in worker job | Produces a ranked, reviewed X/Reddit faith batch | run manually or from a reviewed job |
 | `scripts/x-cross-post-runner.mjs` | Content Runner worker host | Collects bounded public X posts from multiple accounts/topics and time windows | Admin → Content Runners → X topic window |
 | `scripts/x-two-account-demo-runner.mjs` | Content Runner worker host | Reproducible seven-day X labeling demo for `@beautyshowcase` and `@Rawpkw` | Admin → Content Runners → cross-post runner |
+| `scripts/x-ego-session-runner.mjs` | Mac + dedicated Ego Lite session | Read-only browser-session verification runner for the same two X accounts | Admin → Content Runners → cross-post runner |
 | `scripts/draw-things-runner.mjs` | Content Runner worker host | Builds safe Draw Things argv and generation metadata for local Apple Silicon inference | used by `scripts/swartzit-worker.mjs` |
 | `scripts/runner-prompt.mjs` | Content Runner worker host | Expands deterministic date, runner, destination, seed, and variant prompt tokens | used by generic and Draw Things runners |
 | `scripts/cache-profile-images.mjs` | After imports | Copies public X avatars into the local profile cache | worker maintenance step |

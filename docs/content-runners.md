@@ -206,6 +206,24 @@ the runner does not pretend to retrieve content the API cannot return. An empty
 window is a successful no-content result, while authentication, query, and API
 errors are recorded as a failed runner attempt.
 
+### Read-only Ego Lite browser session
+
+`scripts/x-ego-session-runner.mjs` is a separate Mac-local test runner for a
+dedicated Ego Lite task space. It visits the two configured profile pages in
+sequence, waits between accounts, reads only visible public post metadata, and
+emits the same bounded `{ "posts": [...] }` contract. It never opens compose,
+search, like, repost, follow, or message controls. Configure these worker
+environment names without storing their values in the database:
+
+```text
+EGO_BROWSER_SPACE_ID, EGO_BROWSER_CLI
+```
+
+The task space must already be signed in by the administrator. Keep this runner
+disabled unless the Mac and dedicated browser session are available; it is not
+appropriate for a remote unattended worker. It defaults to a seven-day window,
+at most eight posts, and a two-second gap between the two profile visits.
+
 The existing crawler jobs remain the right choice for broad recurring imports.
 Use the X cross-post runner when the source list, topic window, and destination
 need to be versioned together as one bounded scheduled workflow.
