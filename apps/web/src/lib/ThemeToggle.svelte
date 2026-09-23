@@ -12,17 +12,15 @@
     try { localStorage.setItem(key, dark ? 'dark' : 'light'); } catch { /* Still works for this page when storage is unavailable. */ }
   }
   onMount(() => {
-    const system = matchMedia('(prefers-color-scheme: dark)');
     const sync = () => {
       let stored;
-      try { stored = localStorage.getItem(key); } catch { /* Use the system preference. */ }
-      apply(stored === 'dark' || (stored !== 'light' && system.matches));
+      try { stored = localStorage.getItem(key); } catch { /* Keep the light default. */ }
+      apply(stored === 'dark');
     };
     const storage = event => { if (event.key === key || event.key === null) sync(); };
     sync();
-    system.addEventListener('change', sync);
     window.addEventListener('storage', storage);
-    return () => { system.removeEventListener('change', sync); window.removeEventListener('storage', storage); };
+    return () => { window.removeEventListener('storage', storage); };
   });
 </script>
 <button class:compact class="theme-toggle" type="button" aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={dark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} on:click={toggle}>

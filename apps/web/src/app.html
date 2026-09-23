@@ -9,12 +9,12 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <script>
-      // Apply before first paint to avoid a light flash on dark-mode reloads.
+      // Match the site's light olive theme by default. Dark mode is opt-in.
       try {
         const saved = localStorage.getItem('swartzit_theme');
-        document.documentElement.dataset.theme = saved === 'dark' || (saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        document.documentElement.dataset.theme = saved === 'dark' ? 'dark' : 'light';
       } catch {
-        document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = 'light';
       }
     </script>
     %sveltekit.head%
