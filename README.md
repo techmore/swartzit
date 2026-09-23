@@ -59,13 +59,18 @@ bash scripts/install-mac-status.sh
 
 The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
 
-For a public tap, publish this repository with a version tag and replace the
-formula’s release URL and SHA256 with that tagged archive. Then users can run:
+The public tap is pinned to the timestamped release archive. Users can install
+the current release with:
 
 ```sh
 brew tap techmore/swartzit
 brew install swartzit
 ```
+
+The formula is built from source on the local Mac, while the tag and SHA256
+keep the source reproducible. To update safely, use `swartzit update --yes`; it
+backs up PostgreSQL before upgrading and records the recovery paths. To restore
+an earlier verified dump, use the rollback command documented below.
 
 The formula builds the Rust API and SvelteKit web app. PostgreSQL remains an
 external dependency so its data directory can be upgraded, backed up, and

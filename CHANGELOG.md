@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1-20260923T12
+
+- Added explicit, confirmation-gated database rollback with a preserved
+  pre-rollback backup, archive, checksum validation, and recovery manifest.
+- Fixed installed Homebrew state, backup, status, and update paths, including
+  macOS `Application Support` paths containing spaces.
+- Fixed status exit codes and JSON argument forwarding so the native menu item
+  and automated health checks can reliably detect an unhealthy instance.
+- Removed the remaining web accessibility and unused-CSS diagnostics and made
+  CI enforce the same check and Clippy gates used for release preflight.
+
 ## 0.1.0-20260923T12
 
 - Added a native macOS menu-bar status app with rolling activity summaries.
