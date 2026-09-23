@@ -25,7 +25,8 @@ class Swartzit < Formula
       "scripts/db-restore-verify.sh", "scripts/db-restore.sh",
       "scripts/swartzit-update.sh",
       "scripts/swartzit-monitor.sh", "scripts/install-mac-monitor.sh",
-      "scripts/install-mac-status.sh", "scripts/record-uptime-pulse.mjs",
+      "scripts/install-mac-status.sh", "scripts/install-mac-backup.sh",
+      "scripts/record-uptime-pulse.mjs",
       "scripts/swartzit-orchard.sh"
     etc.install ".env.example" => "swartzit.env.example"
   end

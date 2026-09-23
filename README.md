@@ -130,11 +130,25 @@ scripts/db-restore-verify.sh \
 ```
 
 The backup command writes a dump, SHA256 checksum, table row counts, and a gzip
-archive under `.local/backups/`. The verification command creates a temporary
+archive under `.local/backups/`. It uses a lock to prevent overlapping dumps and
+keeps the newest seven archives by default. Change the policy with
+`SWARTZIT_BACKUP_RETENTION`. The verification command creates a temporary
 second PostgreSQL container, restores the dump, compares every application table
 against the source counts, and removes only that temporary verification instance.
 Keep at least one dump and one `.tgz` archive off the Mac as well; the local
 artifacts are intentionally ignored by Git because they contain private data.
+
+On macOS, install the automatic circular backup job after PostgreSQL is running:
+
+```sh
+swartzit backup-install
+```
+
+It runs immediately at login and every six hours thereafter, retaining seven
+verified-count snapshots. Configure `SWARTZIT_BACKUP_INTERVAL`,
+`SWARTZIT_BACKUP_RETENTION`, `SWARTZIT_BACKUP_DIR`, and `SWARTZIT_STATE_DIR`
+before reinstalling the job. The LaunchAgent writes `backup.log` and
+`backup-error.log` in the persistent state directory.
 
 To restore a verified dump into the active instance, stop the app, make a fresh
 pre-rollback backup, restore the dump, and restart with health checks:
@@ -149,6 +163,11 @@ The command records `last-rollback.json` and preserves the pre-rollback dump
 and archive. It requires `--yes` because PostgreSQL objects are replaced. Add
 `--leave-stopped` when the database should be restored without restarting the
 application.
+
+`swartzit update --yes` always creates a pre-upgrade dump and archive before
+Homebrew changes the package, then refreshes the native menu companion from the
+new release and records the recovery paths. Use that command instead of a bare
+`brew upgrade swartzit` when preserving a recovery point matters.
 
 > Read freely. Participate under a pseudonym. Take your community with you.
 

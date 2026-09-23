@@ -6,6 +6,8 @@ cd "$ROOT"
 CONTAINER="${SWARTZIT_DB_CONTAINER:-swartzit-db}"
 DB_USER="${SWARTZIT_DB_USER:-swartzit}"
 DB_NAME="${SWARTZIT_DB_NAME:-swartzit}"
+RETENTION="${SWARTZIT_BACKUP_RETENTION:-7}"
+[[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || { echo 'SWARTZIT_BACKUP_RETENTION must be a positive integer.' >&2; exit 2; }
 if [[ -n "${SWARTZIT_BACKUP_DIR:-}" ]]; then
   BACKUP_ROOT="$SWARTZIT_BACKUP_DIR"
 elif [[ -n "${SWARTZIT_STATE_DIR:-}" ]]; then
@@ -15,8 +17,22 @@ elif [[ -d "$ROOT/.git" || -d "$ROOT/.local" ]]; then
 else
   BACKUP_ROOT="${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}/backups"
 fi
+mkdir -p "$BACKUP_ROOT"
+LOCK_DIR="$BACKUP_ROOT/.backup.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  echo "Another Swartzit backup is already running: $BACKUP_ROOT" >&2
+  exit 75
+fi
+cleanup_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
+trap cleanup_lock EXIT
+
 STAMP="$(date -u '+%Y%m%dT%H%M%SZ')"
 OUT_DIR="$BACKUP_ROOT/$STAMP"
+while [[ -e "$OUT_DIR" || -e "$BACKUP_ROOT/swartzit-$STAMP-backup.tgz" ]]; do
+  sleep 1
+  STAMP="$(date -u '+%Y%m%dT%H%M%SZ')"
+  OUT_DIR="$BACKUP_ROOT/$STAMP"
+done
 mkdir -p "$OUT_DIR"
 
 container inspect "$CONTAINER" >/dev/null 2>&1 || { echo "Database container $CONTAINER was not found." >&2; exit 1; }
@@ -28,6 +44,23 @@ container exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atqc "select table
 shasum -a 256 "$OUT_DIR/swartzit.dump" > "$OUT_DIR/SHA256SUMS"
 cp "$OUT_DIR/row-counts.tsv" "$OUT_DIR/source-row-counts.tsv"
 tar -C "$OUT_DIR" -czf "$BACKUP_ROOT/swartzit-$STAMP-backup.tgz" swartzit.dump row-counts.tsv source-row-counts.tsv SHA256SUMS
+
+pruned=0
+while IFS= read -r archive; do
+  [[ -n "$archive" ]] || continue
+  archive_name="$(basename "$archive")"
+  archive_stamp="${archive_name#swartzit-}"
+  archive_stamp="${archive_stamp%-backup.tgz}"
+  [[ "$archive_stamp" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || continue
+  backup_dir="$BACKUP_ROOT/$archive_stamp"
+  [[ -d "$backup_dir" ]] || { rm -f "$archive"; pruned=$((pruned + 1)); continue; }
+  find "$backup_dir" -mindepth 1 -maxdepth 1 -type f -delete
+  rmdir "$backup_dir" 2>/dev/null || continue
+  rm -f "$archive"
+  pruned=$((pruned + 1))
+done < <(find "$BACKUP_ROOT" -maxdepth 1 -type f -name 'swartzit-*-backup.tgz' -print | sort -r | awk -v keep="$RETENTION" 'NR > keep')
+
 echo "Backup: $OUT_DIR/swartzit.dump"
 echo "Archive: $BACKUP_ROOT/swartzit-$STAMP-backup.tgz"
 echo "Counts: $OUT_DIR/row-counts.tsv"
+echo "Retention: $RETENTION archive(s); pruned: $pruned"

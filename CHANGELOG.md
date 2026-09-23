@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.7-20260923T14
+
+- Fixes the macOS menu LaunchAgent environment so version, network, uptime, and
+  component health no longer fall back to `unknown`.
+- Adds locked, rotating PostgreSQL backups with a macOS LaunchAgent scheduler
+  and configurable interval, retention, state, and backup locations.
+- Keeps the update path backup-first and documents the safe upgrade workflow.
+
 ## 0.1.6-20260923T14
 
 - Keeps the native macOS menu companion synchronized with Homebrew upgrades.

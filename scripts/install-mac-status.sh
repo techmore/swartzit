@@ -31,6 +31,19 @@ version_file="$ROOT/VERSION"
 [[ -f "$version_file" ]] || version_file="$SCRIPT_DIR/VERSION"
 status_version='development'
 [[ -f "$version_file" ]] && status_version=$(<"$version_file")
+brew_prefix="$(brew --prefix 2>/dev/null || true)"
+launch_path="${SWARTZIT_LAUNCH_PATH:-${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}}"
+if [[ -n "$brew_prefix" && ":$launch_path:" != *":$brew_prefix/bin:"* ]]; then
+  launch_path="$brew_prefix/bin:$brew_prefix/sbin:$launch_path"
+fi
+xml_escape() {
+  printf '%s' "$1" | sed -e 's/\&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&apos;/g"
+}
+command_path_xml=$(xml_escape "$command_path")
+open_url_xml=$(xml_escape "${SWARTZIT_OPEN_URL:-http://127.0.0.1:4173}")
+icon_path_xml=$(xml_escape "$INSTALL_DIR/swartzit-icon.png")
+status_version_xml=$(xml_escape "$status_version")
+launch_path_xml=$(xml_escape "$launch_path")
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -38,10 +51,11 @@ cat > "$PLIST" <<EOF
   <key>Label</key><string>org.stoverparc.swartzit-status</string>
   <key>ProgramArguments</key><array><string>$INSTALL_DIR/SwartzitStatus</string></array>
   <key>EnvironmentVariables</key><dict>
-    <key>SWARTZIT_COMMAND</key><string>$command_path</string>
-    <key>SWARTZIT_OPEN_URL</key><string>${SWARTZIT_OPEN_URL:-http://127.0.0.1:4173}</string>
-    <key>SWARTZIT_ICON_PATH</key><string>$INSTALL_DIR/swartzit-icon.png</string>
-    <key>SWARTZIT_STATUS_VERSION</key><string>$status_version</string>
+    <key>PATH</key><string>$launch_path_xml</string>
+    <key>SWARTZIT_COMMAND</key><string>$command_path_xml</string>
+    <key>SWARTZIT_OPEN_URL</key><string>$open_url_xml</string>
+    <key>SWARTZIT_ICON_PATH</key><string>$icon_path_xml</string>
+    <key>SWARTZIT_STATUS_VERSION</key><string>$status_version_xml</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
