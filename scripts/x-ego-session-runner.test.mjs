@@ -24,6 +24,7 @@ test('browser demo accepts a bounded JSON receipt from the session bridge', asyn
   const posts = await collectFromEgoSession({limit: 1}, {
     spaceId: 35,
     cli: 'ego-browser',
+    resolve: async sourceUrl => ({provider: 'x', source_url: sourceUrl, media: [{kind: 'video', src: 'https://video.twimg.com/demo.mp4'}]}),
     run: async (script, cli) => {
       assert.equal(cli, 'ego-browser');
       assert.match(script, /beautyshowcase/);
@@ -31,5 +32,11 @@ test('browser demo accepts a bounded JSON receipt from the session bridge', asyn
       return {posts: [{provider: 'x', source_url: 'https://x.com/beautyshowcase/status/1'}]};
     }
   });
-  assert.deepEqual(posts, [{provider: 'x', source_url: 'https://x.com/beautyshowcase/status/1'}]);
+  assert.deepEqual(posts, [{
+    provider: 'x',
+    source_url: 'https://x.com/beautyshowcase/status/1',
+    media: [{kind: 'video', src: 'https://video.twimg.com/demo.mp4'}],
+    content_rating: 'general',
+    attribution: 'Collected from a dedicated read-only Ego Lite X session; source: https://x.com/beautyshowcase/status/1'
+  }]);
 });

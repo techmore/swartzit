@@ -211,9 +211,12 @@ errors are recorded as a failed runner attempt.
 `scripts/x-ego-session-runner.mjs` is a separate Mac-local test runner for a
 dedicated Ego Lite task space. It visits the two configured profile pages in
 sequence, waits between accounts, reads only visible public post metadata, and
-emits the same bounded `{ "posts": [...] }` contract. It never opens compose,
-search, like, repost, follow, or message controls. Configure these worker
-environment names without storing their values in the database:
+emits the same bounded `{ "posts": [...] }` contract. The discovered status
+URLs then go through the shared `apps/web/src/lib/x-source.mjs` resolver used by
+manual cross-posting, so canonical URLs and trusted X media variants are used
+for publication. It never opens compose, search, like, repost, follow, or
+message controls. Configure these worker environment names without storing
+their values in the database:
 
 ```text
 EGO_BROWSER_SPACE_ID, EGO_BROWSER_CLI

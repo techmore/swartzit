@@ -6,6 +6,7 @@
 // needed, EGO_BROWSER_CLI for this command.
 
 import {spawn} from 'node:child_process';
+import {resolveXPost} from '../apps/web/src/lib/x-source.mjs';
 
 export const BROWSER_DEMO_ACCOUNTS = ['beautyshowcase', 'Rawpkw'];
 export const BROWSER_DEMO_DEFAULTS = {hours: 168, limit: 8, perSource: 20, delayMs: 2000};
@@ -19,7 +20,7 @@ export function browserDemoOptions({hours = BROWSER_DEMO_DEFAULTS.hours, limit =
   return options;
 }
 
-function browserScript(options, spaceId) {
+export function browserScript(options, spaceId) {
   const config = JSON.stringify({...options, spaceId});
   return `
 const CONFIG = ${config};
@@ -52,7 +53,10 @@ const extractPosts = ({account, startMs, endMs, limit}) => {
     const socialContext = article.querySelector('[data-testid="socialContext"]')?.innerText || '';
     const text = article.innerText || '';
     const imageMedia = [...article.querySelectorAll('[data-testid="tweetPhoto"] img[src]')].map(image => ({kind: 'image', src: image.src, alt: image.alt || null}));
-    const videoMedia = [...article.querySelectorAll('video[poster]')].map(video => ({kind: 'video', src: video.poster, poster: video.poster, alt: null}));
+    const videoMedia = [...article.querySelectorAll('video[src]')]
+      .map(video => ({kind: 'video', src: video.currentSrc || video.src, poster: video.getAttribute('poster') || null, alt: null}))
+      .filter(media => /^https:\\/\\/video\\.twimg\\.com\\/.+\\.mp4(?:[?#].*)?$/i.test(media.src)
+        && (!media.poster || /^https:\\/\\/pbs\\.twimg\\.com\\//i.test(media.poster)));
     return {sourceUrl, publishedAt, body, labels, socialContext, text, media: [...imageMedia, ...videoMedia]};
   })
   .filter(post => {
@@ -134,13 +138,23 @@ function runBrowserScript(script, cli) {
   });
 }
 
-export async function collectFromEgoSession(options = {}, {spaceId = process.env.EGO_BROWSER_SPACE_ID, cli = process.env.EGO_BROWSER_CLI || 'ego-browser', run = runBrowserScript} = {}) {
+export async function collectFromEgoSession(options = {}, {spaceId = process.env.EGO_BROWSER_SPACE_ID, cli = process.env.EGO_BROWSER_CLI || 'ego-browser', run = runBrowserScript, resolve = resolveXPost} = {}) {
   const normalized = browserDemoOptions(options);
   const id = Number(spaceId);
   if (!Number.isInteger(id) || id < 1) throw Error('EGO_BROWSER_SPACE_ID must identify the dedicated logged-in Ego Lite task space');
   const receipt = await run(browserScript(normalized, id), cli);
   if (!Array.isArray(receipt?.posts)) throw Error('Ego Lite runner receipt must contain a posts array');
-  return receipt.posts;
+  const resolved = [];
+  for (const candidate of receipt.posts.slice(0, normalized.limit)) {
+    if (!candidate || typeof candidate.source_url !== 'string' || !candidate.source_url.trim()) continue;
+    const post = await resolve(candidate.source_url.trim());
+    resolved.push({
+      ...post,
+      content_rating: 'general',
+      attribution: `Collected from a dedicated read-only Ego Lite X session; source: ${post.source_url}`
+    });
+  }
+  return [...new Map(resolved.map(post => [post.source_url, post])).values()].slice(0, normalized.limit);
 }
 
 async function main() {
