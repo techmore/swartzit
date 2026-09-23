@@ -81,6 +81,8 @@ struct Community {
 #[derive(Serialize, FromRow)]
 struct Post {
     source: Option<serde_json::Value>,
+    content_rating: String,
+    content_rating_source: String,
     view_count: i64,
     engaged_view_count: i64,
     deep_view_count: i64,
@@ -125,6 +127,7 @@ struct PostExport {
     author: String,
     title: String,
     body: String,
+    content_rating: String,
     created_at: DateTime<Utc>,
 }
 #[derive(Serialize, FromRow)]
@@ -152,6 +155,8 @@ struct FeedQuery {
     community: Option<String>,
     q: Option<String>,
     page: Option<i64>,
+    hide_r: Option<bool>,
+    hide_x: Option<bool>,
 }
 const FEED_PAGE_SIZE: i64 = 12;
 #[derive(Deserialize, Default)]
@@ -182,6 +187,7 @@ struct CreatePostRequest {
     community: String,
     title: String,
     body: String,
+    content_rating: Option<String>,
 }
 #[derive(Serialize, FromRow)]
 struct CreatedPost {
@@ -335,8 +341,24 @@ impl FeedQuery {
         }
         Ok((page - 1) * FEED_PAGE_SIZE)
     }
+
+    fn hide_r(&self) -> bool {
+        self.hide_r.unwrap_or(false)
+    }
+
+    fn hide_x(&self) -> bool {
+        self.hide_x.unwrap_or(false)
+    }
 }
-const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
+const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.content_rating, p.content_rating_source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
+
+fn validate_content_rating(value: Option<&str>) -> Result<String, ApiError> {
+    let rating = value.unwrap_or("general").trim().to_ascii_lowercase();
+    if !matches!(rating.as_str(), "general" | "r" | "x") {
+        return Err(ApiError::Invalid("Content rating must be General, R, or X"));
+    }
+    Ok(rating)
+}
 
 fn is_draw_things_source(source: &Option<serde_json::Value>) -> bool {
     source
@@ -1466,6 +1488,7 @@ async fn create_post(
     let title = input.title.trim();
     let body = input.body.trim();
     let community = input.community.trim().to_ascii_lowercase();
+    let content_rating = validate_content_rating(input.content_rating.as_deref())?;
     if title.is_empty() || title.len() > 300 || body.len() > 50000 {
         return Err(ApiError::Invalid(
             "Title or body is outside the allowed length",
@@ -1490,9 +1513,9 @@ async fn create_post(
     let mut tx = db.begin().await?;
     let result = sqlx::query_as::<_, CreatedPost>(
         "INSERT INTO posts (
-           community_id, author_id, title, body, moderation_status
+           community_id, author_id, title, body, content_rating, content_rating_source, moderation_status
          )
-         SELECT id, $1, $2, $3, $5
+         SELECT id, $1, $2, $3, $5, $6, $7
          FROM communities
          WHERE slug = $4
          RETURNING id, public_id, title, $4::text AS community",
@@ -1501,6 +1524,8 @@ async fn create_post(
     .bind(title)
     .bind(body)
     .bind(&community)
+    .bind(&content_rating)
+    .bind("uploader")
     .bind(publication_status)
     .fetch_optional(&mut *tx)
     .await?
@@ -1759,14 +1784,18 @@ async fn posts(
     let offset = query.validate()?;
     let q = query.q.as_deref().unwrap_or("").trim();
     let order = imports::order(query.sort.as_deref())?;
+    let hide_r = query.hide_r();
+    let hide_x = query.hide_x();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND (NOT $4 OR p.content_rating <> 'r') AND (NOT $5 OR p.content_rating <> 'x') ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
         FEED_PAGE_SIZE + 1
     );
     let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
         Some(format!(
-            "posts:{}",
-            query.sort.as_deref().unwrap_or("newest")
+            "posts:{}:{}:{}",
+            query.sort.as_deref().unwrap_or("newest"),
+            hide_r,
+            hide_x,
         ))
     } else {
         None
@@ -1782,6 +1811,8 @@ async fn posts(
             .bind(&query.community)
             .bind(q)
             .bind(offset)
+            .bind(hide_r)
+            .bind(hide_x)
             .fetch_all(&db),
     )
     .await?;
@@ -1801,8 +1832,10 @@ async fn home_feed(
     let author_id = authenticated_author(&headers, &db).await?;
     let order = imports::order(query.sort.as_deref())?;
     let offset = query.validate()?;
+    let hide_r = query.hide_r();
+    let hide_x = query.hide_x();
     let sql = format!(
-        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
+        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
         FEED_PAGE_SIZE + 1
     );
     let mut posts: Vec<Post> = operations::timed_query(
@@ -1812,6 +1845,8 @@ async fn home_feed(
             .bind(query.q.as_deref().unwrap_or("").trim())
             .bind(&query.community)
             .bind(offset)
+            .bind(hide_r)
+            .bind(hide_x)
             .fetch_all(&db),
     )
     .await?;
@@ -1863,7 +1898,7 @@ async fn export(
     query.validate()?;
     let communities: Vec<CommunityExport> = sqlx::query_as("SELECT slug, name, description FROM communities WHERE ($1::text IS NULL OR slug = $1) ORDER BY slug")
         .bind(&query.community).fetch_all(&db).await?;
-    let posts: Vec<PostExport> = sqlx::query_as("SELECT p.id, c.slug AS community, a.handle AS author, p.title, p.body, p.created_at FROM posts p JOIN communities c ON c.id = p.community_id JOIN authors a ON a.id = p.author_id WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY p.id LIMIT 10000")
+    let posts: Vec<PostExport> = sqlx::query_as("SELECT p.id, c.slug AS community, a.handle AS author, p.title, p.body, p.content_rating, p.created_at FROM posts p JOIN communities c ON c.id = p.community_id JOIN authors a ON a.id = p.author_id WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY p.id LIMIT 10000")
         .bind(&query.community).fetch_all(&db).await?;
     let comments: Vec<CommentExport> = sqlx::query_as("SELECT cm.id, cm.post_id, cm.parent_id, a.handle AS author, cm.body, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id JOIN posts p ON p.id = cm.post_id JOIN communities c ON c.id = p.community_id WHERE cm.moderation_status = 'approved' AND p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY cm.id LIMIT 50000")
         .bind(&query.community).fetch_all(&db).await?;
@@ -2346,6 +2381,13 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+    #[test]
+    fn content_ratings_are_normalized_and_bounded() {
+        assert_eq!(validate_content_rating(None).unwrap(), "general");
+        assert_eq!(validate_content_rating(Some(" R ")).unwrap(), "r");
+        assert_eq!(validate_content_rating(Some("x")).unwrap(), "x");
+        assert!(validate_content_rating(Some("nsfw")).is_err());
     }
     #[test]
     fn draw_things_feedback_accepts_optional_dimensions() {

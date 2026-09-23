@@ -41,7 +41,7 @@ export async function POST({ request }) {
     const response = await fetch(`${api}/api/posts/cross-post`, {
       method: 'POST',
       headers: { authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...post, community }),
+      body: JSON.stringify({ ...post, community, content_rating: input.content_rating }),
       signal: AbortSignal.timeout(15000)
     });
     const result = await response.json().catch(() => ({ error: 'Could not publish this post.' }));

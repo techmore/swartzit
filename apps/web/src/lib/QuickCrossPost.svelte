@@ -2,7 +2,7 @@
   import CommunityPicker from '$lib/CommunityPicker.svelte';
   export let communities = [];
   export let selectedCommunity = '';
-  let url = '', community = '', busy = false, error = '', notice = '', existingPost = '';
+  let url = '', community = '', contentRating = 'general', busy = false, error = '', notice = '', existingPost = '';
   $: if (!community && communities.length) {
     community = communities.find(item => item.slug === selectedCommunity)?.slug
       || communities.find(item => item.slug === 'x_imports')?.slug
@@ -17,7 +17,7 @@
       const response = await fetch('/api/cross-post', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({ url, community })
+        body: JSON.stringify({ url, community, content_rating: contentRating })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not share that post.');
@@ -48,9 +48,16 @@
       <input type="url" bind:value={url} required maxlength="2048" placeholder="https://x.com/name/status/… or reddit.com/r/…" autocomplete="url" />
     </label>
     <CommunityPicker communities={communities} bind:value={community} id="crosspost-community" />
+    <label class="rating-field">Content rating
+      <select bind:value={contentRating} aria-describedby="crosspost-rating-help">
+        <option value="general">General</option>
+        <option value="r">R — mature themes</option>
+        <option value="x">X — explicit content</option>
+      </select>
+    </label>
     <button type="submit" disabled={busy || !community}>{busy ? 'Fetching post…' : 'Share link'}</button>
   </form>
-  <p class="crosspost-note">Original author and source link stay attached. Duplicate links open the existing discussion.</p>
+  <p class="crosspost-note" id="crosspost-rating-help">Choose the highest rating that applies before sharing. Original author and source link stay attached. Duplicate links open the existing discussion.</p>
   {#if error}<p class="crosspost-feedback error" role="alert">{error}</p>{/if}
   {#if notice}<p class="crosspost-feedback" role="status">{notice}{#if existingPost} <a href={'/post/' + existingPost}>Open it →</a>{/if}</p>{/if}
 </section>
@@ -61,9 +68,10 @@
   .eyebrow{margin:0 0 4px;font-size:.64rem;letter-spacing:.13em;color:var(--accent,#9b5e38);font-weight:700}
   h2{margin:0;color:var(--heading,#173d34);font:500 1.35rem/1.15 Georgia,serif}
   .crosspost-heading>p{max-width:360px;margin:0;color:var(--muted,#66766c);font-size:.8rem}
-  form{display:grid;grid-template-columns:minmax(0,1fr) 175px auto;align-items:end;gap:10px}
+  form{display:grid;grid-template-columns:minmax(0,1fr) 175px 150px auto;align-items:end;gap:10px}
   label{display:grid;gap:5px;color:var(--muted,#66766c);font-size:.76rem;font-weight:650}
   input{width:100%;min-width:0;height:40px;border:1px solid var(--border,#c7ccc3);border-radius:6px;padding:8px 10px;background:var(--page,#f6f4ee);font:inherit;font-size:.86rem}
+  select{width:100%;height:40px;border:1px solid var(--border,#c7ccc3);border-radius:6px;padding:0 10px;background:var(--page,#f6f4ee);font:inherit;font-size:.82rem}
   form :global(.community-picker){min-width:0}
   form :global(.community-picker label){font-size:.76rem}
   form button{height:40px;padding:0 14px;border-radius:6px;white-space:nowrap;font-size:.84rem}
@@ -71,5 +79,5 @@
   .crosspost-note,.crosspost-feedback{margin:8px 0 0;color:var(--muted,#77827d);font-size:.73rem}
   .crosspost-feedback a{color:var(--link,#215e47);font-weight:700;text-decoration:underline}
   .crosspost-feedback.error{color:var(--error,#a33932)}
-  @media(max-width:700px){.quick-crosspost{margin:0 18px 18px;padding:14px}.crosspost-heading{display:block}.crosspost-heading>p{margin-top:5px}form{grid-template-columns:minmax(0,1fr) auto}.source-field{grid-column:1/-1}form :global(.community-picker){grid-column:1}form button{grid-column:2;grid-row:2}}
+  @media(max-width:700px){.quick-crosspost{margin:0 18px 18px;padding:14px}.crosspost-heading{display:block}.crosspost-heading>p{margin-top:5px}form{grid-template-columns:minmax(0,1fr) auto}.source-field,.rating-field{grid-column:1/-1}form :global(.community-picker){grid-column:1}form button{grid-column:2;grid-row:4}}
 </style>

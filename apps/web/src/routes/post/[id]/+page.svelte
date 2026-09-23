@@ -69,6 +69,7 @@
     <a class="community-export" href="/api/export?community={data.post.community}" download="swartzit-community-export.json">Export data ↓</a>
   </div>
   <article class="post">
+    {#if data.post.content_rating === 'r' || data.post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={data.post.content_rating === 'r'} class:content-rating-x={data.post.content_rating === 'x'} class="content-rating">{data.post.content_rating.toUpperCase()}</span><span>{data.post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}</span></div>{/if}
     {#if data.post.source?.provider === 'x' || data.post.source?.provider === 'reddit'}<div class="meta post-author"><AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From {data.post.source.provider === 'x' ? 'X' : 'Reddit'}</strong> · {data.post.source.source_author}</span></div>
     {:else}<div class="meta post-author"><AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · <a href={'/u/' + data.post.author}>u/{data.post.author}</a></span></div>{/if}
     {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}<p>{data.post.body}</p>{/if}
@@ -155,6 +156,10 @@
   .back,.community-export{font-size:.82rem;color:var(--muted,#66766c)}
   .community-export{font-size:.76rem;text-decoration:underline;text-underline-offset:3px}
   .post{padding:20px 24px}
+  .content-rating-row{display:flex;align-items:center;gap:8px;margin:0 0 12px;color:var(--muted,#66766c);font-size:.72rem;font-weight:750;text-transform:uppercase;letter-spacing:.06em}
+  .content-rating{width:22px;height:22px;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:6px;font:800 .7rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:0}
+  .content-rating-r{background:#9b5e38;border-color:#9b5e38;color:#fff}
+  .content-rating-x{background:#6f263d;border-color:#6f263d;color:#fff}
   .post-engagement{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-top:1px solid var(--border,#dedfd7);padding-top:10px;margin-top:14px}
   .post-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .local-score{font-size:.78rem;color:var(--muted,#77827d)}

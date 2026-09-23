@@ -86,6 +86,8 @@ pub struct Import {
     pub source_author: String,
     pub title: String,
     pub body: String,
+    #[serde(default)]
+    pub content_rating: Option<String>,
     pub published_at: Option<DateTime<Utc>>,
     pub observed_at: DateTime<Utc>,
     pub source_views: Option<i64>,
@@ -200,6 +202,19 @@ pub async fn ingest(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
     let source = canonical(&input.provider, &input.source_url)?;
+    let content_rating = input
+        .content_rating
+        .as_deref()
+        .map(|rating| validate_content_rating(Some(rating)))
+        .transpose()?;
+    let content_rating_value = content_rating
+        .clone()
+        .unwrap_or_else(|| "general".to_owned());
+    let content_rating_source = if content_rating.is_some() {
+        "uploader"
+    } else {
+        "legacy"
+    };
     if input.title.trim().is_empty()
         || input.title.len() > 300
         || input.body.len() > 50000
@@ -301,13 +316,15 @@ pub async fn ingest(
         id
     } else {
         sqlx::query_scalar(
-            "INSERT INTO posts(community_id,author_id,title,body,moderation_status)
-             VALUES($1,$2,$3,$4,$5) RETURNING id",
+            "INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status)
+             VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
         )
         .bind(community)
         .bind(actor)
         .bind(input.title.trim())
         .bind(&input.body)
+        .bind(&content_rating_value)
+        .bind(content_rating_source)
         .bind(publication_status)
         .fetch_one(&mut *tx)
         .await?
@@ -350,6 +367,13 @@ pub async fn ingest(
             .execute(&mut *tx)
             .await?;
     }
+    if let Some(rating) = content_rating.as_deref() {
+        sqlx::query("UPDATE posts SET content_rating=$2,content_rating_source='uploader',content_rating_confidence=NULL,content_rating_updated_at=now() WHERE id=$1")
+            .bind(id)
+            .bind(rating)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     log_event(&db,"info","admin.source_import",serde_json::json!({"actor_id":actor,"post_id":id,"created":created,"updated":changed,"moderation_id":moderation_id,"status":if created {publication_status} else {"existing"},"moderation":if moderation_enabled {"enabled"} else {"disabled"}})).await;
     Ok(Json(
@@ -369,6 +393,19 @@ pub async fn cross_post(
         ));
     }
     let source = canonical(&input.provider, &input.source_url)?;
+    let content_rating = input
+        .content_rating
+        .as_deref()
+        .map(|rating| validate_content_rating(Some(rating)))
+        .transpose()?;
+    let content_rating_value = content_rating
+        .clone()
+        .unwrap_or_else(|| "general".to_owned());
+    let content_rating_source = if content_rating.is_some() {
+        "uploader"
+    } else {
+        "legacy"
+    };
     if input.title.trim().is_empty()
         || input.title.len() > 300
         || input.body.len() > 50000
@@ -471,13 +508,15 @@ pub async fn cross_post(
         .await?;
     let community_id = community_id.ok_or(ApiError::Invalid("Community not found"))?;
     let (id, public_id): (i64, String) = sqlx::query_as(
-        "INSERT INTO posts(community_id,author_id,title,body,moderation_status)
-         VALUES($1,$2,$3,$4,$5) RETURNING id,public_id",
+        "INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status)
+         VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,public_id",
     )
     .bind(community_id)
     .bind(actor)
     .bind(input.title.trim())
     .bind(&input.body)
+    .bind(&content_rating_value)
+    .bind(content_rating_source)
     .bind(publication_status)
     .fetch_one(&mut *tx)
     .await?;

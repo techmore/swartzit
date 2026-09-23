@@ -14,10 +14,11 @@
   let searchOpen = Boolean(data.q);
   let composeOpen = false;
   let searchInput;
-  function pageLink(page) { return '/?' + new URLSearchParams({feed:data.feed,community:data.community,q:data.q,sort:data.sort,page:String(page)}); }
-  function feedHref(feed) { const params = new URLSearchParams({feed}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/?' + params; }
+  function applyContentFilters(params) { if (data.hideR) params.set('hide_r', 'true'); if (data.hideX) params.set('hide_x', 'true'); return params; }
+  function pageLink(page) { return '/?' + applyContentFilters(new URLSearchParams({feed:data.feed,community:data.community,q:data.q,sort:data.sort,page:String(page)})); }
+  function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params) : '?' + params); }
   const initialCommunity = data.communities.find(item => item.slug === data.community)?.slug || data.communities[0]?.slug || '';
-  let token = '', title = '', body = '', community = initialCommunity, formError = '', formMessage = '';
+  let token = '', title = '', body = '', contentRating = 'general', community = initialCommunity, formError = '', formMessage = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedLoading = false, feedError = '', followingRequestKey = '';
   const redundantSourceTitle = post => post?.source?.provider === 'x' && post.title?.trim() === post.body?.split(/\r?\n/, 1)[0]?.trim();
   onMount(() => {
@@ -31,12 +32,14 @@
   }
   async function loadFollowing() {
     if (!token) return;
-    const key = `${data.page}:${data.q}:${data.community}:${data.sort}`;
+    const key = `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}`;
     if (followingRequestKey === key) return;
     followingRequestKey = key; feedLoading = true; feedError = '';
     const params = new URLSearchParams({sort:data.sort,page:String(data.page)});
     if (data.q) params.set('q',data.q);
     if (data.community) params.set('community',data.community);
+    if (data.hideR) params.set('hide_r', 'true');
+    if (data.hideX) params.set('hide_x', 'true');
     try {
       const response = await fetch('/api/home?' + params,{headers:{authorization:'Bearer ' + token}});
       const result = await response.json();
@@ -45,12 +48,12 @@
     } catch (error) { feedError = error.message || 'Could not reach Swartzit.'; }
     finally { feedLoading = false; }
   }
-  $: if (data.feed === 'following' && token && followingRequestKey !== `${data.page}:${data.q}:${data.community}:${data.sort}`) loadFollowing();
+  $: if (data.feed === 'following' && token && followingRequestKey !== `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}`) loadFollowing();
   $: if (data.feed === 'following') {
     if (token) loadFollowing();
     else { feedPosts = []; feedHasMore = false; feedError = 'Sign in to see posts from communities you follow.'; }
   } else { feedPosts = data.posts; feedHasMore = data.hasMore; feedError = ''; followingRequestKey = ''; }
-  async function createPost() { formError = ''; formMessage = ''; const response = await fetch('/api/posts', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ community, title, body }) }); const result = await response.json(); if (!response.ok) { formError = result.error ?? 'Could not submit discussion'; return; } if (result.status === 'pending') { formMessage = result.message ?? 'Your discussion is waiting for moderator review.'; title = ''; body = ''; return; } window.location.assign(`/post/${result.public_id}`); }
+  async function createPost() { formError = ''; formMessage = ''; const response = await fetch('/api/posts', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ community, title, body, content_rating: contentRating }) }); const result = await response.json(); if (!response.ok) { formError = result.error ?? 'Could not submit discussion'; return; } if (result.status === 'pending') { formMessage = result.message ?? 'Your discussion is waiting for moderator review.'; title = ''; body = ''; contentRating = 'general'; return; } window.location.assign(`/post/${result.public_id}`); }
 </script>
 
 <svelte:head><title>Swartzit — the commons</title></svelte:head>
@@ -69,6 +72,8 @@
       <input bind:this={searchInput} name="q" value={data.q} maxlength="200" placeholder="Search discussions" aria-label="Search discussions" />
       <input type="hidden" name="feed" value={data.feed} />
       <input type="hidden" name="sort" value={data.sort} />
+      {#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}
+      {#if data.hideX}<input type="hidden" name="hide_x" value="true" />{/if}
       {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
       <button type="submit" aria-label="Run search" title="Run search"><Icon name="search" size={18} /></button>
     </form>
@@ -88,12 +93,14 @@
       <div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : 'Timeline'}</h1></div>
       <div class="feed-head-actions">
         {#if token}<button class="start-discussion-button" type="button" aria-label="Start a discussion" aria-expanded={composeOpen} aria-controls="compose-panel" onclick={() => composeOpen = true}><Icon name="plus" size={17} />Start discussion</button>{:else}<a class="post-cta" href="/login">Sign in to post</a>{/if}
-        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
+        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if data.hideX}<input type="hidden" name="hide_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
+        <details class="feed-options content-filters"><summary><span>Content</span>{#if data.hideR || data.hideX}<span class="filter-count">filtered</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="hide_x" value="true" checked={data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Hide X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR || data.hideX}<a class="clear-content-filters" href={feedHref(data.feed, false)}>Show all content</a>{/if}</form></details>
       </div>
     </div>
     {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from communities you follow.</p>{:else if feedLoading}<p role="status">Loading Following…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.feed === 'following' ? 'Follow a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
       {#each feedPosts as post (post.id)}
         <article class:source-article={Boolean(post.source)}>
+          {#if post.content_rating === 'r' || post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={post.content_rating === 'r'} class:content-rating-x={post.content_rating === 'x'} class="content-rating" title={post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}>{post.content_rating.toUpperCase()}</span><span>{post.content_rating === 'r' ? 'R-rated' : 'X-rated'}</span></div>{/if}
           {#if post.source?.provider === 'x'}
             <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from X</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
             {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
@@ -114,7 +121,7 @@
     <nav aria-label="Discussion pages">{#if data.page > 1}<a href={pageLink(data.page - 1)}>← Previous</a>{/if} {#if feedHasMore}<a href={pageLink(data.page + 1)}>Next →</a>{/if}</nav>
   </section>
 </div>
-{#if token}<div class="compose-launcher"><button class="compose-fab" type="button" aria-label={composeOpen ? 'Close composer' : 'Start a discussion'} title={composeOpen ? 'Close composer' : 'Start a discussion'} aria-expanded={composeOpen} onclick={() => composeOpen = !composeOpen}><Icon name={composeOpen ? 'x' : 'plus'} size={20} /><span class="compose-label">{composeOpen ? 'Close' : 'Start discussion'}</span></button>{#if composeOpen}<section id="compose-panel" class="compose-panel" aria-labelledby="compose-title"><div class="compose-panel-heading"><div><p class="eyebrow">ADD TO THE COMMONS</p><h2 id="compose-title">Start a discussion</h2></div><button class="panel-close" type="button" aria-label="Close composer" title="Close composer" onclick={() => composeOpen = false}><Icon name="x" size={18} /></button></div><form onsubmit={(event) => { event.preventDefault(); createPost(); }}><CommunityPicker communities={data.communities} bind:value={community} id="discussion-community" /><label>Title<input bind:value={title} required maxlength="300" /></label><label>Body<textarea bind:value={body} maxlength="50000" rows="5"></textarea></label><button class="publish-button" type="submit">Publish</button>{#if formError}<p class="form-error">{formError}</p>{/if}{#if formMessage}<p class="form-message">{formMessage}</p>{/if}</form><details class="source-import"><summary><Icon name="download" size={16} />Share a source post</summary><QuickCrossPost communities={data.communities} selectedCommunity={community} /></details></section>{/if}</div>{/if}
+{#if token}<div class="compose-launcher"><button class="compose-fab" type="button" aria-label={composeOpen ? 'Close composer' : 'Start a discussion'} title={composeOpen ? 'Close composer' : 'Start a discussion'} aria-expanded={composeOpen} onclick={() => composeOpen = !composeOpen}><Icon name={composeOpen ? 'x' : 'plus'} size={20} /><span class="compose-label">{composeOpen ? 'Close' : 'Start discussion'}</span></button>{#if composeOpen}<section id="compose-panel" class="compose-panel" aria-labelledby="compose-title"><div class="compose-panel-heading"><div><p class="eyebrow">ADD TO THE COMMONS</p><h2 id="compose-title">Start a discussion</h2></div><button class="panel-close" type="button" aria-label="Close composer" title="Close composer" onclick={() => composeOpen = false}><Icon name="x" size={18} /></button></div><form onsubmit={(event) => { event.preventDefault(); createPost(); }}><CommunityPicker communities={data.communities} bind:value={community} id="discussion-community" /><label>Title<input bind:value={title} required maxlength="300" /></label><label>Body<textarea bind:value={body} maxlength="50000" rows="5"></textarea></label><label>Content rating<select bind:value={contentRating} aria-describedby="content-rating-help"><option value="general">General</option><option value="r">R — mature themes</option><option value="x">X — explicit content</option></select><small id="content-rating-help">Choose the highest rating that applies. Auto-tagging will build on this label later.</small></label><button class="publish-button" type="submit">Publish</button>{#if formError}<p class="form-error">{formError}</p>{/if}{#if formMessage}<p class="form-message">{formMessage}</p>{/if}</form><details class="source-import"><summary><Icon name="download" size={16} />Share a source post</summary><QuickCrossPost communities={data.communities} selectedCommunity={community} /></details></section>{/if}</div>{/if}
 </main>
 <MediaDock />
 <style>
@@ -167,6 +174,17 @@
   .feed-options form{position:absolute;right:0;top:calc(100% + 8px);z-index:5;width:220px;padding:12px;border:1px solid var(--border,#c7ccc3);border-radius:10px;background:var(--surface,#fff);box-shadow:0 12px 28px #0002}
   .feed-options select{width:100%;height:38px;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:0 8px;background:var(--page,#f6f4ee);font:inherit;font-size:.8rem}
   .feed-options button{margin-top:9px;width:100%;height:36px;border-radius:7px;font-size:.78rem}
+  .content-filters>summary{justify-content:center}
+  .filter-count{font-size:.65rem;color:var(--accent,#9b5e38);text-transform:uppercase;letter-spacing:.05em}
+  .content-filters form{display:grid;gap:9px}
+  .content-filter-option{display:flex;align-items:center;gap:8px;color:var(--heading,#173d34);font-size:.78rem;font-weight:650;cursor:pointer}
+  .content-filter-option input{accent-color:var(--accent,#575d3d)}
+  .content-filter-option>span{display:inline-flex;align-items:center;gap:7px}
+  .content-rating-row{display:flex;align-items:center;gap:8px;margin:0 0 10px;color:var(--muted,#66766c);font-size:.72rem;font-weight:750;text-transform:uppercase;letter-spacing:.06em}
+  .content-rating{width:22px;height:22px;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:6px;font:800 .7rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:0}
+  .content-rating-r{background:#9b5e38;border-color:#9b5e38;color:#fff}
+  .content-rating-x{background:#6f263d;border-color:#6f263d;color:#fff}
+  .clear-content-filters{display:block;margin-top:1px;color:var(--accent,#9b5e38);font-size:.76rem;font-weight:700;text-align:center}
   .feed>article>footer{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border,#dedfd7);color:var(--muted,#66766c);font-size:.78rem}
   .open-discussion{margin-left:auto;color:var(--accent,#9b5e38);font-weight:700}
   .mobile-community-nav{display:none}
@@ -183,6 +201,8 @@
   .compose-panel form{display:grid;gap:11px}
   .compose-panel label{display:grid;gap:5px;color:var(--muted,#66766c);font-size:.77rem;font-weight:700}
   .compose-panel input,.compose-panel textarea{width:100%;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:9px 10px;background:var(--page,#f6f4ee);font:inherit}
+  .compose-panel select{width:100%;height:40px;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:0 10px;background:var(--page,#f6f4ee);font:inherit}
+  .compose-panel label small{font-size:.68rem;font-weight:500;line-height:1.35;color:var(--muted,#66766c)}
   .compose-panel textarea{resize:vertical;min-height:92px}
   .publish-button{height:38px;border-radius:7px}
   .form-error,.form-message{margin:0;font-size:.78rem}

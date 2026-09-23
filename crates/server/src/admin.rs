@@ -1755,6 +1755,7 @@ pub async fn complete_content_runner(
 pub struct RunnerPost {
     title: String,
     body: Option<String>,
+    content_rating: Option<String>,
     author: String,
     community: String,
     provider: Option<String>,
@@ -2890,6 +2891,14 @@ pub async fn publish_content_runner(
     require_admin(&headers, &db).await?;
     let title = input.title.trim();
     let body = input.body.clone().unwrap_or_default();
+    let content_rating = input
+        .content_rating
+        .as_deref()
+        .map(|rating| validate_content_rating(Some(rating)))
+        .transpose()?;
+    let content_rating_value = content_rating
+        .clone()
+        .unwrap_or_else(|| "general".to_owned());
     let author = input.author.trim();
     let community = input.community.trim().to_ascii_lowercase();
     let provider = input
@@ -3041,6 +3050,13 @@ pub async fn publish_content_runner(
             .bind(&generation_config)
             .execute(&mut *tx)
             .await?;
+            if let Some(rating) = content_rating.as_deref() {
+                sqlx::query("UPDATE posts SET content_rating=$2,content_rating_source='automatic',content_rating_confidence=NULL,content_rating_updated_at=now() WHERE id=$1")
+                    .bind(existing_id)
+                    .bind(rating)
+                    .execute(&mut *tx)
+                    .await?;
+            }
             tx.commit().await?;
             log_event(
                 &db,
@@ -3062,7 +3078,7 @@ pub async fn publish_content_runner(
     } else {
         "approved"
     };
-    let post_id:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,body,moderation_status) VALUES($1,$2,$3,$4,$5) RETURNING id").bind(community_id).bind(author_id).bind(title).bind(body.trim()).bind(publication_status).fetch_one(&mut *tx).await?;
+    let post_id:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status) VALUES($1,$2,$3,$4,$5,'automatic',$6) RETURNING id").bind(community_id).bind(author_id).bind(title).bind(body.trim()).bind(&content_rating_value).bind(publication_status).fetch_one(&mut *tx).await?;
     let moderation_id = if moderation_enabled {
         let moderation_id:i64=sqlx::query_scalar("INSERT INTO moderation_items(kind,target_id,author_id,status,severity,flags,rule_version,urgent) VALUES('post',$1,$2,'pending',$3,$4,$5,$6) RETURNING id").bind(post_id).bind(author_id).bind(&severity).bind(flags.clone()).bind(moderation::RULE_VERSION).bind(urgent).fetch_one(&mut *tx).await?;
         sqlx::query("UPDATE posts SET moderation_item_id=$2 WHERE id=$1")
