@@ -33,6 +33,22 @@ write_update_status() {
   mv -f "$temporary" "$UPDATE_STATUS_FILE"
 }
 
+wait_for_healthy_services() {
+  local last_output=''
+  # The macOS web LaunchAgent can take a few seconds to load a new SvelteKit
+  # bundle after Homebrew replaces its keg. A single immediate status call
+  # turns that normal convergence window into a false failed update.
+  for _ in {1..30}; do
+    if last_output=$("$LAUNCHER" status 2>&1); then
+      printf '%s\n' "$last_output"
+      return 0
+    fi
+    sleep 1
+  done
+  printf '%s\n' "$last_output"
+  return 1
+}
+
 previous_version=""
 fail_update() {
   local detail="$1"
@@ -127,7 +143,7 @@ if ! "$LAUNCHER" start "${start_args[@]}"; then
   fail_update "The updated Swartzit services could not be started." "$new_version"
 fi
 write_update_status "updating" "verifying" "Checking updated service health" "$new_version"
-if ! "$LAUNCHER" status; then
+if ! wait_for_healthy_services; then
   echo "Updated package failed health checks." >&2
   echo "Recovery backup: $backup_path"
   echo "Archive: $archive_path"

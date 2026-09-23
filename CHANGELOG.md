@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.19-20260923T18
+
+- Waits for macOS LaunchAgent services to converge after an upgrade instead of
+  treating a short web startup window as a failed release.
+
 ## 0.1.18-20260923T18
 
 - Makes macOS `start`, `restart`, and `stop` understand the existing API and
