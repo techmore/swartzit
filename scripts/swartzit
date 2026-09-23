@@ -38,6 +38,7 @@ case "${1:-status}" in
     ;;
   backup) exec "$SCRIPT_HOME/db-backup.sh" ;;
   restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify.sh" "$@" ;;
+  update) shift; exec "$SCRIPT_HOME/swartzit-update.sh" "$@" ;;
   monitor) shift; exec "$SCRIPT_HOME/swartzit-monitor.sh" "$@" ;;
-  *) echo 'Usage: swartzit {start|stop|status|backup|restore-verify|monitor}' >&2; exit 2 ;;
+  *) echo 'Usage: swartzit {start|stop|status|backup|restore-verify|update|monitor}' >&2; exit 2 ;;
 esac
