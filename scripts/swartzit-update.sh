@@ -13,15 +13,53 @@ fi
 LAUNCHER="$ROOT/scripts/swartzit"
 [[ -x "$LAUNCHER" ]] || LAUNCHER="$ROOT/bin/swartzit"
 mkdir -p "$STATE_DIR"
+UPDATE_STATUS_FILE="$(printenv SWARTZIT_UPDATE_STATUS_FILE || true)"
+[[ -n "$UPDATE_STATUS_FILE" ]] || UPDATE_STATUS_FILE="$STATE_DIR/update-status.json"
+mkdir -p "$(dirname "$UPDATE_STATUS_FILE")"
+
+write_update_status() {
+  local state="$1"
+  local phase="$2"
+  local detail="$3"
+  local version=""
+  [[ $# -ge 4 ]] && version="$4"
+  local temporary="$UPDATE_STATUS_FILE.tmp.$$"
+  printf '{"state":"%s","phase":"%s","detail":"%s","version":"%s","updated_at":"%s"}\n' \
+    "$state" \
+    "$phase" \
+    "$detail" \
+    "$version" \
+    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$temporary"
+  mv -f "$temporary" "$UPDATE_STATUS_FILE"
+}
+
+previous_version=""
+fail_update() {
+  local detail="$1"
+  local version="$previous_version"
+  [[ $# -ge 2 ]] && version="$2"
+  write_update_status "failed" "failed" "$detail" "$version"
+  exit 1
+}
 
 if [[ "${1:-}" != "--yes" ]]; then
   echo "This creates a database backup, upgrades Swartzit, runs migrations on startup, and verifies health."
   echo "Use: swartzit update --yes"
   exit 2
 fi
-command -v brew >/dev/null || { echo 'Homebrew is required for updates.' >&2; exit 1; }
+if ! command -v brew >/dev/null; then
+  write_update_status "failed" "unavailable" "Homebrew is required for updates."
+  echo 'Homebrew is required for updates.' >&2
+  exit 1
+fi
 
-backup_output=$(SWARTZIT_BACKUP_DIR="${SWARTZIT_BACKUP_DIR:-$STATE_DIR/backups}" "$SCRIPT_HOME/db-backup.sh")
+write_update_status "updating" "backup" "Creating a recovery backup"
+
+backup_dir="$(printenv SWARTZIT_BACKUP_DIR || true)"
+[[ -n "$backup_dir" ]] || backup_dir="$STATE_DIR/backups"
+if ! backup_output=$(SWARTZIT_BACKUP_DIR="$backup_dir" "$SCRIPT_HOME/db-backup.sh"); then
+  fail_update "The recovery backup could not be created."
+fi
 printf '%s\n' "$backup_output" | tee "$STATE_DIR/last-update-backup.txt"
 backup_path=$(printf '%s\n' "$backup_output" | sed -n 's/^Backup: //p' | head -n 1)
 archive_path=$(printf '%s\n' "$backup_output" | sed -n 's/^Archive: //p' | head -n 1)
@@ -30,10 +68,14 @@ manifest="$STATE_DIR/last-update.json"
 printf '{"started_at":"%s","previous_version":"%s","backup":"%s","archive":"%s"}\n' \
   "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$previous_version" "$backup_path" "$archive_path" > "$manifest"
 
-"$LAUNCHER" stop
+write_update_status "updating" "stopping" "Stopping Swartzit services" "$previous_version"
+if ! "$LAUNCHER" stop; then
+  fail_update "Swartzit services could not be stopped." "$previous_version"
+fi
+write_update_status "updating" "installing" "Installing the Homebrew release" "$previous_version"
 if ! brew upgrade swartzit; then
   echo "Update failed. Database was not modified; restore the previous Swartzit package and use: $SCRIPT_HOME/db-restore-verify.sh $backup_path" >&2
-  exit 1
+  fail_update "Homebrew could not install the new Swartzit release." "$previous_version"
 fi
 
 # Homebrew replaces the versioned keg during an upgrade. Resolve the new
@@ -41,35 +83,47 @@ fi
 # the same release instead of continuing to run the old copied binary.
 new_launcher=$(command -v swartzit 2>/dev/null || true)
 [[ -x "$new_launcher" ]] && LAUNCHER="$new_launcher"
+new_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)
 
-if ! "$LAUNCHER" start || ! "$LAUNCHER" status; then
+write_update_status "updating" "starting" "Starting the updated Swartzit services" "$new_version"
+if ! "$LAUNCHER" start; then
   echo "Updated package failed health checks." >&2
   echo "Recovery backup: $backup_path"
   echo "Archive: $archive_path"
   echo "Restore only after verifying the backup with db-restore-verify.sh." >&2
-  exit 1
+  fail_update "The updated Swartzit services could not be started." "$new_version"
 fi
+write_update_status "updating" "verifying" "Checking updated service health" "$new_version"
+if ! "$LAUNCHER" status; then
+  echo "Updated package failed health checks." >&2
+  echo "Recovery backup: $backup_path"
+  echo "Archive: $archive_path"
+  echo "Restore only after verifying the backup with db-restore-verify.sh." >&2
+  fail_update "The updated Swartzit services failed health checks." "$new_version"
+fi
+write_update_status "updating" "refreshing-menu" "Refreshing the native menu companion" "$new_version"
 if [[ "$(uname -s)" == Darwin ]] && ! "$LAUNCHER" status-install; then
   echo "Updated Swartzit is healthy, but the macOS menu companion could not be refreshed." >&2
   echo "Run: $LAUNCHER status-install" >&2
-  exit 1
+  fail_update "The native menu companion could not be refreshed." "$new_version"
 fi
+write_update_status "updating" "finishing" "Refreshing background services" "$new_version"
 if [[ "$(uname -s)" == Darwin ]] && ! "$LAUNCHER" backup-install; then
   echo "Updated Swartzit is healthy, but the macOS backup LaunchAgent could not be refreshed." >&2
   echo "Run: $LAUNCHER backup-install" >&2
-  exit 1
+  fail_update "The backup LaunchAgent could not be refreshed." "$new_version"
 fi
 if [[ "$(uname -s)" == Darwin ]] && ! "$LAUNCHER" monitor-install; then
   echo "Updated Swartzit is healthy, but the uptime monitor LaunchAgent could not be refreshed." >&2
   echo "Run: $LAUNCHER monitor-install" >&2
-  exit 1
+  fail_update "The uptime monitor could not be refreshed." "$new_version"
 fi
 if [[ "$(uname -s)" == Darwin && -f "$HOME/Library/LaunchAgents/org.stoverparc.swartzit-caddy.plist" ]] && ! "$LAUNCHER" caddy-install; then
   echo "Updated Swartzit is healthy, but the Caddy LaunchAgent could not be refreshed." >&2
   echo "Run: $LAUNCHER caddy-install" >&2
-  exit 1
+  fail_update "Caddy could not be refreshed." "$new_version"
 fi
-new_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)
 printf '{"completed_at":"%s","previous_version":"%s","new_version":"%s","backup":"%s","archive":"%s","status":"healthy"}\n' \
   "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$previous_version" "$new_version" "$backup_path" "$archive_path" > "$manifest"
+write_update_status "completed" "completed" "Swartzit updated and health checks passed" "$new_version"
 echo "Swartzit update completed and passed health checks."

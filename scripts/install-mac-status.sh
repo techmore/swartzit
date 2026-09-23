@@ -51,6 +51,7 @@ open_url="${SWARTZIT_OPEN_URL:-}"
 open_url="${open_url:-http://127.0.0.1:4173}"
 open_url_xml=$(xml_escape "$open_url")
 icon_path_xml=$(xml_escape "$INSTALL_DIR/swartzit-icon.png")
+update_status_path_xml=$(xml_escape "$INSTALL_DIR/update-status.json")
 status_version_xml=$(xml_escape "$status_version")
 launch_path_xml=$(xml_escape "$launch_path")
 cat > "$PLIST" <<EOF
@@ -64,6 +65,7 @@ cat > "$PLIST" <<EOF
     <key>SWARTZIT_COMMAND</key><string>$command_path_xml</string>
     <key>SWARTZIT_OPEN_URL</key><string>$open_url_xml</string>
     <key>SWARTZIT_ICON_PATH</key><string>$icon_path_xml</string>
+    <key>SWARTZIT_UPDATE_STATUS_FILE</key><string>$update_status_path_xml</string>
     <key>SWARTZIT_STATUS_VERSION</key><string>$status_version_xml</string>
   </dict>
   <key>RunAtLoad</key><true/>

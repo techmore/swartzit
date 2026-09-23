@@ -53,6 +53,13 @@ struct BrewOutdatedFormula: Decodable {
     let name: String
     let current_version: String?
 }
+struct UpdateStatus: Codable {
+    let state: String
+    let phase: String?
+    let detail: String?
+    let version: String?
+    let updated_at: String?
+}
 
 final class SingleInstanceLock {
     private var descriptor: Int32 = -1
@@ -175,12 +182,23 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     private var updateCheckInProgress = false
     private var updateInProgress = false
     private var updateAvailableVersion: String?
+    private var displayedUpdateStatusKey: String?
+    private var updateStatusVisibleUntil: Date?
     private var currentOpenURL: String?
     private var timer: Timer?
     private var updateTimer: Timer?
+    private var updateProgressTimer: Timer?
     private var command: String { ProcessInfo.processInfo.environment["SWARTZIT_COMMAND"] ?? "swartzit" }
     private var openURL: String { ProcessInfo.processInfo.environment["SWARTZIT_OPEN_URL"] ?? "http://127.0.0.1:4173" }
     private var currentVersion: String { ProcessInfo.processInfo.environment["SWARTZIT_STATUS_VERSION"] ?? "development" }
+    private var updateStatusURL: URL {
+        if let configured = ProcessInfo.processInfo.environment["SWARTZIT_UPDATE_STATUS_FILE"], !configured.isEmpty {
+            return URL(fileURLWithPath: configured)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Swartzit", isDirectory: true)
+            .appendingPathComponent("update-status.json")
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -255,9 +273,11 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         setOrchardEnabled(true)
         item.menu = menu
         checkNow()
+        refreshUpdateStatus()
         checkForUpdates()
         timer = Timer.scheduledTimer(timeInterval: 30, target: self, selector: #selector(checkNow), userInfo: nil, repeats: true)
         updateTimer = Timer.scheduledTimer(timeInterval: 900, target: self, selector: #selector(checkForUpdates), userInfo: nil, repeats: true)
+        updateProgressTimer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: #selector(refreshUpdateStatus), userInfo: nil, repeats: true)
     }
 
     @discardableResult
@@ -295,6 +315,120 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             orchardMenu.addItem(menuItem("Install Orchard with Homebrew…", #selector(installOrchard), icon: "arrow.down.circle"))
         } else {
             orchardRootItem.isHidden = true
+        }
+    }
+
+    private func readUpdateStatus() -> UpdateStatus? {
+        guard let data = try? Data(contentsOf: updateStatusURL) else { return nil }
+        return try? JSONDecoder().decode(UpdateStatus.self, from: data)
+    }
+
+    private func writeUpdateStatus(state: String, phase: String, detail: String, version: String?) {
+        let status = UpdateStatus(
+            state: state,
+            phase: phase,
+            detail: detail,
+            version: version,
+            updated_at: ISO8601DateFormatter().string(from: Date())
+        )
+        guard let data = try? JSONEncoder().encode(status) else { return }
+        try? FileManager.default.createDirectory(
+            at: updateStatusURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: updateStatusURL, options: .atomic)
+    }
+
+    private func clearUpdateStatus() {
+        try? FileManager.default.removeItem(at: updateStatusURL)
+    }
+
+    private func updatePhaseTitle(_ phase: String?) -> String {
+        switch phase {
+        case "backup": return "Backing up"
+        case "stopping": return "Stopping"
+        case "installing": return "Installing"
+        case "starting": return "Starting"
+        case "verifying": return "Verifying"
+        case "refreshing-menu": return "Refreshing menu"
+        case "finishing": return "Finishing"
+        default: return "Updating"
+        }
+    }
+
+    @objc private func refreshUpdateStatus() {
+        guard let status = readUpdateStatus() else { return }
+        let statusKey = "\(status.state):\(status.updated_at ?? "")"
+
+        switch status.state {
+        case "updating":
+            updateInProgress = true
+            updateAvailableVersion = nil
+            displayedUpdateStatusKey = statusKey
+            let phase = updatePhaseTitle(status.phase)
+            let detail = status.detail ?? "Working on the Swartzit update"
+            upgradeItem.title = "Updates  ·  \(phase)…"
+            upgradeItem.isEnabled = false
+            upgradeItem.toolTip = detail
+            checkNowItem.isEnabled = false
+            startItem.isEnabled = false
+            stopItem.isEnabled = false
+            networkRootItem.isEnabled = false
+            summaryItem.title = "Swartzit  ·  Updating…"
+            statusHeaderView.update(
+                status: "\(phase)…",
+                detail: detail,
+                symbol: "arrow.down.circle.fill",
+                tint: .systemOrange
+            )
+        case "completed":
+            let wasUpdating = updateInProgress
+            if displayedUpdateStatusKey != statusKey || wasUpdating {
+                displayedUpdateStatusKey = statusKey
+                updateInProgress = false
+                updateAvailableVersion = nil
+                updateStatusVisibleUntil = Date().addingTimeInterval(8)
+                upgradeItem.title = "Updates  ·  Updated"
+                upgradeItem.isEnabled = false
+                upgradeItem.toolTip = status.detail ?? "Swartzit updated successfully."
+                checkNowItem.isEnabled = true
+                summaryItem.title = "Swartzit  ·  Updated"
+                statusHeaderView.update(
+                    status: "Updated",
+                    detail: status.detail ?? "Swartzit updated successfully",
+                    symbol: "checkmark.circle.fill",
+                    tint: .systemGreen
+                )
+                if wasUpdating {
+                    checkForUpdates()
+                }
+                let key = statusKey
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                    guard let self, self.displayedUpdateStatusKey == key else { return }
+                    self.clearUpdateStatus()
+                    self.displayedUpdateStatusKey = nil
+                    self.updateStatusVisibleUntil = nil
+                    self.checkForUpdates()
+                    self.checkNow()
+                }
+            }
+        case "failed":
+            updateInProgress = false
+            updateAvailableVersion = nil
+            displayedUpdateStatusKey = statusKey
+            upgradeItem.title = "Update failed  ·  Check again"
+            upgradeItem.isEnabled = !serviceInProgress && !bindingInProgress
+            upgradeItem.toolTip = status.detail ?? "The Swartzit update failed."
+            checkNowItem.isEnabled = true
+            summaryItem.title = "Swartzit  ·  Update failed"
+            statusHeaderView.update(
+                status: "Update failed",
+                detail: status.detail ?? "The Swartzit update failed",
+                symbol: "exclamationmark.triangle.fill",
+                tint: .systemOrange
+            )
+        default:
+            break
         }
     }
 
@@ -390,6 +524,12 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         guard !updateInProgress, !serviceInProgress, !bindingInProgress else { return }
         updateInProgress = true
         updateAvailableVersion = nil
+        writeUpdateStatus(
+            state: "updating",
+            phase: "preparing",
+            detail: "Preparing the backup and Homebrew upgrade",
+            version: version
+        )
         checkNowItem.isEnabled = false
         upgradeItem.title = "Updates  ·  Installing \(version)…"
         upgradeItem.isEnabled = false
@@ -406,10 +546,21 @@ final class StatusApp: NSObject, NSApplicationDelegate {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            let result = self.run(["update", "--yes"])
+            let result = self.run(
+                ["update", "--yes"],
+                environment: ["SWARTZIT_UPDATE_STATUS_FILE": self.updateStatusURL.path]
+            )
             DispatchQueue.main.async {
                 self.updateInProgress = false
                 if result.code != 0 {
+                    if self.readUpdateStatus()?.state != "failed" {
+                        self.writeUpdateStatus(
+                            state: "failed",
+                            phase: "failed",
+                            detail: "The update command failed before completion",
+                            version: version
+                        )
+                    }
                     let alert = NSAlert()
                     alert.messageText = "Swartzit could not be updated."
                     let output = String(data: result.data ?? Data(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -418,6 +569,12 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
                 } else {
+                    self.writeUpdateStatus(
+                        state: "completed",
+                        phase: "completed",
+                        detail: "Swartzit \(version) installed successfully",
+                        version: version
+                    )
                     self.summaryItem.title = "Swartzit  ·  Updated"
                     self.statusHeaderView.update(
                         status: "Updated",
@@ -471,7 +628,8 @@ final class StatusApp: NSObject, NSApplicationDelegate {
                 if self.item.button?.image == nil {
                     self.item.button?.title = localUp ? "● Swartzit" : "○ Swartzit"
                 }
-                if !self.serviceInProgress && !self.bindingInProgress {
+                let updateStatusIsVisible = self.updateStatusVisibleUntil.map { $0 > Date() } ?? false
+                if !self.serviceInProgress && !self.bindingInProgress && !self.updateInProgress && !updateStatusIsVisible {
                     self.statusHeaderView.update(status: headerStatus, detail: headerDetail, symbol: headerSymbol, tint: headerTint)
                     self.summaryItem.title = "Swartzit  ·  \(headerStatus)"
                 }
@@ -643,15 +801,18 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         return formatter.string(from: date)
     }
 
-    private func run(_ arguments: [String]) -> (data: Data?, code: Int32) {
-        run(executable: command, arguments: arguments)
+    private func run(_ arguments: [String], environment: [String: String] = [:]) -> (data: Data?, code: Int32) {
+        run(executable: command, arguments: arguments, environment: environment)
     }
 
-    private func run(executable: String, arguments: [String]) -> (data: Data?, code: Int32) {
+    private func run(executable: String, arguments: [String], environment: [String: String] = [:]) -> (data: Data?, code: Int32) {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [executable] + arguments
+        var processEnvironment = ProcessInfo.processInfo.environment
+        environment.forEach { processEnvironment[$0.key] = $0.value }
+        process.environment = processEnvironment
         process.standardOutput = pipe
         process.standardError = pipe
         do { try process.run(); process.waitUntilExit(); return (pipe.fileHandleForReading.readDataToEndOfFile(), process.terminationStatus) }
