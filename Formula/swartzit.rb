@@ -8,7 +8,6 @@ class Swartzit < Formula
 
   def install
     ENV.prepend_path "PATH", HOMEBREW_PREFIX/"bin"
-    ENV["RUSTFLAGS"] = "-C link-arg=-Wl,-no_fixup_chains" if OS.mac?
     system "cargo", "build", "--locked", "--release", "-p", "swartzit-server"
     system "npm", "--prefix", "apps/web", "ci"
     system "npm", "--prefix", "apps/web", "run", "build"

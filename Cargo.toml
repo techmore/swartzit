@@ -1,3 +1,8 @@
 [workspace]
 members = ["crates/server"]
 resolver = "2"
+
+# macOS 27's dyld rejects stripped proc-macro dylibs. Keep build scripts and
+# proc macros unstripped; the shipped server binary remains release-optimized.
+[profile.release.build-override]
+strip = false
