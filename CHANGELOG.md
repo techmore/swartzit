@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.9-20260923T14
+
+- Makes macOS LaunchAgent refreshes reliable across package replacement by
+  waiting for the previous agent to exit before bootstrapping the new path.
+
 ## 0.1.8-20260923T14
 
 - Refreshes the backup and uptime-monitor LaunchAgents during Homebrew updates,

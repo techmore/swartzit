@@ -71,5 +71,6 @@ cat > "$PLIST" <<EOF
 </dict></plist>
 EOF
 launchctl bootout "gui/$UID" "$PLIST" >/dev/null 2>&1 || true
+sleep 1
 launchctl bootstrap "gui/$UID" "$PLIST"
 echo "Swartzit menu-bar status installed and started."

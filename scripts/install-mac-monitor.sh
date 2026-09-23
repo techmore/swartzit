@@ -49,6 +49,7 @@ cat > "$PLIST" <<EOF
 </dict></plist>
 EOF
 launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
+sleep 1
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 echo "Installed $LABEL; checking $URL every ${INTERVAL}s"
 echo "Pulse: $PULSE_FILE"

@@ -96,6 +96,7 @@ cat > "$PLIST" <<EOF
 EOF
 
 launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
+sleep 1
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 echo "Installed $LABEL; backup every ${INTERVAL}s; retaining $RETENTION archive(s)."
 echo "Backups: $BACKUP_DIR"
