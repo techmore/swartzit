@@ -20,6 +20,7 @@ class Swartzit < Formula
 
     bin.install "target/release/swartzit-server"
     bin.install "scripts/swartzit"
+    bin.install "VERSION"
     libexec.install "apps/web/build"
     libexec.install "scripts/status-local.sh", "scripts/db-backup.sh",
       "scripts/db-restore-verify.sh", "scripts/swartzit-update.sh",

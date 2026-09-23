@@ -19,6 +19,10 @@ backup_output=$($SCRIPT_HOME/db-backup.sh)
 printf '%s\n' "$backup_output" | tee "$STATE_DIR/last-update-backup.txt"
 backup_path=$(printf '%s\n' "$backup_output" | awk '/^Backup: / {print $2; exit}')
 archive_path=$(printf '%s\n' "$backup_output" | awk '/^Archive: / {print $2; exit}')
+previous_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)
+manifest="$STATE_DIR/last-update.json"
+printf '{"started_at":"%s","previous_version":"%s","backup":"%s","archive":"%s"}\n' \
+  "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$previous_version" "$backup_path" "$archive_path" > "$manifest"
 
 "$LAUNCHER" stop
 if ! brew upgrade swartzit; then
@@ -33,4 +37,7 @@ if ! "$LAUNCHER" start || ! "$LAUNCHER" status; then
   echo "Restore only after verifying the backup with db-restore-verify.sh." >&2
   exit 1
 fi
+new_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)
+printf '{"completed_at":"%s","previous_version":"%s","new_version":"%s","backup":"%s","archive":"%s","status":"healthy"}\n' \
+  "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$previous_version" "$new_version" "$backup_path" "$archive_path" > "$manifest"
 echo "Swartzit update completed and passed health checks."

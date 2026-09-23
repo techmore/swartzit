@@ -19,6 +19,12 @@ SCRIPT_HOME="$HOME_DIR/scripts"
 [[ -d "$SCRIPT_HOME" ]] || SCRIPT_HOME="$HOME_DIR/libexec"
 
 case "${1:-status}" in
+  version)
+    VERSION_FILE="${SWARTZIT_VERSION_FILE:-$SCRIPT_DIR/VERSION}"
+    [[ -f "$VERSION_FILE" ]] || VERSION_FILE="$HOME_DIR/VERSION"
+    [[ -f "$VERSION_FILE" ]] || VERSION_FILE="$HOME_DIR/../VERSION"
+    if [[ -f "$VERSION_FILE" ]]; then cat "$VERSION_FILE"; else echo "development"; fi
+    ;;
   start)
     : "${DATABASE_URL:=postgres://swartzit:swartzit-local-only@127.0.0.1:54329/swartzit}"
     : "${BIND_ADDR:=127.0.0.1:18080}"
@@ -46,5 +52,5 @@ case "${1:-status}" in
   restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify.sh" "$@" ;;
   update) shift; exec "$SCRIPT_HOME/swartzit-update.sh" "$@" ;;
   monitor) shift; exec "$SCRIPT_HOME/swartzit-monitor.sh" "$@" ;;
-  *) echo 'Usage: swartzit {start|stop|status|backup|restore-verify|update|monitor}' >&2; exit 2 ;;
+  *) echo 'Usage: swartzit {version|start|stop|status|backup|restore-verify|update|monitor}' >&2; exit 2 ;;
 esac
