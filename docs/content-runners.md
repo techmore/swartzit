@@ -26,7 +26,7 @@ available in run history but cannot be scheduled again.
 
 The Content Runners page includes disabled starter templates: a single-post
 smoke test, a prompt-shaped draft, a bounded two-post batch, an X topic-window
-adapter, and two Draw Things recipes. **Use template**
+adapter, an X Recommended-timeline collector, and two Draw Things recipes. **Use template**
 opens a copy in the editor; saving creates a normal draft with `enabled = false`.
 **Save & test** saves the draft and queues its no-publish execution in one step.
 The runner card reports `Test queued`, `Test running`, and the completed result as
@@ -245,6 +245,30 @@ The task space must already be signed in by the administrator. Keep this runner
 disabled unless the Mac and dedicated browser session are available; it is not
 appropriate for a remote unattended worker. It defaults to a seven-day window,
 at most eight posts, and a two-second gap between the two profile visits.
+
+### X Recommended timeline runner
+
+The `scripts/x-recommended-session-runner.mjs` recipe reads one unseen public
+status from the signed-in X **For You**/Recommended timeline each run. It uses
+the same dedicated read-only Ego Lite bridge as the profile runner, but visits
+`https://x.com/home` and explicitly selects **For You** when X exposes that
+tab. It never likes, reposts, follows, messages, or opens compose. The runner
+keeps a bounded local set of canonical status URLs and the normal content-runner
+publisher performs a second database-backed duplicate check before publication.
+
+The recipe is seeded as a disabled draft with a 60-second interval. Enable it
+only on a worker host that has a persistent signed-in Ego Lite task space and
+allow-list these worker environment names:
+
+```text
+EGO_BROWSER_SPACE_ID, EGO_BROWSER_CLI
+```
+
+An empty Recommended timeline or a timeline containing only previously seen
+links is a successful no-content run. The runner returns at most one resolved
+post per execution and resolves the selected public status through the shared
+X syndication adapter before handing it to the normal moderation/publishing
+path.
 
 The existing crawler jobs remain the right choice for broad recurring imports.
 Use the X cross-post runner when the source list, topic window, and destination

@@ -1,4 +1,6 @@
 <script>
+  import { selectedCommunityState } from '$lib/community-picker-logic.mjs';
+
   export let communities = [];
   export let value = '';
   export let id = 'community-picker';
@@ -23,9 +25,17 @@
   }
 
   function choose(item) {
-    value = item.slug;
-    query = item.slug;
-    open = false;
+    const next = selectedCommunityState(item);
+    value = next.value;
+    query = next.query;
+    open = next.open;
+  }
+
+  function chooseBeforeBlur(event, item) {
+    // Pointer selection normally blurs the search input first. Commit the
+    // choice before that delayed blur can remove the option list.
+    event.preventDefault();
+    choose(item);
   }
 
   function show() {
@@ -78,7 +88,7 @@
   {#if open && filtered.length}
     <div class="community-options" id={`${id}-options`} role="listbox">
       {#each filtered as item, index}
-        <button type="button" role="option" aria-selected={item.slug === value} class:highlighted={index === highlighted} onclick={() => choose(item)}>
+        <button type="button" role="option" aria-selected={item.slug === value} class:highlighted={index === highlighted} onpointerdown={(event) => chooseBeforeBlur(event, item)} onclick={() => choose(item)}>
           <strong>c/{item.slug}</strong><span>{item.name}</span>
         </button>
       {/each}

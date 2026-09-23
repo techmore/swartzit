@@ -16,6 +16,7 @@ web process.
 | `scripts/x-cross-post-runner.mjs` | Content Runner worker host | Collects bounded public X posts from multiple accounts/topics and time windows | Admin → Content Runners → X topic window |
 | `scripts/x-two-account-demo-runner.mjs` | Content Runner worker host | Reproducible seven-day X labeling demo for `@beautyshowcase` and `@Rawpkw` | Admin → Content Runners → cross-post runner |
 | `scripts/x-ego-session-runner.mjs` | Mac + dedicated Ego Lite session | Read-only browser-session verification runner for the same two X accounts | Admin → Content Runners → cross-post runner |
+| `scripts/x-recommended-session-runner.mjs` | Mac + dedicated Ego Lite session | Reads one unseen public status from the signed-in X For You/Recommended timeline per run | Admin → Content Runners → X Recommended |
 | `scripts/draw-things-runner.mjs` | Content Runner worker host | Builds safe Draw Things argv and generation metadata for local Apple Silicon inference | used by `scripts/swartzit-worker.mjs` |
 | `scripts/runner-prompt.mjs` | Content Runner worker host | Expands deterministic date, runner, destination, seed, variant, and prompt-matrix tokens | used by generic and Draw Things runners |
 | `scripts/cache-profile-images.mjs` | After imports | Copies public X avatars into the local profile cache | worker maintenance step |
@@ -39,9 +40,9 @@ for the command contract and lifecycle behavior.
    safe; newly created posts remain hidden until moderator approval.
 3. A failed batch stays available for retry and never advances a Daddario
    checkpoint. Missing metrics remain `null`; a runner must not guess them.
-4. Browser collection belongs on the Mac/Codex side. Hosted Linux jobs use the
-   official API adapters and their environment-file credentials; they never
-   scrape browser cookies.
+4. Browser collection belongs on a Mac host with a dedicated signed-in Ego Lite
+   session. Hosted Linux jobs use the official API adapters and their
+   environment-file credentials; they never scrape browser cookies.
 5. The profile-image cache is bounded maintenance, not a media mirror. It runs
    after a successful worker pass and never blocks publication of unrelated
    content.

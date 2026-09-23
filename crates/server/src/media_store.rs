@@ -37,7 +37,10 @@ pub struct IpfsConfig {
 #[derive(Clone, Debug)]
 pub struct MediaConfig {
     pub primary_provider: String,
+    /// Durable providers that receive a copy after the primary write. The
+    /// first entry is exposed as `secondary_provider` for older callers.
     pub secondary_provider: String,
+    pub secondary_providers: Vec<String>,
     pub share_provider: String,
     pub cache_enabled: bool,
     pub cache_max_bytes: u64,
@@ -66,7 +69,7 @@ pub struct StoredAsset {
     pub backend: String,
     pub object_key: String,
     pub variants: Vec<StoredVariant>,
-    pub secondary: Option<StoredReplica>,
+    pub secondaries: Vec<StoredReplica>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -79,6 +82,7 @@ pub struct StoredReplica {
 struct DbMediaSettings {
     primary_provider: String,
     secondary_provider: String,
+    secondary_providers: Vec<String>,
     cache_enabled: bool,
     cache_max_bytes: i64,
     share_provider: String,
@@ -108,9 +112,73 @@ fn env_choice(name: &str, fallback: &str, allowed: &[&str]) -> Result<(String, S
     Ok((value, "environment".to_owned()))
 }
 
+fn normalize_provider_list(
+    name: &str,
+    values: impl IntoIterator<Item = String>,
+    allowed: &[&str],
+) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    for value in values {
+        let value = value.trim().to_ascii_lowercase();
+        if value.is_empty() || value == "disabled" {
+            continue;
+        }
+        if !allowed.contains(&value.as_str()) {
+            return Err(format!("{name} must contain only {}", allowed.join(", ")));
+        }
+        if !normalized.contains(&value) {
+            normalized.push(value);
+        }
+    }
+    Ok(normalized)
+}
+
+fn env_provider_list(
+    list_name: &str,
+    legacy_name: &str,
+    database_values: &[String],
+    legacy_database_value: &str,
+    allowed: &[&str],
+) -> Result<(Vec<String>, String), String> {
+    if let Some(value) = env::var(list_name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let values =
+            normalize_provider_list(list_name, value.split(',').map(str::to_owned), allowed)?;
+        return Ok((values, "environment".to_owned()));
+    }
+    if let Some(value) = env::var(legacy_name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let values = normalize_provider_list(legacy_name, [value], allowed)?;
+        return Ok((values, "environment".to_owned()));
+    }
+    if !database_values.is_empty() {
+        return Ok((
+            normalize_provider_list(
+                "media_settings.secondary_providers",
+                database_values.iter().cloned(),
+                allowed,
+            )?,
+            "database".to_owned(),
+        ));
+    }
+    Ok((
+        normalize_provider_list(
+            "media_settings.secondary_provider",
+            [legacy_database_value.to_owned()],
+            allowed,
+        )?,
+        "database".to_owned(),
+    ))
+}
+
 pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
     let settings = sqlx::query_as::<_, DbMediaSettings>(
-        "SELECT primary_provider, secondary_provider, cache_enabled, cache_max_bytes, share_provider
+        "SELECT primary_provider, secondary_provider, secondary_providers,
+                cache_enabled, cache_max_bytes, share_provider
          FROM media_settings WHERE singleton = TRUE",
     )
     .fetch_optional(db)
@@ -119,6 +187,7 @@ pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
     .unwrap_or(DbMediaSettings {
         primary_provider: "filesystem".to_owned(),
         secondary_provider: "disabled".to_owned(),
+        secondary_providers: Vec::new(),
         cache_enabled: true,
         cache_max_bytes: 5 * 1024 * 1024 * 1024,
         share_provider: "disabled".to_owned(),
@@ -128,11 +197,17 @@ pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
         &settings.primary_provider,
         &["filesystem", "s3", "ipfs"],
     )?;
-    let (secondary_provider, secondary_source) = env_choice(
+    let (secondary_providers, secondary_source) = env_provider_list(
+        "SWARTZIT_MEDIA_SECONDARIES",
         "SWARTZIT_MEDIA_SECONDARY",
+        &settings.secondary_providers,
         &settings.secondary_provider,
-        &["disabled", "filesystem", "s3", "ipfs"],
+        &["filesystem", "s3", "ipfs"],
     )?;
+    let secondary_provider = secondary_providers
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "disabled".to_owned());
     let (share_provider, share_source) = env_choice(
         "SWARTZIT_MEDIA_SHARE",
         &settings.share_provider,
@@ -150,8 +225,11 @@ pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
         .unwrap_or_else(|_| data_root().join("cache"));
     let s3 = load_s3_config();
     let ipfs = load_ipfs_config()?;
-    if secondary_provider != "disabled" && secondary_provider == primary_provider {
-        return Err("SWARTZIT_MEDIA_SECONDARY must differ from the primary provider".to_owned());
+    if secondary_providers
+        .iter()
+        .any(|provider| provider == &primary_provider)
+    {
+        return Err("media secondary providers must differ from the primary provider".to_owned());
     }
     let catbox_userhash = env::var("SWARTZIT_CATBOX_USERHASH")
         .or_else(|_| env::var("CATBOX_USERHASH"))
@@ -160,6 +238,7 @@ pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
     Ok(MediaConfig {
         primary_provider,
         secondary_provider,
+        secondary_providers,
         share_provider,
         cache_enabled: settings.cache_enabled,
         cache_max_bytes,
@@ -233,6 +312,7 @@ pub async fn settings_view(db: &PgPool) -> Result<Value, String> {
         "primary": config.primary_provider,
         "primary_source": config.primary_source,
         "secondary": config.secondary_provider,
+        "secondaries": config.secondary_providers,
         "secondary_source": config.secondary_source,
         "share": config.share_provider,
         "share_source": config.share_source,
@@ -423,7 +503,7 @@ pub struct VariantRead<'a> {
     pub variant: &'a str,
     pub legacy_bytes: Option<&'a [u8]>,
     pub expected_checksum: Option<&'a str>,
-    pub secondary: Option<(&'a str, &'a str)>,
+    pub secondaries: Vec<(&'a str, &'a str)>,
 }
 
 pub async fn read_variant(
@@ -455,10 +535,10 @@ pub async fn read_variant(
     } else if let Some(key) = source.key {
         attempts.push((source.provider, key, None));
     }
-    if let Some((secondary_provider, secondary_key)) = source.secondary
-        && secondary_provider != source.provider
-    {
-        attempts.push((secondary_provider, secondary_key, None));
+    for (secondary_provider, secondary_key) in source.secondaries {
+        if secondary_provider != source.provider {
+            attempts.push((secondary_provider, secondary_key, None));
+        }
     }
     if attempts.is_empty() {
         return Err("media storage record has no readable object".to_owned());
@@ -549,7 +629,7 @@ pub async fn store_asset(
             .map(|variant| variant.object_key.clone())
             .unwrap_or_default(),
         variants,
-        secondary: None,
+        secondaries: Vec::new(),
     })
 }
 
@@ -604,36 +684,32 @@ pub async fn store_variant_replicated(
     variant: &str,
     mime_type: &str,
     bytes: &[u8],
-) -> Result<(StoredVariant, Option<StoredVariant>), String> {
+) -> Result<(StoredVariant, Vec<(String, StoredVariant)>), String> {
     let primary = store_variant(config, hash, variant, mime_type, bytes).await?;
-    let secondary = if config.secondary_provider == "disabled" {
-        None
-    } else {
+    let mut secondaries = Vec::new();
+    for provider in &config.secondary_providers {
         let requested_key = object_key(hash, variant);
-        let key = put_provider(
-            config,
-            &config.secondary_provider,
-            &requested_key,
-            mime_type,
-            bytes,
-        )
-        .await
-        .map_err(|error| {
-            format!(
-                "secondary {} write failed after primary write: {error}",
-                config.secondary_provider
-            )
-        })?;
-        Some(StoredVariant {
-            variant: variant.to_owned(),
-            object_key: key.clone(),
-            byte_size: bytes.len() as u64,
-            mime_type: mime_type.to_owned(),
-            checksum: checksum(bytes),
-            external_url: public_url(config, &config.secondary_provider, &key),
-        })
-    };
-    Ok((primary, secondary))
+        let key = put_provider(config, provider, &requested_key, mime_type, bytes)
+            .await
+            .map_err(|error| {
+                format!(
+                    "secondary {} write failed after primary write: {error}",
+                    provider
+                )
+            })?;
+        secondaries.push((
+            provider.clone(),
+            StoredVariant {
+                variant: variant.to_owned(),
+                object_key: key.clone(),
+                byte_size: bytes.len() as u64,
+                mime_type: mime_type.to_owned(),
+                checksum: checksum(bytes),
+                external_url: public_url(config, provider, &key),
+            },
+        ));
+    }
+    Ok((primary, secondaries))
 }
 
 fn make_thumbnail(bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -1031,9 +1107,9 @@ pub async fn test_configured(config: &MediaConfig) -> Result<Vec<String>, String
     let mut tested = Vec::new();
     test_provider(config, &config.primary_provider).await?;
     tested.push(config.primary_provider.clone());
-    if config.secondary_provider != "disabled" {
-        test_provider(config, &config.secondary_provider).await?;
-        tested.push(config.secondary_provider.clone());
+    for provider in &config.secondary_providers {
+        test_provider(config, provider).await?;
+        tested.push(provider.clone());
     }
     Ok(tested)
 }
@@ -1267,6 +1343,47 @@ mod tests {
             checksum(b"swartzit"),
             "b552eaf72ef6b99b1df32220a7b5ca058167b3119a5912c9e04a284d3b0098ca"
         );
+    }
+
+    #[test]
+    fn secondary_provider_lists_are_normalized_and_deduplicated() {
+        let providers = normalize_provider_list(
+            "SWARTZIT_MEDIA_SECONDARIES",
+            [
+                " S3 ".to_owned(),
+                "ipfs".to_owned(),
+                "s3".to_owned(),
+                "disabled".to_owned(),
+            ],
+            &["filesystem", "s3", "ipfs"],
+        )
+        .expect("valid provider list");
+        assert_eq!(providers, vec!["s3", "ipfs"]);
+    }
+
+    #[test]
+    fn secondary_provider_lists_reject_unknown_backends() {
+        let error = normalize_provider_list(
+            "SWARTZIT_MEDIA_SECONDARIES",
+            ["catbox".to_owned()],
+            &["filesystem", "s3", "ipfs"],
+        )
+        .expect_err("unknown provider should fail");
+        assert!(error.contains("SWARTZIT_MEDIA_SECONDARIES"));
+    }
+
+    #[test]
+    fn database_provider_lists_fall_back_to_the_legacy_setting() {
+        let (providers, source) = env_provider_list(
+            "SWARTZIT_MEDIA_SECONDARIES_TEST_UNSET",
+            "SWARTZIT_MEDIA_SECONDARY_TEST_UNSET",
+            &[],
+            "s3",
+            &["filesystem", "s3", "ipfs"],
+        )
+        .expect("legacy provider setting");
+        assert_eq!(providers, vec!["s3"]);
+        assert_eq!(source, "database");
     }
 
     #[test]

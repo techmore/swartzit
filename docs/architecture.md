@@ -29,7 +29,7 @@ CIDs and require the configured IPFS node or gateway to remain available. A
 host can restore them into another instance without depending on a vendor
 account. Media records store content
 hashes and available replicas so filesystem, S3-compatible, IPFS, and optional
-external-share delivery can evolve independently. A configured secondary is
+external-share delivery can evolve independently. Each configured secondary is
 queued as durable background work, retried after partner failures, and used for
 checksum-verified read fallback once ready. Catbox.moe remains share/export
 only. The local cache is excluded from durability guarantees and can always be

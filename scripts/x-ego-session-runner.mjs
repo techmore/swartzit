@@ -114,7 +114,7 @@ process.stdout.write(JSON.stringify({posts}) + '\\n');
 `;
 }
 
-function runBrowserScript(script, cli) {
+export function runBrowserScript(script, cli) {
   return new Promise((resolve, reject) => {
     const child = spawn(cli, ['nodejs', '-e', script], {stdio: ['ignore', 'pipe', 'pipe']});
     let stdout = '', stderr = '';

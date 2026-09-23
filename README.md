@@ -236,7 +236,8 @@ primary in Admin → Settings or with environment variables:
 
 ```sh
 SWARTZIT_MEDIA_PRIMARY=filesystem   # filesystem (default), s3, or ipfs
-SWARTZIT_MEDIA_SECONDARY=disabled   # disabled (default), filesystem, s3, or ipfs
+SWARTZIT_MEDIA_SECONDARY=disabled   # legacy single-secondary setting
+SWARTZIT_MEDIA_SECONDARIES=s3,ipfs   # zero or more: filesystem, s3, ipfs
 SWARTZIT_MEDIA_ROOT="$HOME/Library/Application Support/Swartzit/media"
 SWARTZIT_MEDIA_CACHE_DIR="$HOME/Library/Application Support/Swartzit/cache"
 SWARTZIT_MEDIA_CACHE_MAX_BYTES=5368709120
@@ -255,14 +256,16 @@ RPC endpoint requires bearer authentication:
 SWARTZIT_IPFS_API_URL=http://127.0.0.1:5001
 SWARTZIT_IPFS_GATEWAY_URL=https://ipfs.example.net
 
-The primary is written during the upload request. If a secondary is enabled,
-Swartzit records a durable replication job and retries the partner upload in
-the background; the Admin storage panel shows pending, failed, and completed
-replicas. If the primary cannot be read, Swartzit verifies and serves a ready
-secondary copy, then repopulates the bounded local cache. Switching providers
-changes new writes; the migration action copies existing assets into both
-selected providers and the verification action checks every recorded primary
-and secondary replica.
+The primary is written during the upload request. If secondary providers are
+enabled, Swartzit records one durable replication job per provider and retries
+each partner upload in the background; the Admin storage panel shows pending,
+failed, and completed replicas. If the primary cannot be read, Swartzit
+verifies and serves a ready secondary copy, then repopulates the bounded local
+cache. Switching providers changes new writes; the migration action copies
+existing assets into the selected primary and all selected secondaries, while
+verification checks every recorded primary and secondary replica. The
+singular `SWARTZIT_MEDIA_SECONDARY` setting remains supported for upgrades;
+`SWARTZIT_MEDIA_SECONDARIES` is preferred for new installations.
 
 Catbox is an explicit share/export adapter only. It is disabled by default and
 is never treated as canonical storage, a backup, a CDN, or a streaming origin.

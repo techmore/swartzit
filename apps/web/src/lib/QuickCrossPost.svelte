@@ -1,12 +1,13 @@
 <script>
   import CommunityPicker from '$lib/CommunityPicker.svelte';
+  import { preferredCommunity } from '$lib/community-picker-logic.mjs';
   export let communities = [];
   export let selectedCommunity = '';
   let url = '', community = '', contentRating = 'general', busy = false, error = '', notice = '', existingPost = '';
-  $: if (!community && communities.length) {
-    community = communities.find(item => item.slug === selectedCommunity)?.slug
-      || communities.find(item => item.slug === 'x_imports')?.slug
-      || communities[0].slug;
+  let communityInitialized = false;
+  $: if (!communityInitialized && communities.length) {
+    community = preferredCommunity(communities, selectedCommunity);
+    communityInitialized = true;
   }
 
   async function submit(event) {

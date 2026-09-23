@@ -1,5 +1,6 @@
 use super::*;
 use axum::body::Bytes;
+use std::collections::BTreeMap;
 
 #[derive(Deserialize)]
 pub struct CreateCrawlerJob {
@@ -483,9 +484,29 @@ pub struct UpdateSettings {
     moderation_enabled: Option<bool>,
     media_primary: Option<String>,
     media_secondary: Option<String>,
+    media_secondaries: Option<Vec<String>>,
     media_cache_enabled: Option<bool>,
     media_cache_max_bytes: Option<i64>,
     media_share: Option<String>,
+}
+
+fn normalize_media_secondaries(values: &[String]) -> Result<Vec<String>, ApiError> {
+    let mut normalized = Vec::new();
+    for value in values {
+        let value = value.trim().to_ascii_lowercase();
+        if value.is_empty() || value == "disabled" {
+            continue;
+        }
+        if !["filesystem", "s3", "ipfs"].contains(&value.as_str()) {
+            return Err(ApiError::Invalid(
+                "Media secondary providers must be filesystem, s3, or ipfs",
+            ));
+        }
+        if !normalized.contains(&value) {
+            normalized.push(value);
+        }
+    }
+    Ok(normalized)
 }
 
 pub async fn settings(
@@ -533,11 +554,26 @@ pub async fn update_settings(
     Json(input): Json<UpdateSettings>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
+    let requested_secondaries = input
+        .media_secondaries
+        .clone()
+        .or_else(|| input.media_secondary.clone().map(|value| vec![value]));
+    let normalized_secondaries = requested_secondaries
+        .as_deref()
+        .map(normalize_media_secondaries)
+        .transpose()?;
+    let legacy_secondary = normalized_secondaries.as_ref().map(|values| {
+        values
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "disabled".to_owned())
+    });
     if input.orchard_enabled.is_none()
         && input.content_runners_enabled.is_none()
         && input.moderation_enabled.is_none()
         && input.media_primary.is_none()
         && input.media_secondary.is_none()
+        && input.media_secondaries.is_none()
         && input.media_cache_enabled.is_none()
         && input.media_cache_max_bytes.is_none()
         && input.media_share.is_none()
@@ -602,13 +638,6 @@ pub async fn update_settings(
             "Media primary must be filesystem, s3, or ipfs",
         ));
     }
-    if let Some(secondary) = input.media_secondary.as_deref()
-        && !["disabled", "filesystem", "s3", "ipfs"].contains(&secondary)
-    {
-        return Err(ApiError::Invalid(
-            "Media secondary must be disabled, filesystem, s3, or ipfs",
-        ));
-    }
     if let Some(share) = input.media_share.as_deref()
         && !["disabled", "catbox"].contains(&share)
     {
@@ -623,7 +652,7 @@ pub async fn update_settings(
             "Media cache size must be between 1 MiB and 1 TiB",
         ));
     }
-    if input.media_primary.is_some() || input.media_secondary.is_some() {
+    if input.media_primary.is_some() || normalized_secondaries.is_some() {
         let current = media_store::load_config(&db)
             .await
             .map_err(ApiError::Storage)?;
@@ -636,21 +665,27 @@ pub async fn update_settings(
             }
             candidate.primary_provider = primary.to_owned();
         }
-        if let Some(secondary) = input.media_secondary.as_deref() {
+        if let Some(secondaries) = normalized_secondaries.as_ref() {
             if candidate.secondary_source == "environment"
-                && candidate.secondary_provider != secondary
+                && candidate.secondary_providers != *secondaries
             {
                 return Err(ApiError::Invalid(
-                    "SWARTZIT_MEDIA_SECONDARY is set in the environment; change that override first",
+                    "SWARTZIT_MEDIA_SECONDARIES is set in the environment; change that override first",
                 ));
             }
-            candidate.secondary_provider = secondary.to_owned();
+            candidate.secondary_providers = secondaries.clone();
+            candidate.secondary_provider = secondaries
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "disabled".to_owned());
         }
-        if candidate.secondary_provider != "disabled"
-            && candidate.secondary_provider == candidate.primary_provider
+        if candidate
+            .secondary_providers
+            .iter()
+            .any(|provider| provider == &candidate.primary_provider)
         {
             return Err(ApiError::Invalid(
-                "Media secondary must differ from the primary provider",
+                "Every media secondary must differ from the primary provider",
             ));
         }
         media_store::test_configured(&candidate)
@@ -658,7 +693,7 @@ pub async fn update_settings(
             .map_err(ApiError::Storage)?;
     }
     if input.media_primary.is_some()
-        || input.media_secondary.is_some()
+        || normalized_secondaries.is_some()
         || input.media_cache_enabled.is_some()
         || input.media_cache_max_bytes.is_some()
         || input.media_share.is_some()
@@ -667,15 +702,17 @@ pub async fn update_settings(
             "UPDATE media_settings
              SET primary_provider = COALESCE($1, primary_provider),
                  secondary_provider = COALESCE($2, secondary_provider),
-                 cache_enabled = COALESCE($3, cache_enabled),
-                 cache_max_bytes = COALESCE($4, cache_max_bytes),
-                 share_provider = COALESCE($5, share_provider),
-                 updated_by = $6,
+                 secondary_providers = COALESCE($3, secondary_providers),
+                 cache_enabled = COALESCE($4, cache_enabled),
+                 cache_max_bytes = COALESCE($5, cache_max_bytes),
+                 share_provider = COALESCE($6, share_provider),
+                 updated_by = $7,
                  updated_at = now()
              WHERE singleton = TRUE",
         )
         .bind(input.media_primary.as_deref())
-        .bind(input.media_secondary.as_deref())
+        .bind(legacy_secondary.as_deref())
+        .bind(normalized_secondaries.clone())
         .bind(input.media_cache_enabled)
         .bind(input.media_cache_max_bytes)
         .bind(input.media_share.as_deref())
@@ -690,6 +727,7 @@ pub async fn update_settings(
                 "actor_id": actor,
                 "primary": input.media_primary,
                 "secondary": input.media_secondary,
+                "secondaries": input.media_secondaries,
                 "cache_enabled": input.media_cache_enabled,
                 "cache_max_bytes": input.media_cache_max_bytes,
                 "share": input.media_share
@@ -1245,7 +1283,7 @@ fn validate_runner_policy(
     threshold: i32,
     retention: i32,
 ) -> Result<(), ApiError> {
-    if !(300..=604800).contains(&interval_seconds)
+    if !(60..=604800).contains(&interval_seconds)
         || !(0..=10000).contains(&priority)
         || !(30..=86400).contains(&timeout_seconds)
         || !(1..=10).contains(&attempts)
@@ -1958,7 +1996,7 @@ async fn store_content_runner_media(
         bytes,
         &digest,
         &stored,
-        &config.secondary_provider,
+        &config.secondary_providers,
     )
     .await?;
     Ok(Json(serde_json::json!({
@@ -2035,23 +2073,18 @@ async fn load_media_variant(
         return Err(ApiError::Missing);
     }
     let metadata = source_variant(&source, variant)?;
-    let secondary: Option<(String, String)> = if config.secondary_provider == "disabled" {
-        None
-    } else {
-        sqlx::query_as(
-            "SELECT provider, object_key
-             FROM media_replicas
-             WHERE media_id = $1 AND role = 'secondary' AND provider = $3
-               AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
-             ORDER BY id DESC
-             LIMIT 1",
-        )
-        .bind(id)
-        .bind(variant)
-        .bind(&config.secondary_provider)
-        .fetch_optional(db)
-        .await?
-    };
+    let secondaries: Vec<(String, String)> = sqlx::query_as(
+        "SELECT provider, object_key
+         FROM media_replicas
+         WHERE media_id = $1 AND role IN ('secondary', 'backup')
+           AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+         ORDER BY CASE role WHEN 'secondary' THEN 0 ELSE 1 END,
+                  last_verified_at DESC NULLS LAST, id DESC",
+    )
+    .bind(id)
+    .bind(variant)
+    .fetch_all(db)
+    .await?;
     let bytes = media_store::read_variant(
         config,
         media_store::VariantRead {
@@ -2062,9 +2095,10 @@ async fn load_media_variant(
             legacy_bytes: source.content_bytes.as_deref(),
             expected_checksum: (!metadata.checksum.is_empty())
                 .then_some(metadata.checksum.as_str()),
-            secondary: secondary
-                .as_ref()
-                .map(|(provider, key)| (provider.as_str(), key.as_str())),
+            secondaries: secondaries
+                .iter()
+                .map(|(provider, key)| (provider.as_str(), key.as_str()))
+                .collect(),
         },
     )
     .await
@@ -2130,7 +2164,7 @@ async fn record_secondary_replicas(
     media_id: i64,
     stored: &media_store::StoredAsset,
 ) -> Result<(), ApiError> {
-    if let Some(secondary) = stored.secondary.as_ref() {
+    for secondary in &stored.secondaries {
         let replica = media_store::StoredAsset {
             backend: secondary.backend.clone(),
             object_key: secondary
@@ -2139,7 +2173,7 @@ async fn record_secondary_replicas(
                 .map(|variant| variant.object_key.clone())
                 .unwrap_or_default(),
             variants: secondary.variants.clone(),
-            secondary: None,
+            secondaries: Vec::new(),
         };
         record_replicas(db, media_id, "secondary", &replica, &secondary.variants).await?;
         for variant in &secondary.variants {
@@ -2163,37 +2197,36 @@ async fn queue_secondary_replicas(
     db: &PgPool,
     media_id: i64,
     stored: &media_store::StoredAsset,
-    provider: &str,
+    providers: &[String],
 ) -> Result<(), ApiError> {
-    if provider == "disabled" {
-        return Ok(());
-    }
-    for variant in &stored.variants {
-        sqlx::query(
-            "INSERT INTO media_replicas
-                (media_id, provider, role, variant, checksum, byte_size, mime_type, state, error)
-             VALUES ($1, $2, 'secondary', $3, $4, $5, $6, 'uploading', '')
-             ON CONFLICT (media_id, provider, role, variant) DO NOTHING",
-        )
-        .bind(media_id)
-        .bind(provider)
-        .bind(&variant.variant)
-        .bind(&variant.checksum)
-        .bind(variant.byte_size as i64)
-        .bind(&variant.mime_type)
-        .execute(db)
-        .await?;
-        sqlx::query(
-            "INSERT INTO media_replication_jobs
-                (media_id, provider, variant, status, available_at, updated_at)
-             VALUES ($1, $2, $3, 'pending', now(), now())
-             ON CONFLICT (media_id, provider, variant) DO NOTHING",
-        )
-        .bind(media_id)
-        .bind(provider)
-        .bind(&variant.variant)
-        .execute(db)
-        .await?;
+    for provider in providers {
+        for variant in &stored.variants {
+            sqlx::query(
+                "INSERT INTO media_replicas
+                    (media_id, provider, role, variant, checksum, byte_size, mime_type, state, error)
+                 VALUES ($1, $2, 'secondary', $3, $4, $5, $6, 'uploading', '')
+                 ON CONFLICT (media_id, provider, role, variant) DO NOTHING",
+            )
+            .bind(media_id)
+            .bind(provider)
+            .bind(&variant.variant)
+            .bind(&variant.checksum)
+            .bind(variant.byte_size as i64)
+            .bind(&variant.mime_type)
+            .execute(db)
+            .await?;
+            sqlx::query(
+                "INSERT INTO media_replication_jobs
+                    (media_id, provider, variant, status, available_at, updated_at)
+                 VALUES ($1, $2, $3, 'pending', now(), now())
+                 ON CONFLICT (media_id, provider, variant) DO NOTHING",
+            )
+            .bind(media_id)
+            .bind(provider)
+            .bind(&variant.variant)
+            .execute(db)
+            .await?;
+        }
     }
     Ok(())
 }
@@ -2205,7 +2238,7 @@ async fn persist_stored_asset(
     bytes: &[u8],
     digest: &str,
     stored: &media_store::StoredAsset,
-    secondary_provider: &str,
+    secondary_providers: &[String],
 ) -> Result<(i64, String, String, serde_json::Value), ApiError> {
     let variants = media_store::variants_json(&stored.variants);
     let row: (i64, String, String, serde_json::Value) = sqlx::query_as(
@@ -2244,7 +2277,14 @@ async fn persist_stored_asset(
     if row.2 == stored.backend {
         record_primary_replicas(db, row.0, stored).await?;
         record_secondary_replicas(db, row.0, stored).await?;
-        queue_secondary_replicas(db, row.0, stored, secondary_provider).await?;
+        queue_secondary_replicas(db, row.0, stored, secondary_providers).await?;
+    } else {
+        // Content-addressed deduplication can encounter an asset created
+        // before a provider switch. Keep the newly written object as a
+        // verified rollback copy and still fan out the current secondaries;
+        // do not silently orphan the successful provider write.
+        record_replicas(db, row.0, "backup", stored, &stored.variants).await?;
+        queue_secondary_replicas(db, row.0, stored, secondary_providers).await?;
     }
     Ok(row)
 }
@@ -2304,7 +2344,7 @@ pub async fn upload_media(
         &bytes,
         &digest,
         &stored,
-        &config.secondary_provider,
+        &config.secondary_providers,
     )
     .await?;
     Ok((
@@ -2527,7 +2567,34 @@ async fn fail_media_replication_job(
     Ok(())
 }
 
-async fn reconcile_media_replication_jobs(db: &PgPool) -> Result<(), String> {
+async fn reconcile_media_replication_jobs(
+    db: &PgPool,
+    secondary_providers: &[String],
+) -> Result<(), String> {
+    if !secondary_providers.is_empty() {
+        // Repair the outbox if the process crashed after writing the asset but
+        // before it could create a replica/job row. This also makes adding a
+        // new secondary provider converge existing non-legacy assets without
+        // requiring an immediate full migration.
+        sqlx::query(
+            "INSERT INTO media_replicas
+                (media_id, provider, role, variant, checksum, byte_size, mime_type, state, error)
+             SELECT asset.id, provider, 'secondary', variant.key,
+                    NULLIF(variant.value->>'checksum', ''),
+                    COALESCE((variant.value->>'byte_size')::bigint, 0),
+                    COALESCE(NULLIF(variant.value->>'mime_type', ''), 'application/octet-stream'),
+                    'uploading', ''
+             FROM media_assets AS asset
+             CROSS JOIN unnest($1::text[]) AS provider
+             CROSS JOIN LATERAL jsonb_each(asset.variants) AS variant(key, value)
+             WHERE asset.status = 'ready' AND asset.storage_backend <> 'legacy'
+             ON CONFLICT (media_id, provider, role, variant) DO NOTHING",
+        )
+        .bind(secondary_providers)
+        .execute(db)
+        .await
+        .map_err(|error| format!("could not reconcile media replica rows: {error}"))?;
+    }
     sqlx::query(
         "INSERT INTO media_replication_jobs
             (media_id, provider, variant, status, available_at, updated_at)
@@ -2544,7 +2611,7 @@ async fn reconcile_media_replication_jobs(db: &PgPool) -> Result<(), String> {
 
 pub async fn process_media_replication_jobs(db: &PgPool) -> Result<u64, String> {
     let config = media_store::load_config(db).await?;
-    reconcile_media_replication_jobs(db).await?;
+    reconcile_media_replication_jobs(db, &config.secondary_providers).await?;
     let mut processed = 0_u64;
     for _ in 0..4 {
         let Some(job) = claim_media_replication_job(db).await? else {
@@ -2641,7 +2708,8 @@ pub async fn media_migrate(
     let mut failures = Vec::new();
     for source in sources {
         let mut stored_variants = Vec::new();
-        let mut secondary_variants = Vec::new();
+        let mut secondary_variants: BTreeMap<String, Vec<media_store::StoredVariant>> =
+            BTreeMap::new();
         let mut source_error = None;
         for variant in ["original", "thumbnail"] {
             let metadata = match source_variant(&source, variant) {
@@ -2685,10 +2753,13 @@ pub async fn media_migrate(
             )
             .await
             {
-                Ok((stored, secondary)) => {
+                Ok((stored, secondaries)) => {
                     stored_variants.push(stored);
-                    if let Some(secondary) = secondary {
-                        secondary_variants.push(secondary);
+                    for (provider, variant) in secondaries {
+                        secondary_variants
+                            .entry(provider)
+                            .or_default()
+                            .push(variant);
                     }
                 }
                 Err(error) => {
@@ -2719,12 +2790,10 @@ pub async fn media_migrate(
             backend: config.primary_provider.clone(),
             object_key: original_key,
             variants: stored_variants,
-            secondary: (config.secondary_provider != "disabled").then_some(
-                media_store::StoredReplica {
-                    backend: config.secondary_provider.clone(),
-                    variants: secondary_variants,
-                },
-            ),
+            secondaries: secondary_variants
+                .into_iter()
+                .map(|(backend, variants)| media_store::StoredReplica { backend, variants })
+                .collect(),
         };
         let variants = media_store::variants_json(&stored.variants);
         sqlx::query(
@@ -2745,10 +2814,11 @@ pub async fn media_migrate(
         sqlx::query(
             "UPDATE media_replicas
              SET state = 'deleted', updated_at = now()
-             WHERE media_id = $1 AND role = 'secondary' AND provider <> $2",
+             WHERE media_id = $1 AND role = 'secondary'
+               AND NOT (provider = ANY($2))",
         )
         .bind(source.id)
-        .bind(&config.secondary_provider)
+        .bind(&config.secondary_providers)
         .execute(&db)
         .await?;
         if source.storage_backend != "legacy" {
@@ -2819,23 +2889,23 @@ pub async fn media_verify(
                 source.storage_backend.clone(),
                 metadata.object_key.clone(),
             )];
-            if config.secondary_provider != "disabled"
-                && let Some((provider, object_key)) = sqlx::query_as::<_, (String, String)>(
-                    "SELECT provider, object_key
-                     FROM media_replicas
-                     WHERE media_id = $1 AND role = 'secondary' AND provider = $3
-                       AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
-                     ORDER BY id DESC
-                     LIMIT 1",
-                )
-                .bind(source.id)
-                .bind(variant)
-                .bind(&config.secondary_provider)
-                .fetch_optional(&db)
-                .await?
-            {
-                targets.push(("secondary".to_owned(), provider, object_key));
-            }
+            let secondary_targets = sqlx::query_as::<_, (String, String, String)>(
+                "SELECT provider, object_key, role
+                 FROM media_replicas
+                 WHERE media_id = $1 AND role IN ('secondary', 'backup')
+                   AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+                 ORDER BY CASE role WHEN 'secondary' THEN 0 ELSE 1 END,
+                          last_verified_at DESC NULLS LAST, id DESC",
+            )
+            .bind(source.id)
+            .bind(variant)
+            .fetch_all(&db)
+            .await?;
+            targets.extend(
+                secondary_targets
+                    .into_iter()
+                    .map(|(provider, object_key, role)| (role, provider, object_key)),
+            );
             for (role, provider, object_key) in targets {
                 if object_key.is_empty() {
                     failures.push(serde_json::json!({
@@ -2871,13 +2941,42 @@ pub async fn media_verify(
                         .execute(&db)
                         .await?;
                     }
-                    Err(error) => failures.push(serde_json::json!({
-                        "id": source.id,
-                        "variant": variant,
-                        "role": role,
-                        "provider": provider,
-                        "error": error
-                    })),
+                    Err(error) => {
+                        let error = error.chars().take(2000).collect::<String>();
+                        sqlx::query(
+                            "UPDATE media_replicas
+                             SET state = 'failed', error = $5, updated_at = now()
+                             WHERE media_id = $1 AND provider = $2 AND role = $3 AND variant = $4",
+                        )
+                        .bind(source.id)
+                        .bind(&provider)
+                        .bind(&role)
+                        .bind(variant)
+                        .bind(&error)
+                        .execute(&db)
+                        .await?;
+                        if role == "secondary" {
+                            sqlx::query(
+                                "UPDATE media_replication_jobs
+                                 SET status = 'pending', locked_at = NULL, available_at = now(),
+                                     last_error = $4, updated_at = now()
+                                 WHERE media_id = $1 AND provider = $2 AND variant = $3",
+                            )
+                            .bind(source.id)
+                            .bind(&provider)
+                            .bind(variant)
+                            .bind(&error)
+                            .execute(&db)
+                            .await?;
+                        }
+                        failures.push(serde_json::json!({
+                            "id": source.id,
+                            "variant": variant,
+                            "role": role,
+                            "provider": provider,
+                            "error": error
+                        }));
+                    }
                 }
             }
         }
@@ -3261,10 +3360,10 @@ mod tests {
 
     #[test]
     fn runner_policy_bounds_are_enforced() {
-        assert!(validate_runner_policy(300, 0, 30, 1, 10, 1, 1).is_ok());
-        assert!(validate_runner_policy(299, 0, 30, 1, 10, 1, 1).is_err());
-        assert!(validate_runner_policy(300, 10_001, 30, 1, 10, 1, 1).is_err());
-        assert!(validate_runner_policy(300, 0, 30, 11, 10, 1, 1).is_err());
+        assert!(validate_runner_policy(60, 0, 30, 1, 10, 1, 1).is_ok());
+        assert!(validate_runner_policy(59, 0, 30, 1, 10, 1, 1).is_err());
+        assert!(validate_runner_policy(60, 10_001, 30, 1, 10, 1, 1).is_err());
+        assert!(validate_runner_policy(60, 0, 30, 11, 10, 1, 1).is_err());
     }
 
     #[test]

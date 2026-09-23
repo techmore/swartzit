@@ -40,8 +40,9 @@ stores content hashes, media types, sizes, and optional magnet URIs; migration
 `0034_media_storage` adds the canonical provider, object key, variants, cache
 settings, and replica verification records; `0037_media_ipfs_secondary` adds
 IPFS and the optional secondary provider; `0039_media_replication_jobs` adds
-durable asynchronous secondary replication. Posts reference asset IDs rather
-than provider URLs.
+durable asynchronous secondary replication; `0042_media_multiple_secondaries`
+allows more than one secondary provider. Posts reference asset IDs rather than
+provider URLs.
 
 The public delivery endpoints are:
 
@@ -51,9 +52,10 @@ The public delivery endpoints are:
 
 Administrator settings are returned from `GET /api/admin/settings` under
 `media`, and can be changed with `POST /api/admin/settings` using
-`media_primary`, `media_secondary`, `media_cache_enabled`,
-`media_cache_max_bytes`, and `media_share`. Primary and secondary may be
-`filesystem`, `s3`, or `ipfs`; the secondary may also be `disabled`. The admin
+`media_primary`, `media_secondary` (legacy single-provider form),
+`media_secondaries` (an array of providers), `media_cache_enabled`,
+`media_cache_max_bytes`, and `media_share`. Primary and secondary providers may
+be `filesystem`, `s3`, or `ipfs`; an empty secondary array disables redundancy. The admin
 storage accounting is returned from `GET /api/admin/storage`, including
 database/project footprint, logical content totals, local media/cache bytes,
 and replica/job state. The admin
@@ -63,6 +65,6 @@ maintenance actions are `POST /api/admin/media/test`,
 
 Catbox.moe is an explicit share/export adapter only. IPFS uses a Kubo RPC
 endpoint, pins uploaded variants, and can be selected as either the primary or
-secondary durable provider. New secondary writes are queued and retried outside
-the request path. Reads verify the checksum and fall back to the secondary
-before repopulating the disposable local cache.
+secondary durable provider. New secondary writes are queued independently and
+retried outside the request path. Reads verify the checksum and try every ready
+secondary before repopulating the disposable local cache.

@@ -584,23 +584,18 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
     let config = media_store::load_config(&db)
         .await
         .map_err(ApiError::Storage)?;
-    let secondary: Option<(String, String)> = if config.secondary_provider == "disabled" {
-        None
-    } else {
-        sqlx::query_as(
-            "SELECT provider, object_key
-             FROM media_replicas
-             WHERE media_id = $1 AND role = 'secondary' AND provider = $3
-               AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
-             ORDER BY id DESC
-             LIMIT 1",
-        )
-        .bind(id)
-        .bind(variant)
-        .bind(&config.secondary_provider)
-        .fetch_optional(&db)
-        .await?
-    };
+    let secondaries: Vec<(String, String)> = sqlx::query_as(
+        "SELECT provider, object_key
+         FROM media_replicas
+         WHERE media_id = $1 AND role IN ('secondary', 'backup')
+           AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+         ORDER BY CASE role WHEN 'secondary' THEN 0 ELSE 1 END,
+                  last_verified_at DESC NULLS LAST, id DESC",
+    )
+    .bind(id)
+    .bind(variant)
+    .fetch_all(&db)
+    .await?;
     let bytes = media_store::read_variant(
         &config,
         media_store::VariantRead {
@@ -611,9 +606,10 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
             legacy_bytes: row.content_bytes.as_deref(),
             expected_checksum: (!metadata.checksum.is_empty())
                 .then_some(metadata.checksum.as_str()),
-            secondary: secondary
-                .as_ref()
-                .map(|(provider, key)| (provider.as_str(), key.as_str())),
+            secondaries: secondaries
+                .iter()
+                .map(|(provider, key)| (provider.as_str(), key.as_str()))
+                .collect(),
         },
     )
     .await
