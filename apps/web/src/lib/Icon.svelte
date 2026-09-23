@@ -24,6 +24,8 @@
     <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14" />
   {:else if name === 'sliders'}
     <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />
+  {:else if name === 'menu'}
+    <path d="M4 7h16M4 12h16M4 17h16" />
   {:else if name === 'info'}
     <circle cx="12" cy="12" r="8" /><path d="M12 10.5v5M12 7.5h.01" />
   {:else if name === 'login'}

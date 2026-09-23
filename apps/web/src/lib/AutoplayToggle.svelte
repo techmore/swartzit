@@ -1,10 +1,10 @@
 <script>
   import { onMount } from 'svelte';
   export let compact = false;
-  let enabled = true;
+  let enabled = false;
   const key = 'swartzit_autoplay';
   function read() {
-    try { enabled = localStorage.getItem(key) !== 'off'; } catch { enabled = true; }
+    try { enabled = localStorage.getItem(key) === 'on'; } catch { enabled = false; }
   }
   function toggle() {
     enabled = !enabled;

@@ -1,6 +1,9 @@
 <script>
+  import PostActions from '$lib/PostActions.svelte';
   export let source;
   export let text = '';
+  export let post = null;
+  export let embedded = false;
   const count = n => n == null ? '—' : new Intl.NumberFormat().format(n);
   let failed = {};
   let activeMedia = 0;
@@ -43,7 +46,8 @@
     activeMedia = (activeMedia + delta + mediaCount) % mediaCount;
   }
   function announcePlay(event, media) {
-    window.dispatchEvent(new CustomEvent('swartzit-media-play', { detail: { element: event.currentTarget, media, source } }));
+    const rect = event.currentTarget.getBoundingClientRect();
+    window.dispatchEvent(new CustomEvent('swartzit-media-play', { detail: { element: event.currentTarget, media, source, inlineVisible: rect.bottom > 0 && rect.top < innerHeight } }));
   }
   function announcePause(event) {
     window.dispatchEvent(new CustomEvent('swartzit-media-pause', { detail: { element: event.currentTarget } }));
@@ -56,24 +60,25 @@
     // visible card playing so scrolling never leaves background video running.
     node.muted = true;
     const autoplayEnabled = () => {
-      try { return localStorage.getItem('swartzit_autoplay') !== 'off'; } catch { return true; }
+      try { return localStorage.getItem('swartzit_autoplay') === 'on'; } catch { return false; }
     };
     const preferenceChanged = (event) => {
       if (!event.detail?.enabled && !node.paused) node.pause();
       if (event.detail?.enabled && node.getBoundingClientRect().top < innerHeight && node.getBoundingClientRect().bottom > 0) node.play().catch(() => {});
     };
     const observer = new IntersectionObserver(([entry]) => {
+      window.dispatchEvent(new CustomEvent('swartzit-media-visibility', { detail: { element: node, visible: entry.isIntersecting && entry.intersectionRatio >= 0.2 } }));
       if (autoplayEnabled() && entry.isIntersecting && entry.intersectionRatio >= 0.45) {
         node.muted = true;
         node.play().catch(() => {});
       } else if (!node.paused) node.pause();
-    }, { threshold: [0, 0.45] });
+    }, { threshold: [0, 0.2, 0.45] });
     observer.observe(node);
     window.addEventListener('swartzit-autoplay-change', preferenceChanged);
     return { destroy: () => { observer.disconnect(); window.removeEventListener('swartzit-autoplay-change', preferenceChanged); } };
   }
 </script>
-<section class="source-post" class:external-x={source.provider === 'x'} aria-label={`Imported ${providerLabel} post`}>
+<section class="source-post" class:external-x={source.provider === 'x'} class:embedded aria-label={`Imported ${providerLabel} post`}>
   <div class="source-heading">
     {#if source.provider === 'x' && source.profile_image_url}
       <span class="profile-hover" role="button" tabindex="0" aria-label={`Preview ${source.profile_display_name || source.source_author} profile`}>
@@ -99,6 +104,7 @@
     {#if source.provider === 'runner' && generationConfig && Object.keys(generationConfig).length}<details class="generation-details"><summary>Generation settings · reuse this recipe</summary><pre>{JSON.stringify(generationConfig, null, 2)}</pre></details>{/if}
     {#if sourceMetrics.length}<div class="source-metrics" aria-label={`${providerLabel} metrics`}><div class="source-metric-items">{#each sourceMetrics as [label, value, icon]}<span title={label}>{icon} {count(value)}</span>{/each}</div><small>Source counts · {new Date(source.observed_at).toLocaleDateString()}</small></div>{/if}
   {/if}
+  {#if post}<PostActions {post} />{/if}
   {#if source.media?.length}
     <div class:carousel-shell={source.media.length > 1} class="media-shell">
       {#if source.media.length > 1}<button class="carousel-button previous" type="button" aria-label="Previous media" onclick={() => moveMedia(-1)}>‹</button>{/if}
@@ -136,6 +142,7 @@
 </section>
 <style>
   .source-post{border:1px solid var(--border,#c7d0c6);border-radius:12px;background:var(--surface,#fff);padding:14px 16px;margin:14px 0;font-size:.92rem}
+  .source-post.embedded{border:0;border-radius:0;background:transparent;padding:0;margin:0}
   .source-post>div:first-child{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap}
   .source-heading{align-items:center}.source-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:var(--subtle,#dde3da)}.source-avatar-fallback{display:grid;place-items:center;font-weight:700;color:var(--link,#215e47)}
   .source-identity{display:flex;align-items:center;gap:7px;flex-wrap:wrap;flex:1}.source-identity strong{font-size:.92rem}.source-handle,.source-identity time{font-size:.78rem;color:var(--muted,#66766c)}.source-right{display:flex;align-items:center;gap:8px}.provider-badge{font-size:.8rem;color:var(--muted,#66766c);font-weight:700}.source-link{font-size:1.1rem;text-decoration:none}
@@ -146,14 +153,15 @@
   .profile-card-heading{display:flex;gap:10px;align-items:center}.profile-card-heading img{width:44px;height:44px;border-radius:50%;object-fit:cover}.profile-card-heading small{margin:2px 0 0}.profile-card p{font-size:.9rem;line-height:1.35}.profile-stats{display:flex;gap:12px;font-size:.8rem;color:var(--muted,#66766c)}.verified{display:inline-grid;place-items:center;width:16px;height:16px;margin-left:4px;border-radius:50%;background:var(--link,#215e47);color:white;font-size:.7rem}
   a{color:var(--link,#215e47);text-decoration:underline}
   small{display:block;color:var(--muted,#66766c);margin:6px 0}
-  .source-post p{margin:8px 0}.source-text{font-size:1rem;line-height:1.5;white-space:pre-wrap;color:var(--text,#1d2a27)}.quoted-post{border-left:3px solid var(--border,#c7d0c6);margin:12px 0;padding:8px 12px;background:var(--subtle,#f5f7f3);color:var(--muted,#53615d)}.quoted-post p{margin:4px 0 0;white-space:pre-wrap}.source-metrics{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted,#66766c);margin:10px 0 0!important;font-size:.76rem}.source-metric-items{display:flex;gap:12px}.source-metrics small{font-size:.68rem;margin:0 0 0 auto}
+  .source-post p{margin:8px 0}.source-text{font-size:1rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text,#1d2a27)}.quoted-post{border-left:3px solid var(--border,#c7d0c6);margin:12px 0;padding:8px 12px;background:var(--subtle,#f5f7f3);color:var(--muted,#53615d);overflow-wrap:anywhere}.quoted-post p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}.source-metrics{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted,#66766c);margin:10px 0 0!important;font-size:.76rem}.source-metric-items{display:flex;gap:12px}.source-metrics small{font-size:.68rem;margin:0 0 0 auto}
   .source-comments{margin-top:12px;border-top:1px solid var(--border,#c7d0c6);padding-top:10px}.source-comments summary{cursor:pointer;color:var(--muted,#66766c);font-size:.78rem;font-weight:700}.source-comment-list{display:grid;gap:9px;margin-top:10px}.source-comment{padding:9px 10px;border-left:2px solid var(--border,#c7d0c6);background:var(--subtle,#f5f7f3)}.source-comment>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted,#66766c);font-size:.72rem}.source-comment>div strong{color:var(--heading,#173d34)}.source-comment>div time{margin-left:auto}.source-comment p{margin:5px 0 0!important;white-space:pre-wrap;font-size:.82rem;line-height:1.4}
   .source-images{display:grid;gap:8px;margin:8px 0;max-width:680px}
   .media-shell{position:relative}.carousel-shell{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}.carousel-images{display:block;min-height:220px}.carousel-slide.inactive{display:none}.carousel-button{width:36px;height:36px;border:1px solid var(--border,#c7d0c6);border-radius:50%;background:var(--surface,#fff);color:var(--text,#15251b);font-size:1.8rem;line-height:1;cursor:pointer}.carousel-button:hover{background:var(--subtle,#f0f3ec)}.carousel-status{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:680px;color:var(--muted,#66766c);font-size:.78rem}.carousel-dots{display:flex;gap:5px}.carousel-dots button{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:var(--border,#c7d0c6);cursor:pointer}.carousel-dots button.active{background:var(--link,#215e47);transform:scale(1.25)}
   figure{margin:0;min-width:0} figcaption{margin-top:6px;color:var(--muted,#66766c)}
-  .source-images img,.source-images video{width:100%;max-height:600px;object-fit:contain;background:var(--subtle,#dde3da);display:block}
+  .source-images img,.source-images video{width:100%;max-height:420px;object-fit:contain;background:var(--subtle,#dde3da);display:block}
+  .source-images video{height:clamp(220px,30vw,420px);aspect-ratio:16/9}
   .count-1{grid-template-columns:1fr}
-  .count-1 img{aspect-ratio:16/9;max-height:510px}
+  .count-1 img{aspect-ratio:16/9;max-height:420px}
   .count-2{grid-template-columns:1fr 1fr}
   .count-2 img{aspect-ratio:16/9}
   .count-3{grid-template-columns:1fr 1fr}

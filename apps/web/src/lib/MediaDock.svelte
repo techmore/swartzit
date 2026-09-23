@@ -10,6 +10,9 @@
       active = event.detail;
       expanded = false;
     };
+    const onVisibility = (event) => {
+      if (active?.element === event.detail?.element) active = { ...active, inlineVisible: event.detail.visible };
+    };
     const onPause = (event) => {
       if (active?.element === event.detail?.element) active = { ...active, playing: false };
     };
@@ -17,10 +20,12 @@
       if (active?.element === event.detail?.element) active = { ...active, playing: false };
     };
     window.addEventListener('swartzit-media-play', onPlay);
+    window.addEventListener('swartzit-media-visibility', onVisibility);
     window.addEventListener('swartzit-media-pause', onPause);
     window.addEventListener('swartzit-media-ended', onEnded);
     return () => {
       window.removeEventListener('swartzit-media-play', onPlay);
+      window.removeEventListener('swartzit-media-visibility', onVisibility);
       window.removeEventListener('swartzit-media-pause', onPause);
       window.removeEventListener('swartzit-media-ended', onEnded);
     };
@@ -60,7 +65,7 @@
   }
 </script>
 
-{#if active}
+{#if active && (!active.inlineVisible || expanded)}
   <aside class:expanded class="media-dock" aria-label="Now playing">
     <div class="dock-player">
       <!-- svelte-ignore a11y_media_has_caption -->

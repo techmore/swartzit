@@ -4,12 +4,10 @@
   import Icon from '$lib/Icon.svelte';
   import { invalidateAll } from '$app/navigation';
   import SessionNav from '$lib/SessionNav.svelte';
-  import BookmarkButton from '$lib/BookmarkButton.svelte';
-  import ShareButton from '$lib/ShareButton.svelte';
+  import PostActions from '$lib/PostActions.svelte';
   import SourcePost from '$lib/SourcePost.svelte';
   import MediaDock from '$lib/MediaDock.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
-  import VoteButtons from '$lib/VoteButtons.svelte';
   import PostViews from '$lib/PostViews.svelte';
   import QuickCrossPost from '$lib/QuickCrossPost.svelte';
   import CommunityPicker from '$lib/CommunityPicker.svelte';
@@ -61,7 +59,6 @@
     <a class="brand" href="/">swartzit</a>
     <span class="header-context">The community commons</span>
     <div class="header-actions">
-      <a class="header-icon" href="/api/export" download="swartzit-export.json" aria-label="Export public data" title="Export public data"><Icon name="download" /></a>
       <button class="header-icon" type="button" aria-label={searchOpen ? 'Close search' : 'Search discussions'} title={searchOpen ? 'Close search' : 'Search discussions'} aria-expanded={searchOpen} onclick={toggleSearch}><Icon name={searchOpen ? 'x' : 'search'} /></button>
       <SessionNav compact />
     </div>
@@ -78,11 +75,43 @@
   {/if}
 </header>
 <main class="home">
-<div class="layout"><aside class="community-nav"><div class="sidebar-heading"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div><a class="selected" href="/">All discussions</a>{#each data.communities as community}<a href="/?community={community.slug}"><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</aside><section class="feed"><nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a></nav><details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class="selected" href="/">All discussions</a>{#each data.communities as community}<a href="/?community={community.slug}"><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details><div class="feed-head"><div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : 'Timeline'}</h1></div><details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest imports / posts</option><option value="score">Swartzit votes</option><option value="views">Swartzit views</option><option value="engaged">Swartzit engaged views</option><option value="comments">Swartzit comments</option><option value="source_views">X views</option><option value="source_likes">X likes</option><option value="source_reposts">X reposts</option><option value="source_replies">X replies</option></select><button type="submit">Apply</button></form></details></div>{#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from communities you follow.</p>{:else if feedLoading}<p role="status">Loading Following…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.feed === 'following' ? 'Follow a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}{#each feedPosts as post (post.id)}<article>{#if post.source?.provider !== 'x'}<div class="meta">
-{#if post.source?.provider === 'x' || post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From {post.source.provider === 'x' ? 'X' : 'Reddit'}</strong><span> · </span><span>{post.source.source_author}</span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
-{:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span> · </span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
-</div>{/if}{#if post.source?.provider === 'x'}<SourcePost source={post.source} text={post.body} />{:else}{#if !redundantSourceTitle(post)}<h3><a href="/post/{post.public_id}">{post.title}</a></h3>{/if}<p>{post.body}</p>{#if post.source}<SourcePost source={post.source} text={post.body} />{/if}{/if}<div class="post-actions"><BookmarkButton id={post.id} /><ShareButton id={post.public_id} title={post.title} /></div><VoteButtons id={post.id} score={post.score} /><footer><PostViews id={post.id} initial={post} /><a href="/post/{post.public_id}">{post.comment_count} comments</a><a class="open-discussion" href="/post/{post.public_id}">Open discussion →</a></footer></article>{/each}{/if}<nav aria-label="Discussion pages">{#if data.page > 1}<a href={pageLink(data.page - 1)}>← Previous</a>{/if} {#if feedHasMore}<a href={pageLink(data.page + 1)}>Next →</a>{/if}</nav></section></div>
-{#if token}<div class="compose-launcher"><button class="compose-fab" type="button" aria-label={composeOpen ? 'Close composer' : 'Start a discussion'} title={composeOpen ? 'Close composer' : 'Start a discussion'} aria-expanded={composeOpen} onclick={() => composeOpen = !composeOpen}><Icon name={composeOpen ? 'x' : 'plus'} size={23} /></button>{#if composeOpen}<section class="compose-panel" aria-labelledby="compose-title"><div class="compose-panel-heading"><div><p class="eyebrow">ADD TO THE COMMONS</p><h2 id="compose-title">Start a discussion</h2></div><button class="panel-close" type="button" aria-label="Close composer" title="Close composer" onclick={() => composeOpen = false}><Icon name="x" size={18} /></button></div><form onsubmit={(event) => { event.preventDefault(); createPost(); }}><CommunityPicker communities={data.communities} bind:value={community} id="discussion-community" /><label>Title<input bind:value={title} required maxlength="300" /></label><label>Body<textarea bind:value={body} maxlength="50000" rows="5"></textarea></label><button class="publish-button" type="submit">Publish</button>{#if formError}<p class="form-error">{formError}</p>{/if}{#if formMessage}<p class="form-message">{formMessage}</p>{/if}</form><details class="source-import"><summary><Icon name="download" size={16} />Share a source post</summary><QuickCrossPost communities={data.communities} selectedCommunity={community} /></details></section>{/if}</div>{/if}
+<div class="layout">
+  <aside class="community-nav">
+    <div class="sidebar-heading"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div>
+    <a class="selected" href="/">All discussions</a>
+    {#each data.communities as community}<a href="/?community={community.slug}"><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}
+  </aside>
+  <section class="feed">
+    <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a></nav>
+    <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class="selected" href="/">All discussions</a>{#each data.communities as community}<a href="/?community={community.slug}"><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
+    <div class="feed-head">
+      <div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : 'Timeline'}</h1></div>
+      <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
+    </div>
+    {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from communities you follow.</p>{:else if feedLoading}<p role="status">Loading Following…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.feed === 'following' ? 'Follow a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
+      {#each feedPosts as post (post.id)}
+        <article class:source-article={Boolean(post.source)}>
+          {#if post.source?.provider === 'x'}
+            <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from X</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
+            {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
+            <SourcePost source={post.source} text={post.body} post={post} embedded={true} />
+          {:else}
+            <div class="meta">
+              {#if post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From Reddit</strong><span> · </span><span>{post.source.source_author}</span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
+              {:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span> · </span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
+            </div>
+            {#if !redundantSourceTitle(post)}<h3><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
+            <p>{post.body}</p>
+            {#if post.source}<SourcePost source={post.source} text={post.body} post={post} embedded={true} />{:else}<PostActions {post} />{/if}
+          {/if}
+          <footer><PostViews id={post.id} initial={post} /><a class="open-discussion" href={'/post/' + post.public_id}>Open discussion →</a></footer>
+        </article>
+      {/each}
+    {/if}
+    <nav aria-label="Discussion pages">{#if data.page > 1}<a href={pageLink(data.page - 1)}>← Previous</a>{/if} {#if feedHasMore}<a href={pageLink(data.page + 1)}>Next →</a>{/if}</nav>
+  </section>
+</div>
+{#if token}<div class="compose-launcher"><button class="compose-fab" type="button" aria-label={composeOpen ? 'Close composer' : 'Start a discussion'} title={composeOpen ? 'Close composer' : 'Start a discussion'} aria-expanded={composeOpen} onclick={() => composeOpen = !composeOpen}><Icon name={composeOpen ? 'x' : 'plus'} size={20} /><span class="compose-label">{composeOpen ? 'Close' : 'Start discussion'}</span></button>{#if composeOpen}<section class="compose-panel" aria-labelledby="compose-title"><div class="compose-panel-heading"><div><p class="eyebrow">ADD TO THE COMMONS</p><h2 id="compose-title">Start a discussion</h2></div><button class="panel-close" type="button" aria-label="Close composer" title="Close composer" onclick={() => composeOpen = false}><Icon name="x" size={18} /></button></div><form onsubmit={(event) => { event.preventDefault(); createPost(); }}><CommunityPicker communities={data.communities} bind:value={community} id="discussion-community" /><label>Title<input bind:value={title} required maxlength="300" /></label><label>Body<textarea bind:value={body} maxlength="50000" rows="5"></textarea></label><button class="publish-button" type="submit">Publish</button>{#if formError}<p class="form-error">{formError}</p>{/if}{#if formMessage}<p class="form-message">{formMessage}</p>{/if}</form><details class="source-import"><summary><Icon name="download" size={16} />Share a source post</summary><QuickCrossPost communities={data.communities} selectedCommunity={community} /></details></section>{/if}</div>{/if}
 </main>
 <MediaDock />
 <style>
@@ -100,13 +129,21 @@
   .global-search button{width:40px;height:40px;display:grid;place-items:center;border-radius:8px;padding:0}
   .home{padding:34px 24px 110px}
   .layout{grid-template-columns:204px minmax(0,720px);justify-content:center;gap:48px}
-  .community-nav{padding-top:8px}
+  .community-nav{position:sticky;top:82px;align-self:start;max-height:calc(100vh - 104px);overflow-y:auto;padding-top:8px;scrollbar-width:thin}
+  .community-nav::-webkit-scrollbar{width:7px}
+  .community-nav::-webkit-scrollbar-thumb{background:var(--border,#c7ccc3);border-radius:999px}
   .sidebar-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
   .sidebar-heading h2{margin:0}
   .sidebar-heading a{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:var(--muted,#66766c)}
   .sidebar-heading a:hover{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
   .community-nav>a{padding:8px 10px;border-radius:8px}
   .feed{min-width:0;max-width:720px}
+  .feed>article.source-article{padding:20px 22px}
+  .feed-context{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;color:var(--muted,#66766c);font-size:.76rem;font-weight:650}
+  .feed-context a{color:var(--accent,#575d3d);font-weight:800}
+  .feed-context time{margin-left:auto;font-weight:500}
+  .feed-title{margin:0 0 12px!important;font-size:1.45rem!important;line-height:1.15!important;overflow-wrap:anywhere}
+  .feed-title a,.feed>article h3 a{overflow-wrap:anywhere}
   .feed-tabs{display:flex;gap:20px;margin:0 0 26px;border-bottom:1px solid var(--border,#dedfd7)}
   .feed-tabs a{position:relative;padding:0 2px 12px;color:var(--muted,#66766c);font-size:.9rem;font-weight:700}
   .feed-tabs a.active{color:var(--heading,#173d34)}
@@ -121,11 +158,12 @@
   .feed-options form{position:absolute;right:0;top:calc(100% + 8px);z-index:5;width:220px;padding:12px;border:1px solid var(--border,#c7ccc3);border-radius:10px;background:var(--surface,#fff);box-shadow:0 12px 28px #0002}
   .feed-options select{width:100%;height:38px;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:0 8px;background:var(--page,#f6f4ee);font:inherit;font-size:.8rem}
   .feed-options button{margin-top:9px;width:100%;height:36px;border-radius:7px;font-size:.78rem}
+  .feed>article>footer{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border,#dedfd7);color:var(--muted,#66766c);font-size:.78rem}
   .open-discussion{margin-left:auto;color:var(--accent,#9b5e38);font-weight:700}
-  .post-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .mobile-community-nav{display:none}
   .compose-launcher{position:fixed;right:30px;bottom:132px;z-index:40}
-  .compose-fab{width:54px;height:54px;display:grid;place-items:center;border-radius:50%;padding:0;background:var(--accent,#9b5e38);color:#fff;box-shadow:0 8px 22px #0003;cursor:pointer}
+  .compose-fab{min-width:54px;height:46px;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:0 17px;background:var(--accent,#9b5e38);color:#fff;box-shadow:0 8px 22px #0003;cursor:pointer;font-weight:750}
+  .compose-label{white-space:nowrap;font-size:.8rem}
   .compose-fab:hover,.compose-fab:focus-visible{transform:translateY(-2px);box-shadow:0 11px 26px #0004}
   .compose-panel{position:absolute;right:0;bottom:66px;width:min(390px,calc(100vw - 40px));padding:20px;border:1px solid var(--border,#c7ccc3);border-radius:14px;background:var(--surface,#fff);box-shadow:0 16px 45px #0003}
   .compose-panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
@@ -147,7 +185,7 @@
   .source-import :global(.crosspost-heading>p),.source-import :global(.crosspost-note){display:none}
   .source-import :global(form){display:grid;grid-template-columns:1fr;gap:9px}
   .source-import :global(form button){width:100%}
-  @media(max-width:900px){.header-context{display:none}.layout{grid-template-columns:180px minmax(0,720px);gap:28px}}
+  @media(max-width:900px){.header-context{display:none}.layout{grid-template-columns:180px minmax(0,720px);gap:28px}.community-nav{position:static;max-height:none;overflow:visible}}
   @media(max-width:700px){
     .home-header-inner{height:60px;padding:0 16px;gap:10px}
     .home-header .brand{font-size:1.2rem}
@@ -159,6 +197,8 @@
     .layout{display:block}
     .community-nav{display:none}
     .feed{max-width:none}
+    .feed>article.source-article{padding:20px 18px}
+    .feed-context time{margin-left:0}
     .feed-tabs{padding:0 18px;margin-bottom:20px}
     .feed-head{padding:0 18px;margin-bottom:16px}
     .feed-head h1{font-size:2rem}
@@ -168,6 +208,8 @@
     .feed>article:first-of-type{border-top:0}
     .feed nav{padding:22px 18px}
     .compose-launcher{right:18px;bottom:132px}
+    .compose-fab{width:54px;min-width:54px;height:54px;padding:0;border-radius:50%}
+    .compose-label{display:none}
     .compose-panel{bottom:66px;width:min(390px,calc(100vw - 28px));padding:17px}
   }
 </style>

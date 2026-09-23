@@ -153,6 +153,7 @@ struct FeedQuery {
     q: Option<String>,
     page: Option<i64>,
 }
+const FEED_PAGE_SIZE: i64 = 12;
 #[derive(Deserialize, Default)]
 struct ProfileQuery {
     tab: Option<String>,
@@ -289,7 +290,7 @@ impl FeedQuery {
         if !(1..=10000).contains(&page) {
             return Err(ApiError::Invalid("Page must be between 1 and 10000"));
         }
-        Ok((page - 1) * 20)
+        Ok((page - 1) * FEED_PAGE_SIZE)
     }
 }
 const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
@@ -1565,7 +1566,8 @@ async fn posts(
     let q = query.q.as_deref().unwrap_or("").trim();
     let order = imports::order(query.sort.as_deref())?;
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY {order}, p.id DESC LIMIT 21 OFFSET $3"
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
+        FEED_PAGE_SIZE + 1
     );
     let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
         Some(format!(
@@ -1589,8 +1591,8 @@ async fn posts(
             .fetch_all(&db),
     )
     .await?;
-    let has_more = posts.len() > 20;
-    posts.truncate(20);
+    let has_more = posts.len() > FEED_PAGE_SIZE as usize;
+    posts.truncate(FEED_PAGE_SIZE as usize);
     let value = serde_json::json!({"posts": posts, "has_more": has_more});
     if let Some(key) = cache_key {
         operations::public_cache_put(key, value.clone());
@@ -1606,7 +1608,8 @@ async fn home_feed(
     let order = imports::order(query.sort.as_deref())?;
     let offset = query.validate()?;
     let sql = format!(
-        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) ORDER BY {order}, p.id DESC LIMIT 21 OFFSET $4"
+        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
+        FEED_PAGE_SIZE + 1
     );
     let mut posts: Vec<Post> = operations::timed_query(
         "feed.following",
@@ -1618,8 +1621,8 @@ async fn home_feed(
             .fetch_all(&db),
     )
     .await?;
-    let has_more = posts.len() > 20;
-    posts.truncate(20);
+    let has_more = posts.len() > FEED_PAGE_SIZE as usize;
+    posts.truncate(FEED_PAGE_SIZE as usize);
     Ok(Json(
         serde_json::json!({"posts": posts, "has_more": has_more}),
     ))
@@ -2107,7 +2110,7 @@ mod tests {
             }
             .validate()
             .unwrap(),
-            20
+            FEED_PAGE_SIZE
         );
     }
     #[test]
