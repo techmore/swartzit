@@ -36,6 +36,16 @@ swartzit start
 swartzit status
 ```
 
+### Performance smoke benchmark
+
+For repeatable release comparisons, run the dependency-free benchmark against a running API:
+
+```bash
+make perf-smoke PERF_REQUESTS=500 PERF_CONCURRENCY=8
+```
+
+It emits JSON with completion count, errors, elapsed time, p50, p95, maximum latency, and response size. Keep results with the hardware profile and database fixture; do not compare numbers across machines without recording both.
+
 ### macOS menu-bar status
 
 On macOS, install the small native status companion so end users can see at a glance whether Swartzit is running. It refreshes every 30 seconds and provides Open, Check Now, Start, and Stop actions:
