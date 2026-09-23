@@ -2,6 +2,7 @@ import Cocoa
 import Foundation
 
 struct Health: Decodable {
+    let status: String?
     let api: String
     let web: String
     let database: String
@@ -9,9 +10,23 @@ struct Health: Decodable {
     let worker: String
     let `public`: String
     let network: Network?
+    let uptime: Uptime?
     let pulse: Pulse?
 }
-struct Pulse: Decodable { let status: String?; let url: String?; let latency_ms: Int?; let checked_at: String? }
+struct Pulse: Decodable {
+    let status: String?
+    let url: String?
+    let latency_ms: Int?
+    let http_status: Int?
+    let age_seconds: Int?
+    let checked_at: String?
+}
+struct Uptime: Decodable {
+    let status: String?
+    let started_at: String?
+    let seconds: Int?
+    let duration: String?
+}
 struct Network: Decodable {
     let mode: String?
     let label: String?
@@ -33,6 +48,8 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     private var orchardItems: [NSMenuItem] = []
     private var checkNowItem: NSMenuItem!
     private var networkItem: NSMenuItem!
+    private var uptimeItem: NSMenuItem!
+    private var pulseItem: NSMenuItem!
     private var currentOpenURL: String?
     private var timer: Timer?
     private var command: String { ProcessInfo.processInfo.environment["SWARTZIT_COMMAND"] ?? "swartzit" }
@@ -54,6 +71,12 @@ final class StatusApp: NSObject, NSApplicationDelegate {
         networkItem = NSMenuItem(title: "Network: Checking…", action: nil, keyEquivalent: "")
         networkItem.isEnabled = false
         menu.addItem(networkItem)
+        uptimeItem = NSMenuItem(title: "Uptime: Checking…", action: nil, keyEquivalent: "")
+        uptimeItem.isEnabled = false
+        menu.addItem(uptimeItem)
+        pulseItem = NSMenuItem(title: "Uptime pulse: Checking…", action: nil, keyEquivalent: "")
+        pulseItem.isEnabled = false
+        menu.addItem(pulseItem)
         let activityHeader = NSMenuItem(title: "Activity", action: nil, keyEquivalent: "")
         activityHeader.isEnabled = false
         menu.addItem(activityHeader)
@@ -113,14 +136,24 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             let result = self.run(["status", "--json"])
             let health = result.data.flatMap { try? JSONDecoder().decode(Health.self, from: $0) }
             DispatchQueue.main.async {
-                let ready = health?.api == "ready" && health?.web == "ready" && health?.database == "ready" && health?.public != "down" && health?.pulse?.status != "down"
+                let localUp = health?.status == "up" || (health?.api == "ready" && health?.web == "ready" && health?.database == "ready")
+                let publicDown = health?.public == "down"
+                let pulseDown = health?.pulse?.status == "down"
                 if self.item.button?.image == nil {
-                    self.item.button?.title = ready ? "● Swartzit" : "○ Swartzit"
+                    self.item.button?.title = localUp ? "● Swartzit" : "○ Swartzit"
                 }
                 let summary = self.menu.items[0]
-                summary.title = ready ? "Swartzit: Running" : (health == nil ? "Swartzit: Unavailable" : "Swartzit: Needs attention")
+                summary.title = health == nil
+                    ? "Swartzit: UNAVAILABLE"
+                    : (localUp
+                        ? (publicDown ? "Swartzit: UP · Public DOWN" : (pulseDown ? "Swartzit: UP · Pulse DOWN" : "Swartzit: UP"))
+                        : "Swartzit: DOWN")
                 summary.toolTip = self.summary(health)
+                self.item.button?.toolTip = self.summary(health)
+                self.item.button?.setAccessibilityLabel(localUp ? "Swartzit up" : "Swartzit down")
                 self.networkItem.title = self.networkTitle(health?.network)
+                self.uptimeItem.title = self.uptimeTitle(health?.uptime)
+                self.pulseItem.title = self.pulseTitle(health?.pulse, publicStatus: health?.public)
                 if let webURL = health?.network?.web_url, !webURL.isEmpty {
                     self.currentOpenURL = webURL
                 }
@@ -187,8 +220,10 @@ final class StatusApp: NSObject, NSApplicationDelegate {
 
     private func summary(_ health: Health?) -> String {
         guard let health else { return "Could not read Swartzit status." }
+        let state = health.status ?? (health.api == "ready" && health.web == "ready" && health.database == "ready" ? "up" : "down")
         let pulse = health.pulse?.status ?? "unknown"
-        return "\(networkTitle(health.network)) · API \(health.api) · Web \(health.web) · DB \(health.database) · Pulse \(pulse)"
+        let uptime = health.uptime?.duration ?? "unknown"
+        return "\(state.uppercased()) · \(networkTitle(health.network)) · Uptime \(uptime) · API \(health.api) · Web \(health.web) · DB \(health.database) · Uptime pulse \(pulse)"
     }
 
     private func networkTitle(_ network: Network?) -> String {
@@ -202,10 +237,36 @@ final class StatusApp: NSObject, NSApplicationDelegate {
             .compactMap { $0 }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        var value = "Network: \(label)"
+        var value = "Bound: \(label)"
         if !web.isEmpty { value += " · Web \(web)" }
         if !api.isEmpty { value += " · API \(api)" }
         return value
+    }
+
+    private func uptimeTitle(_ uptime: Uptime?) -> String {
+        guard let uptime else { return "Uptime: unknown" }
+        let state = (uptime.status ?? "unknown").uppercased()
+        let duration = uptime.duration ?? "unknown"
+        guard let started = uptime.started_at, !started.isEmpty else {
+            return "Uptime: \(state) · \(duration)"
+        }
+        return "Uptime: \(state) · \(duration) · since \(shortTime(started))"
+    }
+
+    private func pulseTitle(_ pulse: Pulse?, publicStatus: String?) -> String {
+        let state = (pulse?.status ?? (publicStatus == "down" ? "down" : "unknown")).uppercased()
+        var value = "Uptime pulse: \(state)"
+        if let latency = pulse?.latency_ms { value += " · \(latency) ms" }
+        if let age = pulse?.age_seconds { value += " · checked \(age)s ago" }
+        return value
+    }
+
+    private func shortTime(_ value: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: value) else { return value }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        formatter.timeZone = .current
+        return formatter.string(from: date)
     }
 
     private func run(_ arguments: [String]) -> (data: Data?, code: Int32) {

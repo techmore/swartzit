@@ -150,6 +150,7 @@ case "${1:-status}" in
       printf 'SWARTZIT_WEB_BIND_IP=%q\n' "$WEB_BIND_IP"
       printf 'SWARTZIT_API_BIND_INTERFACE=%q\n' "$API_INTERFACE"
       printf 'SWARTZIT_API_BIND_IP=%q\n' "$API_BIND_IP"
+      printf 'SWARTZIT_STARTED_AT=%q\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
       printf 'SWARTZIT_CHECK_URL=%q\n' "${SWARTZIT_CHECK_URL:-}"
       printf 'SWARTZIT_CADDY=%q\n' "${SWARTZIT_CADDY:-0}"
       printf 'SWARTZIT_STATE_DIR=%q\n' "$STATE_DIR"

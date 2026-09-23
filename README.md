@@ -78,7 +78,7 @@ On macOS, install the small native status companion so end users can see at a gl
 bash scripts/install-mac-status.sh
 ```
 
-The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. It also shows the active network mode, interface, and bound address—for example `Wi-Fi/LAN · en0 · 10.x.x.x`. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
+The status item checks the API, web UI, database, optional Caddy/public URL, and worker state using the same `swartzit status --json` command exposed to scripts and Homebrew. Its first rows explicitly show `Swartzit: UP` or `DOWN`, the network binding (for example `Wi-Fi/LAN · Web en0 10.x.x.x · API loopback 127.0.0.1`), the server uptime, and the latest configurable uptime pulse. It runs as a per-user LaunchAgent and does not store application data in the menu-bar app.
 
 `swartzit start` defaults the web UI to the detected Wi-Fi interface (`en0`,
 falling back to `en1`) while keeping the API on loopback. Choose another mode
@@ -94,6 +94,10 @@ SWARTZIT_API_INTERFACE=wifi swartzit start wifi  # expose the API too
 
 The menu item follows the current runtime state, so it reports when the web UI
 is Wi-Fi-bound even if the API remains private.
+
+The API `/health` endpoint reports its UTC start time and live uptime seconds.
+`swartzit status --json` exposes those values under `uptime`; a stale pulse is
+shown as `stale` instead of being mistaken for a current successful check.
 
 The public tap is pinned to the timestamped release archive. Users can install
 the current release with:

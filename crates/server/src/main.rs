@@ -310,7 +310,16 @@ async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
 }
 async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&db).await?;
-    Ok(Json(serde_json::json!({"status":"ok"})))
+    let started_at = STARTED_AT.get().copied().unwrap_or_else(Utc::now);
+    let uptime_seconds = Utc::now()
+        .signed_duration_since(started_at)
+        .num_seconds()
+        .max(0);
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "started_at": started_at,
+        "uptime_seconds": uptime_seconds
+    })))
 }
 fn uptime_pulse_path() -> std::path::PathBuf {
     if let Ok(path) = std::env::var("SWARTZIT_PULSE_FILE") {
