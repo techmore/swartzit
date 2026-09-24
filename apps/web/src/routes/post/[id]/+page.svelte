@@ -6,6 +6,7 @@
   import ShareButton from '$lib/ShareButton.svelte';
   import PostViews from '$lib/PostViews.svelte';
   import SourcePost from '$lib/SourcePost.svelte';
+  import PostBody from '$lib/PostBody.svelte';
   import DrawThingsFeedback from '$lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
   import { mediaShareUrl } from '$lib/media-share.js';
@@ -74,7 +75,7 @@
     {#if data.post.content_rating === 'r' || data.post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={data.post.content_rating === 'r'} class:content-rating-x={data.post.content_rating === 'x'} class="content-rating">{data.post.content_rating.toUpperCase()}</span><span>{data.post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}</span></div>{/if}
     {#if data.post.source?.provider === 'x' || data.post.source?.provider === 'reddit' || data.post.source?.provider === 'youtube'}<div class="meta post-author"><AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From {data.post.source.provider === 'x' ? 'X' : data.post.source.provider === 'reddit' ? 'Reddit' : 'YouTube'}</strong> · {data.post.source.source_author}</span></div>
     {:else}<div class="meta post-author"><AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · <a href={'/u/' + data.post.author}>u/{data.post.author}</a></span></div>{/if}
-    {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}{#if data.post.source?.provider !== 'youtube'}<p>{data.post.body}</p>{/if}{/if}
+    {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}{#if data.post.source?.provider !== 'youtube'}<PostBody body={data.post.body} />{/if}{/if}
     {#if data.post.source}{#key data.post.id}<SourcePost source={data.post.source} text={data.post.body} />{/key}{/if}
     {#if data.draw_feedback && data.post.source?.generation_config?.provider === 'draw_things'}
       <DrawThingsFeedback postId={data.post.id} summary={data.draw_feedback} />

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.21-20260924T11
+
+- Adds YouTube support to regular discussions: valid video links in post bodies
+  render as privacy-enhanced embeds without downloading or replicating video.
+- Makes the signed-in composer explain both normal-post embedding and the
+  dedicated X/Reddit/YouTube source-sharing flow.
+- Keeps X-rated content out of feeds by default until the viewer opts in.
+
 ## 0.1.20-20260923T18
 
 - Keeps the update health gate strict for API, web, database, and public HTTPS

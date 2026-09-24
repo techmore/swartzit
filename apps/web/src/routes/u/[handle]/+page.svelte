@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
+  import PostBody from '$lib/PostBody.svelte';
 
   export let data;
   let token = '', viewer = null, displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
@@ -93,7 +94,7 @@
             <article class="activity-item">
               <div><span class="badge">Post</span><span class="muted"> · {date(item.created_at)} · c/{item.community}</span></div>
               <h3><a href="/post/{item.public_id}">{item.title}</a></h3>
-              {#if item.body}<p class="timeline-body">{item.body}</p>{/if}
+              {#if item.body}<PostBody body={item.body} />{/if}
               <div class="timeline-meta"><span>{item.score ?? 0} points</span><span>{item.comment_count ?? 0} replies</span>{#if item.source?.media?.length}<span>{item.source.media.length} media</span>{/if}</div>
             </article>
           {/each}
