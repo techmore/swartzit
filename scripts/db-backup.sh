@@ -58,8 +58,11 @@ else
   MEDIA_STATUS="not present"
 fi
 {
-  shasum -a 256 "$OUT_DIR/swartzit.dump"
-  [[ ! -f "$OUT_DIR/media.tgz" ]] || shasum -a 256 "$OUT_DIR/media.tgz"
+  (
+    cd "$OUT_DIR"
+    shasum -a 256 swartzit.dump
+    [[ ! -f media.tgz ]] || shasum -a 256 media.tgz
+  )
 } > "$OUT_DIR/SHA256SUMS"
 cp "$OUT_DIR/row-counts.tsv" "$OUT_DIR/source-row-counts.tsv"
 archive_files=(swartzit.dump row-counts.tsv source-row-counts.tsv SHA256SUMS)

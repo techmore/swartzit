@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.23-20260924T13
+
+- Makes backup checksum manifests portable by recording paths relative to the
+  extracted backup directory, so recovery verification works across macOS and
+  Linux hosts.
+
 ## 0.1.22-20260924T13
 
 - Adds the optional content-package extension surface with bounded JSONL
