@@ -23,7 +23,16 @@
   const initialCommunity = data.communities.find(item => item.slug === data.community)?.slug || data.communities[0]?.slug || '';
   let token = '', title = '', body = '', contentRating = 'general', community = initialCommunity, formError = '', formMessage = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedLoading = false, feedError = '', followingRequestKey = '';
+  const TIMELINE_LONG_POST_THRESHOLD = 900;
+  const TIMELINE_EXCERPT_LIMIT = 420;
   const redundantSourceTitle = post => post?.source?.provider === 'x' && post.title?.trim() === post.body?.split(/\r?\n/, 1)[0]?.trim();
+  const articleConfig = post => post?.source?.generation_config?.content_kind === 'article' ? post.source.generation_config : null;
+  const timelineMedia = post => { const item = post?.source?.media?.[0]; return typeof item === 'string' ? item : item?.kind === 'image' ? item.src : item?.poster || ''; };
+  const timelineLabel = post => { const config = articleConfig(post); return config ? `Article · Day ${config.unit_order || 1}${config.unit_count ? ` of ${config.unit_count}` : ''}` : 'Long post'; };
+  const timelineExcerpt = body => { const text = String(body || '').replace(/^#{1,6}\s+/gm, '').replace(/[*_>`]/g, '').replace(/\s+/g, ' ').trim(); return text.length > TIMELINE_EXCERPT_LIMIT ? `${text.slice(0, TIMELINE_EXCERPT_LIMIT).trimEnd()}…` : text; };
+  const isArticlePost = post => Boolean(articleConfig(post));
+  const isLongPost = post => String(post?.body || '').trim().length > TIMELINE_LONG_POST_THRESHOLD;
+  const isTimelinePreview = post => isArticlePost(post) || isLongPost(post);
   onMount(() => {
     token = localStorage.getItem('swartzit_session') ?? '';
     const timer = setInterval(() => { if (!document.hidden) invalidateAll(); }, 300000);
@@ -104,7 +113,23 @@
       {#each feedPosts as post (post.id)}
         <article class:source-article={Boolean(post.source)}>
           {#if post.content_rating === 'r' || post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={post.content_rating === 'r'} class:content-rating-x={post.content_rating === 'x'} class="content-rating" title={post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}>{post.content_rating.toUpperCase()}</span><span>{post.content_rating === 'r' ? 'R-rated' : 'X-rated'}</span></div>{/if}
-          {#if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
+          {#if isTimelinePreview(post)}
+            {#if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
+              <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
+              {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
+            {:else}
+              <div class="meta">
+                {#if post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From Reddit</strong><span> · </span><span>{post.source.source_author}</span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
+                {:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span> · </span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
+              </div>
+              {#if !redundantSourceTitle(post)}<h3><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
+            {/if}
+            <div class="timeline-preview-card" class:no-image={!timelineMedia(post)}>
+              {#if timelineMedia(post)}<a class="timeline-preview-image" href={'/post/' + post.public_id} aria-label={'Open ' + post.title}><img src={timelineMedia(post)} alt={post.title} loading="lazy" /></a>{/if}
+              <div class="timeline-preview-copy"><span class="timeline-preview-label">{timelineLabel(post)}</span><p>{timelineExcerpt(post.body)}</p><a class="timeline-read-link" href={'/post/' + post.public_id}>{isArticlePost(post) ? 'Read full article →' : 'Read full post →'}</a></div>
+            </div>
+            <PostActions {post} />
+          {:else if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
             <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
             {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
             <SourcePost source={post.source} text={post.body} post={post} embedded={true} />
@@ -188,6 +213,14 @@
   .content-rating-r{background:#9b5e38;border-color:#9b5e38;color:#fff}
   .content-rating-x{background:#6f263d;border-color:#6f263d;color:#fff}
   .clear-content-filters{display:block;margin-top:1px;color:var(--accent,#9b5e38);font-size:.76rem;font-weight:700;text-align:center}
+  .timeline-preview-card{display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr);gap:16px;align-items:start;margin:10px 0 2px;padding:10px;border:1px solid var(--border,#c7ccc3);border-radius:10px;background:color-mix(in srgb,var(--subtle,#e4e9df) 48%,var(--surface,#fff))}
+  .timeline-preview-card.no-image{grid-template-columns:minmax(0,1fr)}
+  .timeline-preview-image{display:block;overflow:hidden;border-radius:7px;background:var(--subtle,#dde3da);aspect-ratio:16/10}
+  .timeline-preview-image img{display:block;width:100%;height:100%;object-fit:cover}
+  .timeline-preview-copy{min-width:0;padding:2px 2px 3px}
+  .timeline-preview-label{display:block;color:var(--accent,#9b5e38);font-size:.68rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+  .timeline-preview-copy p{display:-webkit-box;margin:7px 0 10px;overflow:hidden;color:var(--muted,#66766c);font-size:.84rem;line-height:1.45;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4}
+  .timeline-read-link{color:var(--heading,#173d34);font-size:.8rem;font-weight:800}
   .feed>article>footer{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border,#dedfd7);color:var(--muted,#66766c);font-size:.78rem}
   .open-discussion{margin-left:auto;color:var(--accent,#9b5e38);font-weight:700}
   .mobile-community-nav{display:none}
@@ -229,7 +262,10 @@
     .layout{display:block}
     .community-nav{display:none}
     .feed{max-width:none}
-    .feed>article.source-article{padding:20px 18px}
+  .feed>article.source-article{padding:20px 18px}
+  .timeline-preview-card{grid-template-columns:92px minmax(0,1fr);gap:11px;padding:8px}
+  .timeline-preview-card.no-image{grid-template-columns:minmax(0,1fr)}
+  .timeline-preview-copy p{font-size:.78rem;-webkit-line-clamp:3;line-clamp:3}
     .feed-context time{margin-left:0}
     .feed-tabs{padding:0 18px;margin-bottom:20px}
     .feed-head{padding:0 18px;margin-bottom:16px}

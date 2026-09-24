@@ -6,10 +6,12 @@ import {dirname, extname} from 'node:path';
 import {collectReddit, collectX, collectRss} from './crawler-adapters.mjs';
 import {renderRunnerPrompt} from './runner-prompt.mjs';
 import {drawThingsArgs, drawThingsBody, drawThingsGeneration, expandHome, expandPromptPermutations, parseDrawThingsProgress, runnerOutputPath} from './draw-things-runner.mjs';
+import {contentPackageArgv, contentPackageEnvironment, contentPackageWorkingDirectory, packageFrameCheckpoint, packageFramePercent, parseContentPackageFrame, validateContentPackageManifest} from './content-package-runner.mjs';
 const exec = (cmd, args, opts={}) => new Promise(resolve => {
   const started = Date.now();
-  const {timeoutMs: configuredTimeoutMs = 0, onStdout, onStderr, ...spawnOptions} = opts;
+  const {timeoutMs: configuredTimeoutMs = 0, onStdout, onStderr, onChild, ...spawnOptions} = opts;
   const child = spawn(cmd, args, spawnOptions);
+  try { onChild?.(child); } catch {}
   let out='', err='', timedOut=false, finished=false;
   const timeoutMs = Number(configuredTimeoutMs);
   let timer;
@@ -32,6 +34,12 @@ async function responseValue(path, response) {
     throw Error(`${path}: HTTP ${response.status}${detail ? ` — ${detail}` : ''}`);
   }
   return response.status === 204 ? null : value;
+}
+function truncateLog(value, maxBytes) {
+  const text = String(value || '');
+  const bytes = Buffer.from(text, 'utf8');
+  if (bytes.length <= maxBytes) return text;
+  return bytes.subarray(bytes.length - maxBytes).toString('utf8');
 }
 async function call(path,method='GET',body){const r=await fetch(api+path,{method,headers:{'content-type':'application/json',authorization:'Bearer '+token},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)}); return responseValue(path,r);}
 async function callBinary(path, contentType, body) { const r = await fetch(api + path, {method:'POST',headers:{'content-type':contentType,authorization:'Bearer '+token},body,signal:AbortSignal.timeout(30000)}); return responseValue(path,r); }
@@ -227,6 +235,275 @@ function createDrawThingsProgressReporter(runId, startedAt, index, total) {
   return {start, observeText, flush};
 }
 
+function createContentPackageProgressReporter(runId, startedAt) {
+  let queued = null;
+  let drainPromise = null;
+  let lastSentAt = 0;
+  let lastSignature = '';
+
+  const drain = async () => {
+    while (queued) {
+      const payload = queued;
+      queued = null;
+      try {
+        await call(`/api/admin/content-runner-runs/${runId}/progress`, 'POST', payload);
+      } catch {
+        // Telemetry must not turn a successful local generation into a failure.
+      }
+    }
+    drainPromise = null;
+    if (queued) drainPromise = drain();
+  };
+
+  const queue = payload => {
+    queued = payload;
+    if (!drainPromise) drainPromise = drain();
+  };
+
+  const observe = frame => {
+    const percent = packageFramePercent(frame);
+    const checkpoint = packageFrameCheckpoint(frame);
+    const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+    const payload = {
+      ...(percent == null ? {heartbeat: true} : {progress_percent: percent}),
+      phase: String(frame?.phase || frame?.type || 'running').slice(0, 64),
+      message: String(frame?.message || frame?.checkpoint?.message || '').slice(0, 300),
+      current_step: Number.isInteger(frame?.current_step) ? frame.current_step : null,
+      total_steps: Number.isInteger(frame?.total_steps) ? frame.total_steps : null,
+      eta_seconds: percent != null && percent > 0 && elapsed >= 3
+        ? Math.max(0, Math.round(elapsed * (100 - percent) / percent))
+        : null,
+      ...(checkpoint ? {checkpoint} : {})
+    };
+    const signature = JSON.stringify(payload);
+    const now = Date.now();
+    if (signature === lastSignature || (now - lastSentAt < 4000 && percent !== 100)) return;
+    lastSignature = signature;
+    lastSentAt = now;
+    queue(payload);
+  };
+
+  const heartbeat = () => queue({heartbeat: true, phase: 'running', message: 'Adapter is still working'});
+  const start = () => observe({type: 'progress', phase: 'starting', message: 'Starting content package adapter', percent: 0});
+  const flush = async () => {
+    if (queued && !drainPromise) drainPromise = drain();
+    if (drainPromise) await drainPromise;
+    if (queued) await flush();
+  };
+  return {start, observe, heartbeat, flush};
+}
+
+async function contentRunnerControl(runId) {
+  try {
+    return await call(`/api/admin/content-runner-runs/${runId}/control`);
+  } catch {
+    return null;
+  }
+}
+
+async function runContentPackage(claim, config, runnerEnv, runStarted) {
+  const argv = contentPackageArgv(config);
+  const workingDirectory = contentPackageWorkingDirectory(config, process.cwd());
+  const options = contentPackageEnvironment(config);
+  const progress = createContentPackageProgressReporter(claim.run_id, runStarted);
+  let child = null;
+  let stdoutBuffer = '';
+  let frameQueue = Promise.resolve();
+  let packageManifest = null;
+  let latestCheckpoint = null;
+  let requestedAction = null;
+  let adapterCancelled = false;
+  let adapterError = null;
+  let controlTimer = null;
+  let heartbeatTimer = null;
+
+  const stopIfRequested = async () => {
+    if (!child || requestedAction === 'cancel') return;
+    const control = await contentRunnerControl(claim.run_id);
+    const action = control?.control_request;
+    if (action === 'cancel') {
+      requestedAction = 'cancel';
+      child.kill('SIGTERM');
+    } else if (action === 'pause' && latestCheckpoint) {
+      requestedAction = 'pause';
+      child.kill('SIGTERM');
+    }
+  };
+
+  const handleFrame = async frame => {
+    if (frame.type === 'progress') progress.observe(frame);
+    if (frame.type === 'checkpoint') {
+      latestCheckpoint = packageFrameCheckpoint(frame) || latestCheckpoint;
+      progress.observe(frame);
+      await stopIfRequested();
+    }
+    if (frame.type === 'package') {
+      packageManifest = validateContentPackageManifest(frame.package);
+      progress.observe({type: 'progress', phase: 'complete', message: 'Content package is ready', percent: 100});
+    }
+    if (frame.type === 'cancelled') adapterCancelled = true;
+    if (frame.type === 'error') adapterError = String(frame.message || frame.error || 'Content package adapter failed');
+  };
+
+  const observeStdout = chunk => {
+    stdoutBuffer += String(chunk);
+    const lines = stdoutBuffer.split(/\r\n|\n|\r/);
+    stdoutBuffer = lines.pop() || '';
+    for (const line of lines) {
+      const frame = parseContentPackageFrame(line);
+      if (frame) frameQueue = frameQueue.then(() => handleFrame(frame));
+    }
+  };
+
+  progress.start();
+  controlTimer = setInterval(() => { void stopIfRequested(); }, 3000);
+  controlTimer.unref?.();
+  heartbeatTimer = setInterval(() => { progress.heartbeat(); }, 15000);
+  heartbeatTimer.unref?.();
+  let result;
+  try {
+    result = await exec(argv[0], argv.slice(1), {
+      cwd: workingDirectory,
+      env: {
+        ...runnerEnv,
+        RUNNER_PROMPT: claim.prompt,
+        RUNNER_OUTPUT_PATH: `.local/runner-output-${claim.id}-${Date.now()}.json`,
+        RUNNER_DRY_RUN: String(claim.dry_run === true),
+        SWARTZIT_RUNNER_NAME: claim.name,
+        SWARTZIT_RUNNER_RUN_ID: String(claim.run_id),
+        SWARTZIT_RUNNER_PROTOCOL: 'jsonl',
+        RUNNER_PACK_ID: String(config.pack || ''),
+        RUNNER_PACK_OPTIONS_JSON: JSON.stringify(options),
+        RUNNER_RESUME_CHECKPOINT_JSON: JSON.stringify(claim.resume_checkpoint || {}),
+      },
+      timeoutMs: claim.timeout_seconds * 1000,
+      onChild: value => { child = value; },
+      onStdout: observeStdout,
+    });
+    if (stdoutBuffer.trim()) {
+      const frame = parseContentPackageFrame(stdoutBuffer);
+      if (frame) frameQueue = frameQueue.then(() => handleFrame(frame));
+    }
+    await frameQueue;
+  } finally {
+    if (controlTimer) clearInterval(controlTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    await progress.flush();
+  }
+  if (requestedAction === 'pause') return {status: 'paused', result, packageManifest, latestCheckpoint};
+  if (requestedAction === 'cancel') return {status: 'cancelled', result, packageManifest, latestCheckpoint};
+  if (adapterCancelled) return {status: 'cancelled', result, packageManifest, latestCheckpoint};
+  if (result.timedOut) throw Error(`Runner exceeded its ${claim.timeout_seconds}s timeout`);
+  if (result.code !== 0) throw Error(adapterError || result.err.slice(-1500) || `Content package adapter exited with ${result.code}`);
+  if (adapterError) throw Error(adapterError);
+  if (!packageManifest) throw Error('Content package adapter did not emit a package frame');
+  return {status: 'success', result, packageManifest, latestCheckpoint};
+}
+
+async function publishContentPackageFeedItem(manifest, claim, config, dryRun) {
+  const feed = manifest?.feed_item && typeof manifest.feed_item === 'object'
+    ? manifest.feed_item
+    : {title: manifest.title, body: manifest.summary || `Generated ${manifest.units.length} content units.`};
+  const media = await materializeRunnerMedia(feed.media, dryRun);
+  const provenance = contentPackageProvenance(manifest);
+  const generationConfig = {
+    ...(feed.generation_config && typeof feed.generation_config === 'object' ? feed.generation_config : {}),
+    provider: 'content_package',
+    format: manifest.format,
+    pack: manifest.pack,
+    package_id: manifest.id,
+    unit_count: manifest.units.length,
+    provenance,
+  };
+  const payload = {
+    ...feed,
+    title: String(feed.title || manifest.title).slice(0, 300),
+    body: String(feed.body || manifest.summary || '').slice(0, 50000),
+    author: claim.author,
+    community: claim.community,
+    provider: 'runner',
+    source_url: feed.source_url || `swartzit://content-package/${encodeURIComponent(String(manifest.pack?.id || 'pack'))}/${encodeURIComponent(String(manifest.id || Date.now()))}`,
+    media,
+    attribution: feed.attribution || `Generated by the ${manifest.pack?.id || 'content package'} extension.`,
+    generation_config: generationConfig,
+  };
+  if (dryRun) return {preview: payload, published: null};
+  return {preview: null, published: await call('/api/admin/content-runners/publish', 'POST', payload)};
+}
+
+function contentPackageProvenance(manifest) {
+  const rawProvenance = manifest?.provenance && typeof manifest.provenance === 'object'
+    ? manifest.provenance
+    : {};
+  // Do not expose worker-local paths or the full adapter manifest through the
+  // public external_posts source payload.
+  return Object.fromEntries(['generator', 'created_at', 'seed', 'model', 'pipeline_complete']
+    .filter(key => rawProvenance[key] !== undefined)
+    .map(key => [key, rawProvenance[key]]));
+}
+
+function contentPackageUnitSourceUrl(manifest, unit) {
+  const packId = encodeURIComponent(String(manifest?.pack?.id || 'pack'));
+  const packageId = encodeURIComponent(String(manifest?.id || Date.now()));
+  const unitId = encodeURIComponent(String(unit?.id || `day-${unit?.order || 1}`));
+  return `swartzit://content-package/${packId}/${packageId}/${unitId}`;
+}
+
+async function publishContentPackageArticleUnits(manifest, claim, config, dryRun) {
+  const units = Array.isArray(manifest?.units) ? manifest.units : [];
+  if (!units.length) throw Error('Content package has no article units to publish');
+  const previews = [], published = [], warnings = [];
+  const provenance = contentPackageProvenance(manifest);
+  for (let index = 0; index < units.length; index += 1) {
+    const unit = units[index];
+    if (!unit || typeof unit !== 'object') throw Error(`Content package unit ${index + 1} is invalid`);
+    const order = Number.isInteger(Number(unit.order)) ? Number(unit.order) : index + 1;
+    const unitTitle = String(unit.title || `Day ${order}`).trim();
+    const title = `${manifest.title} · Day ${order}: ${unitTitle}`.slice(0, 300);
+    const body = String(unit.body || '').trim();
+    if (!body) throw Error(`Content package unit ${index + 1} has no story body`);
+    const media = await materializeRunnerMedia(unit.media, dryRun);
+    const generationConfig = {
+      provider: 'content_package',
+      content_kind: 'article',
+      format: manifest.format,
+      pack: manifest.pack,
+      package_id: manifest.id,
+      series_title: manifest.title,
+      unit_id: String(unit.id || `day-${order}`),
+      unit_order: order,
+      unit_count: units.length,
+      provenance,
+      ...(unit.metadata && typeof unit.metadata === 'object' ? {unit_metadata: unit.metadata} : {}),
+      ...(config.article_generation_config && typeof config.article_generation_config === 'object'
+        ? config.article_generation_config
+        : {}),
+    };
+    const payload = {
+      title,
+      body,
+      content_kind: 'article',
+      content_rating: unit.content_rating || manifest.content_rating,
+      author: claim.author,
+      community: claim.community,
+      provider: 'runner',
+      source_url: contentPackageUnitSourceUrl(manifest, unit),
+      media,
+      attribution: unit.attribution || `Generated by the ${manifest.pack?.id || 'content package'} extension.`,
+      generation_config: generationConfig,
+    };
+    if (dryRun) previews.push(payload);
+    else {
+      try {
+        published.push(await call('/api/admin/content-runners/publish', 'POST', payload));
+      } catch (error) {
+        warnings.push(`Day ${order}: ${error.message}`);
+      }
+    }
+  }
+  return {previews, published, warnings};
+}
+
 // Content runners are deliberately processed in the API's priority order and
 // awaited one at a time. Generic runners print a JSON object or {"posts":[]}.
 // Draw Things runners use a structured config and turn local output files into
@@ -284,12 +561,52 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
             published.push(response);
           }
         }
+      } else if (claim.kind === 'content_package') {
+        const config = claim.command && typeof claim.command === 'object' && !Array.isArray(claim.command) ? claim.command : {};
+        const outcome = await runContentPackage(claim, config, runnerEnv, runStarted);
+        const adapterResult = outcome.result || {};
+        if (claim.capture_output !== false) { result.stdout = adapterResult.out; result.stderr = adapterResult.err; }
+        result.exit_code = adapterResult.code;
+        result.duration_ms = adapterResult.durationMs;
+        result.timed_out = adapterResult.timedOut;
+        const packageDetail = {
+          format: outcome.packageManifest?.format || 'content-package.v1',
+          package: outcome.packageManifest,
+          checkpoint: outcome.latestCheckpoint,
+          control_action: outcome.status === 'success' ? null : outcome.status,
+          published: [],
+          previews: [],
+        };
+        if (outcome.status === 'paused' || outcome.status === 'cancelled') {
+          result.status = outcome.status;
+          result.error = outcome.status === 'paused' ? 'Paused at the latest adapter checkpoint' : 'Cancelled by administrator';
+          result.detail = packageDetail;
+        } else {
+          const publishMode = String(
+            config.publish_mode || config.options?.publish_mode || 'feed_item',
+          ).trim().toLowerCase();
+          if (publishMode === 'none') {
+            previews.push({title: outcome.packageManifest.title, body: outcome.packageManifest.summary || '', package: outcome.packageManifest});
+          } else if (publishMode === 'article_units' || publishMode === 'articles') {
+            const publication = await publishContentPackageArticleUnits(outcome.packageManifest, claim, config, dryRun);
+            previews.push(...publication.previews);
+            published.push(...publication.published);
+            warnings.push(...publication.warnings);
+          } else {
+            const publication = await publishContentPackageFeedItem(outcome.packageManifest, claim, config, dryRun);
+            if (publication.preview) previews.push(publication.preview);
+            if (publication.published) published.push(publication.published);
+          }
+          result.status = 'success';
+          result.post_id = published[0]?.post_id ?? null;
+          result.detail = {...packageDetail, published, previews, publish_mode: publishMode};
+        }
       } else {
         const argv = Array.isArray(claim.command) ? claim.command.map(String) : [];
         if (!argv.length || argv.length > 32) throw Error('Runner command must contain an executable and argv');
         const prompt = renderRunnerPrompt(claim.prompt, {now: runStarted, runner: claim.name, community: claim.community, author: claim.author, runId: claim.run_id, dryRun});
         const r = await exec(argv[0], argv.slice(1), { cwd: process.cwd(), env: { ...runnerEnv, RUNNER_PROMPT: prompt, RUNNER_OUTPUT_PATH: outputPath, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000 });
-        if (claim.capture_output !== false) { result.stdout = r.out.slice(-maxLogBytes); result.stderr = r.err.slice(-maxLogBytes); }
+        if (claim.capture_output !== false) { result.stdout = truncateLog(r.out, maxLogBytes); result.stderr = truncateLog(r.err, maxLogBytes); }
         result.exit_code = r.code; result.duration_ms = r.durationMs; result.timed_out = r.timedOut;
         if (r.timedOut) throw Error(`Runner exceeded its ${claim.timeout_seconds}s timeout`);
         if (r.code !== 0) throw Error(r.err.slice(-1500) || `Runner exited with ${r.code}`);
@@ -301,14 +618,18 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
         previews.push(...outcome.previews); published.push(...outcome.published); warnings.push(...outcome.warnings);
         skippedExisting.push(...outcome.skippedExisting);
       }
-      if (!dryRun && !published.length) {
-        if (warnings.length) throw Error(warnings.join('; '));
-        if (!skippedExisting.length && claim.kind !== 'cross_post') throw Error('Runner did not publish a post');
+    if (!['paused', 'cancelled'].includes(result.status) && !dryRun && !published.length) {
+      if (warnings.length) throw Error(warnings.join('; '));
+      if (!skippedExisting.length && claim.kind !== 'cross_post') throw Error('Runner did not publish a post');
+    }
+      if (!['paused', 'cancelled'].includes(result.status)) {
+        result.status = !dryRun && !published.length && skippedExisting.length ? 'skipped' : 'success';
+        result.post_id = published[0]?.post_id ?? null;
+        result.error = warnings.length ? warnings.join('; ') : null;
+        result.detail = {dry_run: dryRun, generated_files: generatedFiles, previews, published, skipped_existing: skippedExisting, warnings, ...(result.detail || {})};
       }
-      result.status = !dryRun && !published.length && skippedExisting.length ? 'skipped' : 'success'; result.post_id = published[0]?.post_id ?? null; result.error = warnings.length ? warnings.join('; ') : null;
-      result.detail = {dry_run: dryRun, generated_files: generatedFiles, previews, published, skipped_existing: skippedExisting, warnings};
     } catch (e) { result.status = result.timed_out ? 'timeout' : 'failed'; result.error = e.message; result.detail = { command: claim.command, attempt: claim.attempt }; }
-    if (claim.capture_output !== false) { result.stdout = result.stdout.slice(-maxLogBytes); result.stderr = result.stderr.slice(-maxLogBytes); }
+    if (claim.capture_output !== false) { result.stdout = truncateLog(result.stdout, maxLogBytes); result.stderr = truncateLog(result.stderr, maxLogBytes); }
     await call(`/api/admin/content-runner-runs/${claim.run_id}/complete`, 'POST', result);
   }
 }

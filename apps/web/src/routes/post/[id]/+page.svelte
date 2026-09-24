@@ -14,7 +14,13 @@
   export let data;
   let token = '', body = '', parent = null, message = '', busy = false, showAllComments = false;
   const redundantSourceTitle = post => post?.source?.provider === 'x' && post.title?.trim() === post.body?.split(/\r?\n/, 1)[0]?.trim();
+  const articleConfig = post => post?.source?.generation_config?.content_kind === 'article' ? post.source.generation_config : null;
   const mediaValue = value => typeof value === 'string' ? { kind: 'image', src: value } : value;
+  $: article = articleConfig(data.post);
+  $: articleSeries = Array.isArray(data.article_series) ? data.article_series : [];
+  $: articleIndex = articleSeries.findIndex(item => item.public_id === data.post.public_id);
+  $: previousArticle = articleIndex > 0 ? articleSeries[articleIndex - 1] : null;
+  $: nextArticle = articleIndex >= 0 && articleIndex < articleSeries.length - 1 ? articleSeries[articleIndex + 1] : null;
   $: previewTitle = `${data.post.title} — Swartzit`;
   $: previewDescription = (data.post.body || '').replace(/\s+/g, ' ').trim().slice(0, 240) || 'A public discussion on Swartzit.';
   $: previewMedia = mediaValue(data.post.source?.media?.[0]);
@@ -66,13 +72,14 @@
   <a class="brand" href="/">swartzit</a>
   <SessionNav />
 </header>
-<main class="post-page">
+<main class="post-page" class:article-page={Boolean(article)}>
   <div class="post-context">
     <a class="back" href="/?community={data.post.community}">← c/{data.post.community}</a>
     <a class="community-export" href="/api/export?community={data.post.community}" download="swartzit-community-export.json">Export data ↓</a>
   </div>
   <article class="post">
     {#if data.post.content_rating === 'r' || data.post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={data.post.content_rating === 'r'} class:content-rating-x={data.post.content_rating === 'x'} class="content-rating">{data.post.content_rating.toUpperCase()}</span><span>{data.post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}</span></div>{/if}
+    {#if article}<div class="article-kicker"><span>ARTICLE</span><span>{article.series_title || 'Generated series'}</span><span>Day {article.unit_order || articleIndex + 1}{article.unit_count ? ` of ${article.unit_count}` : ''}</span></div>{/if}
     {#if data.post.source?.provider === 'x' || data.post.source?.provider === 'reddit' || data.post.source?.provider === 'youtube'}<div class="meta post-author"><AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From {data.post.source.provider === 'x' ? 'X' : data.post.source.provider === 'reddit' ? 'Reddit' : 'YouTube'}</strong> · {data.post.source.source_author}</span></div>
     {:else}<div class="meta post-author"><AuthorAvatar handle={data.post.author} /> <span>c/{data.post.community} · <a href={'/u/' + data.post.author}>u/{data.post.author}</a></span></div>{/if}
     {#if data.post.source?.provider !== 'x'}{#if !redundantSourceTitle(data.post)}<h1>{data.post.title}</h1>{/if}{#if data.post.source?.provider !== 'youtube'}<PostBody body={data.post.body} />{/if}{/if}
@@ -97,6 +104,15 @@
     {/if}
     </div>
   </article>
+  {#if article}
+    <aside class="article-rail" aria-label="Article series navigation">
+      <p class="eyebrow">IN THIS SERIES</p>
+      <h2>{article.series_title || data.post.title}</h2>
+      <p class="article-rail-count">{articleSeries.length || article.unit_count || 1} day{(articleSeries.length || article.unit_count || 1) === 1 ? '' : 's'} · long-form article</p>
+      {#if articleSeries.length}<ol>{#each articleSeries as item}<li class:current={item.public_id === data.post.public_id}><a href={'/post/' + item.public_id}><span>Day {item.unit_order}</span><strong>{item.title.replace(/^.*? · Day \d+: /, '')}</strong></a></li>{/each}</ol>{/if}
+      <div class="article-rail-nav">{#if previousArticle}<a href={'/post/' + previousArticle.public_id}>← Previous day</a>{/if}{#if nextArticle}<a href={'/post/' + nextArticle.public_id}>Next day →</a>{/if}</div>
+    </aside>
+  {/if}
   {#if message}<p role="alert" class="form-error">{message}</p>{/if}
   <section class="comments">
     <div class="comments-heading"><div><p class="eyebrow">COMMUNITY DISCUSSION</p><h2>Comments <span>{data.post.comment_count}</span></h2></div><label>Sort<select aria-label="Sort comments" bind:value={commentOrder}><option value="oldest">Oldest</option><option value="newest">Newest</option></select></label></div>
@@ -155,6 +171,9 @@
 </main>
 <style>
   .post-page{max-width:780px;padding-top:32px;padding-bottom:80px}
+  .article-page{max-width:1120px;display:grid;grid-template-columns:minmax(0,780px) 250px;column-gap:36px;align-items:start}
+  .article-page>.post-context{grid-column:1/-1}
+  .article-page>.post,.article-page>.form-error,.article-page>.comments,.article-page>.content-loop{grid-column:1}
   .post-context{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
   .back,.community-export{font-size:.82rem;color:var(--muted,#66766c)}
   .community-export{font-size:.76rem;text-decoration:underline;text-underline-offset:3px}
@@ -163,6 +182,20 @@
   .content-rating{width:22px;height:22px;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:6px;font:800 .7rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:0}
   .content-rating-r{background:#9b5e38;border-color:#9b5e38;color:#fff}
   .content-rating-x{background:#6f263d;border-color:#6f263d;color:#fff}
+  .article-kicker{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px;color:var(--accent,#9b5e38);font-size:.7rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+  .article-kicker span+span{padding-left:8px;border-left:1px solid var(--border,#d8d5ca);color:var(--muted,#77827d);font-weight:650;letter-spacing:.03em;text-transform:none}
+  .article-rail{grid-column:2;grid-row:2 / span 4;position:sticky;top:92px;padding:18px 16px;border:1px solid var(--border,#d8d5ca);border-radius:12px;background:var(--surface,#fff)}
+  .article-rail .eyebrow{margin:0 0 8px;font-size:.66rem;letter-spacing:.14em;color:var(--accent,#9b5e38);font-weight:800}
+  .article-rail h2{margin:0;color:var(--heading,#173d34);font:500 1.35rem/1.15 Georgia,serif;overflow-wrap:anywhere}
+  .article-rail-count{margin:7px 0 14px;color:var(--muted,#77827d);font-size:.75rem}
+  .article-rail ol{display:grid;gap:4px;margin:0;padding:0;list-style:none}
+  .article-rail li a{display:grid;gap:3px;padding:9px 10px;border-radius:8px;color:var(--muted,#66766c);text-decoration:none}
+  .article-rail li a:hover{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
+  .article-rail li.current a{background:var(--subtle,#e4e9df);color:var(--heading,#173d34);box-shadow:inset 3px 0 var(--accent,#9b5e38)}
+  .article-rail li span{font-size:.66rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--accent,#9b5e38)}
+  .article-rail li strong{font-size:.78rem;line-height:1.25;font-weight:700;overflow-wrap:anywhere}
+  .article-rail-nav{display:flex;justify-content:space-between;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#d8d5ca);font-size:.72rem;font-weight:750}
+  .article-rail-nav a{color:var(--accent,#9b5e38)}
   .post-engagement{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-top:1px solid var(--border,#dedfd7);padding-top:10px;margin-top:14px}
   .post-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .local-score{font-size:.78rem;color:var(--muted,#77827d)}
@@ -202,6 +235,7 @@
   .related-post strong{font:600 1.05rem/1.25 Georgia,serif;color:var(--heading,#173d34)}
   .related-post span{font-size:.8rem;color:var(--muted,#77827d)}
   .browse-link{color:var(--accent,#9b5e38);font-weight:700;font-size:.9rem}
+  @media(max-width:900px){.article-page{display:block}.article-rail{position:static;margin:0 0 24px}.article-page>.post{margin-top:0}}
   @media(max-width:700px){.related-posts{grid-template-columns:1fr}.content-loop h2{font-size:1.55rem}.post{padding:16px 14px}.post-engagement{gap:8px}.post-engagement :global(.vote-controls){margin-left:auto}.comments-heading h2{font-size:1.5rem}}
   @media(max-width:420px){.post-page{padding-left:14px;padding-right:14px}.post-context{margin:0 4px 12px}.post-context .back{font-size:.78rem}.post-context .community-export{font-size:.72rem}.post{padding-left:10px;padding-right:10px}.comments-heading{align-items:center}.comments-heading label{gap:5px}}
 </style>

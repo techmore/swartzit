@@ -175,6 +175,35 @@ upvote/downvote score. The post exposes aggregate averages and response count
 so future prompt and model experiments can compare what people preferred
 without storing free-form review text.
 
+## Optional content-package extensions
+
+`content_package` is an opt-in runner kind for long-form packs such as the
+optional sibling `Gravedancer to General` adapter. Its `command` is a bounded
+object rather than a shell string:
+
+```json
+{
+  "pack": "starwars.gravedancer",
+  "argv": ["python3", "scripts/swartzit_pack_runner.py", "--pack", "starwars.gravedancer"],
+  "working_dir": "../Starwars_Anatomy_of_a_Catastrophe_Gravedancer_to_General",
+  "options": {"days": 7, "fast": true, "generate_images": false}
+}
+```
+
+The executable is independent of the Swartzit installation. It emits JSONL
+frames for `progress`, `checkpoint`, and a final `package` using
+`content-package.v1`; ordinary adapter logs can be mixed into stdout. The
+worker forwards `RUNNER_PACK_OPTIONS_JSON` and
+`RUNNER_RESUME_CHECKPOINT_JSON`, sends heartbeats during quiet model work, and
+stores the package receipt in the run detail. A configured feed item enters
+the normal moderation path only after the package is complete.
+
+Pause and cancel are run-level controls. A pause request is held until the
+adapter has a completed checkpoint, then the worker stops the process and
+records the run as `paused`. Resume queues a new execution using that saved
+checkpoint. Because the adapter owns its local checkpoints, removing or
+disabling the runner does not alter the core server or other users' installs.
+
 The **Test · no publish** action claims one queued dry-run execution. It runs
 the actual command and leaves generated files on the worker, records a preview
 and output paths in the run detail, and does not upload media or create posts.

@@ -1051,6 +1051,45 @@ fn validate_runner_command(command: &serde_json::Value) -> Result<(), ApiError> 
     Ok(())
 }
 
+fn validate_content_package_config(command: &serde_json::Value) -> Result<(), ApiError> {
+    let Some(config) = command.as_object() else {
+        return Err(ApiError::Invalid(
+            "Content package configuration must be an object",
+        ));
+    };
+    let Some(argv) = config.get("argv") else {
+        return Err(ApiError::Invalid(
+            "Content package configuration needs an argv array",
+        ));
+    };
+    validate_runner_command(argv)?;
+    let Some(pack) = config.get("pack").and_then(serde_json::Value::as_str) else {
+        return Err(ApiError::Invalid(
+            "Content package configuration needs a pack id",
+        ));
+    };
+    if pack.trim().is_empty() || pack.len() > 128 || pack.contains('\0') {
+        return Err(ApiError::Invalid("Content package pack id is invalid"));
+    }
+    if let Some(working_dir) = config.get("working_dir")
+        && working_dir.as_str().is_none_or(|value| {
+            value.trim().is_empty() || value.len() > 4096 || value.contains('\0')
+        })
+    {
+        return Err(ApiError::Invalid(
+            "Content package working directory is invalid",
+        ));
+    }
+    if let Some(options) = config.get("options")
+        && (!options.is_object() || options.to_string().len() > 20000)
+    {
+        return Err(ApiError::Invalid(
+            "Content package options must be an object under 20 KB",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiError> {
     let Some(config) = command.as_object() else {
         return Err(ApiError::Invalid(
@@ -1229,6 +1268,7 @@ fn validate_draw_things_config(command: &serde_json::Value) -> Result<(), ApiErr
 fn validate_runner_definition(kind: &str, command: &serde_json::Value) -> Result<(), ApiError> {
     match kind {
         "draw_things" => validate_draw_things_config(command),
+        "content_package" => validate_content_package_config(command),
         "command" | "cross_post" => validate_runner_command(command),
         _ => Err(ApiError::Invalid("Invalid runner type")),
     }
@@ -1323,7 +1363,7 @@ fn validate_environment_keys(keys: &serde_json::Value) -> Result<(), ApiError> {
     Ok(())
 }
 
-const RUNNER_SELECT: &str = "SELECT row_to_json(t) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.days_of_week,r.priority,r.enabled,r.state,r.test_requested,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT row_to_json(x) FROM (SELECT id,status,attempt,config_version,dry_run,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail,progress_percent,progress_phase,progress_message,current_step,total_steps,eta_seconds,progress_updated_at FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
+const RUNNER_SELECT: &str = "SELECT row_to_json(t) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.days_of_week,r.priority,r.enabled,r.state,r.test_requested,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT row_to_json(x) FROM (SELECT id,status,attempt,config_version,dry_run,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail,progress_percent,progress_phase,progress_message,current_step,total_steps,eta_seconds,progress_updated_at,control_request FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
 
 pub async fn content_runners(
     State(db): State<PgPool>,
@@ -1417,7 +1457,7 @@ pub async fn create_content_runner(
     let max_log_bytes = input.max_log_bytes.unwrap_or(20000);
     if name.is_empty()
         || name.len() > 80
-        || !["command", "cross_post", "draw_things"].contains(&kind)
+        || !["command", "cross_post", "draw_things", "content_package"].contains(&kind)
     {
         return Err(ApiError::Invalid("Invalid runner name or type"));
     }
@@ -1496,7 +1536,7 @@ pub async fn update_content_runner(
     let max_log_bytes = input.max_log_bytes.unwrap_or(existing.max_log_bytes);
     if name.is_empty()
         || name.len() > 80
-        || !["command", "cross_post", "draw_things"].contains(&kind)
+        || !["command", "cross_post", "draw_things", "content_package"].contains(&kind)
     {
         return Err(ApiError::Invalid("Invalid runner name or type"));
     }
@@ -1680,7 +1720,7 @@ pub async fn content_runner_runs(
     Query(filter): Query<RunnerRunFilter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT r.id,r.runner_id,c.name,r.status,r.attempt,r.config_version,r.dry_run,r.started_at,r.finished_at,r.post_id,r.error,r.exit_code,r.duration_ms,r.timed_out,r.retry_at,r.stdout,r.stderr,r.detail,r.progress_percent,r.progress_phase,r.progress_message,r.current_step,r.total_steps,r.eta_seconds,r.progress_updated_at FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE ($1::bigint IS NULL OR r.runner_id=$1) ORDER BY r.id DESC LIMIT 200) t").bind(filter.runner_id).fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT r.id,r.runner_id,c.name,r.status,r.attempt,r.config_version,r.dry_run,r.started_at,r.finished_at,r.post_id,r.error,r.exit_code,r.duration_ms,r.timed_out,r.retry_at,r.stdout,r.stderr,r.detail,r.progress_percent,r.progress_phase,r.progress_message,r.current_step,r.total_steps,r.eta_seconds,r.progress_updated_at,r.control_request FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE ($1::bigint IS NULL OR r.runner_id=$1) ORDER BY r.id DESC LIMIT 200) t").bind(filter.runner_id).fetch_all(&db).await?))
 }
 
 #[derive(Deserialize, Default)]
@@ -1691,6 +1731,8 @@ pub struct UpdateContentRunnerProgress {
     current_step: Option<i32>,
     total_steps: Option<i32>,
     eta_seconds: Option<i32>,
+    heartbeat: Option<bool>,
+    checkpoint: Option<serde_json::Value>,
 }
 
 pub async fn update_content_runner_progress(
@@ -1700,10 +1742,13 @@ pub async fn update_content_runner_progress(
     Json(input): Json<UpdateContentRunnerProgress>,
 ) -> Result<StatusCode, ApiError> {
     require_admin(&headers, &db).await?;
-    let percent = input
-        .progress_percent
-        .ok_or(ApiError::Invalid("Runner progress requires a percentage"))?;
-    if !(0..=100).contains(&percent) {
+    let percent = input.progress_percent;
+    if percent.is_none() && input.heartbeat != Some(true) {
+        return Err(ApiError::Invalid(
+            "Runner progress requires a percentage or heartbeat",
+        ));
+    }
+    if percent.is_some_and(|value| !(0..=100).contains(&value)) {
         return Err(ApiError::Invalid(
             "Runner progress must be between 0 and 100",
         ));
@@ -1737,10 +1782,26 @@ pub async fn update_content_runner_progress(
     {
         return Err(ApiError::Invalid("Runner progress ETA is invalid"));
     }
+    let checkpoint = input.checkpoint.filter(|value| !value.is_null());
+    if checkpoint
+        .as_ref()
+        .is_some_and(|value| !value.is_object() || value.to_string().len() > 65_536)
+    {
+        return Err(ApiError::Invalid(
+            "Runner checkpoint must be an object under 64 KB",
+        ));
+    }
     let updated = sqlx::query(
         "UPDATE content_runner_runs
-         SET progress_percent=$2, progress_phase=$3, progress_message=$4,
-             current_step=$5, total_steps=$6, eta_seconds=$7,
+         SET progress_percent=COALESCE($2, progress_percent),
+             progress_phase=COALESCE($3, progress_phase),
+             progress_message=COALESCE($4, progress_message),
+             current_step=COALESCE($5, current_step),
+             total_steps=COALESCE($6, total_steps),
+             eta_seconds=COALESCE($7, eta_seconds),
+             detail=CASE WHEN $8::jsonb IS NULL THEN detail
+                         ELSE jsonb_set(COALESCE(detail, '{}'::jsonb), '{checkpoint}', $8::jsonb, true)
+                    END,
              progress_updated_at=now()
          WHERE id=$1 AND status='running'",
     )
@@ -1751,6 +1812,7 @@ pub async fn update_content_runner_progress(
     .bind(input.current_step)
     .bind(input.total_steps)
     .bind(input.eta_seconds)
+    .bind(checkpoint)
     .execute(&db)
     .await?
     .rows_affected();
@@ -1758,6 +1820,108 @@ pub async fn update_content_runner_progress(
         return Err(ApiError::Missing);
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct ContentRunnerControlRequest {
+    action: String,
+}
+
+/// Return the live control signal for a worker. The worker polls this during
+/// a package run and only acts on pause at the next adapter checkpoint.
+pub async fn content_runner_control_status(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(run_id): Path<i64>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin(&headers, &db).await?;
+    let row = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT row_to_json(t) FROM (SELECT r.id,r.status,r.control_request,r.detail->'checkpoint' AS checkpoint,c.id AS runner_id,c.state AS runner_state,c.enabled AS runner_enabled FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=$1) t",
+    )
+    .bind(run_id)
+    .fetch_optional(&db)
+    .await?
+    .ok_or(ApiError::Missing)?;
+    Ok(Json(row))
+}
+
+/// Queue a cooperative pause or cancellation for an active package run, or
+/// resume a paused run. The host adapter remains responsible for preserving
+/// its own checkpoint; the worker only terminates after receiving one.
+pub async fn content_runner_control(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(run_id): Path<i64>,
+    Json(input): Json<ContentRunnerControlRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let action = input.action.trim().to_ascii_lowercase();
+    if !["pause", "cancel", "resume"].contains(&action.as_str()) {
+        return Err(ApiError::Invalid(
+            "Runner control must be pause, cancel, or resume",
+        ));
+    }
+    let mut tx = db.begin().await?;
+    let run: Option<(i64, String)> =
+        sqlx::query_as("SELECT runner_id,status FROM content_runner_runs WHERE id=$1 FOR UPDATE")
+            .bind(run_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((runner_id, run_status)) = run else {
+        return Err(ApiError::Missing);
+    };
+    if action == "resume" {
+        if !["paused", "cancelled"].contains(&run_status.as_str()) {
+            return Err(ApiError::Invalid(
+                "Only a paused or cancelled package run can be resumed",
+            ));
+        }
+        sqlx::query(
+            "UPDATE content_runner_runs SET control_request=NULL WHERE id=$1 AND status='running'",
+        )
+        .bind(run_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',next_run_at=now(),last_error=NULL,paused_reason=NULL,updated_by=$2,updated_at=now() WHERE id=$1 AND state<>'archived'")
+            .bind(runner_id)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+    } else {
+        let updated = sqlx::query(
+            "UPDATE content_runner_runs SET control_request=$2 WHERE id=$1 AND status='running'",
+        )
+        .bind(run_id)
+        .bind(&action)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Err(ApiError::Invalid("That runner run is no longer active"));
+        }
+        let reason = if action == "pause" {
+            "Pause requested by administrator"
+        } else {
+            "Cancellation requested by administrator"
+        };
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',paused_reason=$2,updated_by=$3,updated_at=now() WHERE id=$1 AND state<>'archived'")
+            .bind(runner_id)
+            .bind(reason)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    log_event(
+        &db,
+        "info",
+        "admin.content_runner_control",
+        serde_json::json!({"actor_id":actor,"run_id":run_id,"runner_id":runner_id,"action":action}),
+    )
+    .await;
+    Ok(Json(
+        serde_json::json!({"run_id":run_id,"runner_id":runner_id,"action":action}),
+    ))
 }
 
 pub async fn replay_content_runner(
@@ -1802,6 +1966,7 @@ struct ClaimedContentRunner {
     environment_keys: serde_json::Value,
     capture_output: bool,
     max_log_bytes: i32,
+    resume_checkpoint: serde_json::Value,
 }
 
 pub async fn claim_content_runner(
@@ -1816,7 +1981,7 @@ pub async fn claim_content_runner(
     sqlx::query("SELECT pg_advisory_xact_lock(90127431)")
         .execute(&mut *tx)
         .await?;
-    let r:Option<ClaimedContentRunner>=sqlx::query_as("SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.priority,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.current_attempt,r.config_version,r.state,r.test_requested,r.environment_keys,r.capture_output,r.max_log_bytes FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id CROSS JOIN instance_modules m WHERE r.id=$1 AND m.module_key='content_runners' AND m.enabled AND ( (r.test_requested AND r.state<>'archived') OR (r.enabled AND r.state IN ('enabled','retrying') AND r.next_run_at<=now() AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.days_of_week) day WHERE day::int=EXTRACT(ISODOW FROM now())::int) ) ) AND NOT EXISTS (SELECT 1 FROM content_runner_runs active WHERE active.status='running') FOR UPDATE SKIP LOCKED").bind(id).fetch_optional(&mut *tx).await?;
+    let r:Option<ClaimedContentRunner>=sqlx::query_as("SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.priority,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.current_attempt,r.config_version,r.state,r.test_requested,r.environment_keys,r.capture_output,r.max_log_bytes,COALESCE((SELECT previous.detail->'checkpoint' FROM content_runner_runs previous WHERE previous.runner_id=r.id AND previous.status IN ('paused','cancelled') AND previous.detail ? 'checkpoint' ORDER BY previous.id DESC LIMIT 1),'{}'::jsonb) AS resume_checkpoint FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id CROSS JOIN instance_modules m WHERE r.id=$1 AND m.module_key='content_runners' AND m.enabled AND ( (r.test_requested AND r.state<>'archived') OR (r.enabled AND r.state IN ('enabled','retrying') AND r.next_run_at<=now() AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.days_of_week) day WHERE day::int=EXTRACT(ISODOW FROM now())::int) ) ) AND NOT EXISTS (SELECT 1 FROM content_runner_runs active WHERE active.status='running') FOR UPDATE SKIP LOCKED").bind(id).fetch_optional(&mut *tx).await?;
     let Some(r) = r else {
         return Err(ApiError::Invalid(
             "Runner is disabled, not due, archived, or already running",
@@ -1831,7 +1996,7 @@ pub async fn claim_content_runner(
     sqlx::query("UPDATE content_runners SET test_requested=FALSE,last_run_at=now(),last_status=CASE WHEN $3 THEN 'testing' ELSE 'running' END,last_error=NULL,current_attempt=$2,next_run_at=CASE WHEN $3 THEN next_run_at ELSE now()+make_interval(secs=>interval_seconds) END,updated_at=now() WHERE id=$1").bind(r.id).bind(attempt).bind(r.test_requested).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(
-        serde_json::json!({"run_id":run_id,"id":r.id,"name":r.name,"kind":r.kind,"command":r.command,"prompt":r.prompt,"author":r.author,"community":r.community,"interval_seconds":r.interval_seconds,"priority":r.priority,"timeout_seconds":r.timeout_seconds,"max_attempts":r.max_attempts,"retry_backoff_seconds":r.retry_backoff_seconds,"failure_threshold":r.failure_threshold,"attempt":attempt,"config_version":r.config_version,"dry_run":r.test_requested,"environment_keys":r.environment_keys,"capture_output":r.capture_output,"max_log_bytes":r.max_log_bytes}),
+        serde_json::json!({"run_id":run_id,"id":r.id,"name":r.name,"kind":r.kind,"command":r.command,"prompt":r.prompt,"author":r.author,"community":r.community,"interval_seconds":r.interval_seconds,"priority":r.priority,"timeout_seconds":r.timeout_seconds,"max_attempts":r.max_attempts,"retry_backoff_seconds":r.retry_backoff_seconds,"failure_threshold":r.failure_threshold,"attempt":attempt,"config_version":r.config_version,"dry_run":r.test_requested,"environment_keys":r.environment_keys,"capture_output":r.capture_output,"max_log_bytes":r.max_log_bytes,"resume_checkpoint":r.resume_checkpoint}),
     ))
 }
 
@@ -1854,7 +2019,16 @@ pub async fn complete_content_runner(
     Json(input): Json<CompleteContentRunner>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    if !["success", "failed", "timeout", "skipped", "cancelled"].contains(&input.status.as_str()) {
+    if ![
+        "success",
+        "failed",
+        "timeout",
+        "skipped",
+        "cancelled",
+        "paused",
+    ]
+    .contains(&input.status.as_str())
+    {
         return Err(ApiError::Invalid("Unknown runner run status"));
     }
     let mut tx = db.begin().await?;
@@ -1873,12 +2047,27 @@ pub async fn complete_content_runner(
         ));
     }
     let detail = input.detail.unwrap_or_else(|| serde_json::json!({}));
-    sqlx::query("UPDATE content_runner_runs SET finished_at=now(),status=$2,post_id=$3,error=$4,detail=$5,stdout=$6,stderr=$7,exit_code=$8,duration_ms=$9,timed_out=$10,progress_percent=CASE WHEN $2 IN ('success','skipped') THEN 100 ELSE progress_percent END,progress_phase=CASE WHEN $2 IN ('success','skipped') THEN 'complete' ELSE progress_phase END,eta_seconds=NULL,progress_updated_at=now() WHERE id=$1").bind(run_id).bind(&input.status).bind(input.post_id).bind(&input.error).bind(detail).bind(&stdout).bind(&stderr).bind(input.exit_code).bind(input.duration_ms).bind(input.timed_out.unwrap_or(input.status=="timeout")).execute(&mut *tx).await?;
+    sqlx::query("UPDATE content_runner_runs SET finished_at=now(),status=$2,post_id=$3,error=$4,detail=$5,stdout=$6,stderr=$7,exit_code=$8,duration_ms=$9,timed_out=$10,control_request=NULL,progress_percent=CASE WHEN $2 IN ('success','skipped') THEN 100 ELSE progress_percent END,progress_phase=CASE WHEN $2 IN ('success','skipped') THEN 'complete' ELSE progress_phase END,eta_seconds=NULL,progress_updated_at=now() WHERE id=$1").bind(run_id).bind(&input.status).bind(input.post_id).bind(&input.error).bind(detail).bind(&stdout).bind(&stderr).bind(input.exit_code).bind(input.duration_ms).bind(input.timed_out.unwrap_or(input.status=="timeout")).execute(&mut *tx).await?;
     if dry_run {
         sqlx::query("UPDATE content_runners SET last_status=$2,last_error=$3,paused_reason=NULL,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'")
             .bind(runner_id)
             .bind(format!("test_{}", input.status))
             .bind(&input.error)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    if matches!(input.status.as_str(), "paused" | "cancelled") {
+        let reason = input
+            .error
+            .clone()
+            .unwrap_or_else(|| format!("Runner {} by administrator", input.status));
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',current_attempt=0,last_status=$2,last_error=$3,paused_reason=$3,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'")
+            .bind(runner_id)
+            .bind(&input.status)
+            .bind(reason)
             .bind(actor)
             .execute(&mut *tx)
             .await?;
@@ -1919,6 +2108,7 @@ pub async fn complete_content_runner(
 pub struct RunnerPost {
     title: String,
     body: Option<String>,
+    content_kind: Option<String>,
     content_rating: Option<String>,
     author: String,
     community: String,
@@ -1950,6 +2140,7 @@ pub struct RunnerMediaUpload {
 }
 
 const RUNNER_IMAGE_MAX_BYTES: usize = 5_242_880;
+const RUNNER_ARTICLE_BODY_MAX_BYTES: usize = 250_000;
 
 fn runner_media_content_type(headers: &HeaderMap) -> Result<String, ApiError> {
     let content_type = headers
@@ -3124,6 +3315,18 @@ pub async fn publish_content_runner(
     let content_rating_value = content_rating
         .clone()
         .unwrap_or_else(|| "general".to_owned());
+    let content_kind = input
+        .content_kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+        .unwrap_or("discussion")
+        .to_ascii_lowercase();
+    if !matches!(content_kind.as_str(), "discussion" | "article") {
+        return Err(ApiError::Invalid(
+            "Runner post kind must be discussion or article",
+        ));
+    }
     let author = input.author.trim();
     let community = input.community.trim().to_ascii_lowercase();
     let provider = input
@@ -3161,11 +3364,21 @@ pub async fn publish_content_runner(
         .attribution
         .clone()
         .unwrap_or_else(|| "Generated by a configured Swartzit content runner".to_owned());
-    let generation_config = input
+    let mut generation_config = input
         .generation_config
         .clone()
         .unwrap_or_else(|| serde_json::json!({}));
-    if title.is_empty() || title.len() > 300 || body.len() > 50000 {
+    if let Some(config) = generation_config.as_object_mut() {
+        config
+            .entry("content_kind".to_owned())
+            .or_insert_with(|| serde_json::Value::String(content_kind.clone()));
+    }
+    let body_limit = if content_kind == "article" {
+        RUNNER_ARTICLE_BODY_MAX_BYTES
+    } else {
+        50_000
+    };
+    if title.is_empty() || title.len() > 300 || body.len() > body_limit {
         return Err(ApiError::Invalid(
             "Runner post title or body is outside the allowed length",
         ));
@@ -3382,6 +3595,31 @@ mod tests {
         );
         assert!(validate_runner_command(&serde_json::json!([])).is_err());
         assert!(validate_runner_command(&serde_json::json!("draw-things-cli generate")).is_err());
+    }
+
+    #[test]
+    fn content_package_configuration_is_external_and_bounded() {
+        let config = serde_json::json!({
+            "pack": "starwars.gravedancer",
+            "argv": ["python3", "scripts/swartzit_pack_runner.py"],
+            "working_dir": "../Starwars_Anatomy_of_a_Catastrophe_Gravedancer_to_General",
+            "options": {"days": 7, "fast": true}
+        });
+        assert!(validate_runner_definition("content_package", &config).is_ok());
+        assert!(
+            validate_runner_definition(
+                "content_package",
+                &serde_json::json!({"pack":"starwars.gravedancer","argv":[]})
+            )
+            .is_err()
+        );
+        assert!(
+            validate_runner_definition(
+                "content_package",
+                &serde_json::json!({"pack":"","argv":["python3"]})
+            )
+            .is_err()
+        );
     }
 
     #[test]

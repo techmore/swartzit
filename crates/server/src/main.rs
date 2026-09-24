@@ -98,6 +98,12 @@ struct Post {
     score: i64,
 }
 #[derive(Serialize, FromRow)]
+struct ArticleSeriesItem {
+    public_id: String,
+    title: String,
+    unit_order: i32,
+}
+#[derive(Serialize, FromRow)]
 struct Comment {
     id: i64,
     parent_id: Option<i64>,
@@ -1885,8 +1891,23 @@ async fn post(
     } else {
         None
     };
+    let mut article_series = Vec::new();
+    if let Some((package_id, pack_id)) = post.source.as_ref().and_then(|source| {
+        let config = source.get("generation_config")?;
+        let package_id = config.get("package_id")?.as_str()?;
+        let pack_id = config.get("pack")?.get("id")?.as_str()?;
+        (config.get("content_kind")?.as_str()? == "article").then_some((package_id, pack_id))
+    }) {
+        article_series = sqlx::query_as::<_, ArticleSeriesItem>(
+            "SELECT p.public_id,p.title,CASE WHEN e.generation_config->>'unit_order' ~ '^[0-9]+$' THEN (e.generation_config->>'unit_order')::int ELSE 0 END AS unit_order FROM posts p JOIN external_posts e ON e.post_id=p.id WHERE p.moderation_status='approved' AND e.provider='runner' AND e.generation_config->>'content_kind'='article' AND e.generation_config->>'package_id'=$1 AND e.generation_config->'pack'->>'id'=$2 ORDER BY unit_order,p.id LIMIT 64"
+        )
+        .bind(package_id)
+        .bind(pack_id)
+        .fetch_all(&db)
+        .await?;
+    }
     Ok(Json(
-        serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media, "draw_feedback": draw_feedback}),
+        serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media, "draw_feedback": draw_feedback, "article_series": article_series}),
     ))
 }
 async fn export(
@@ -1972,7 +1993,7 @@ fn spawn_maintenance(db: PgPool) {
             if let Err(error) = admin::process_media_replication_jobs(&db).await {
                 tracing::warn!(%error, maintenance = "media replication", "periodic maintenance failed");
             }
-            if let Err(error) = sqlx::query("UPDATE content_runner_runs SET status='failed', finished_at=now(), error='Worker lease expired', detail=jsonb_build_object('reaped', true), progress_phase='failed', eta_seconds=NULL, progress_updated_at=now() WHERE status='running' AND started_at < now() - interval '2 hours'").execute(&db).await {
+            if let Err(error) = sqlx::query("UPDATE content_runner_runs SET status=CASE WHEN control_request='pause' THEN 'paused' WHEN control_request='cancel' THEN 'cancelled' ELSE 'failed' END, finished_at=now(), error=CASE WHEN control_request='pause' THEN 'Worker lease expired while pause was requested' WHEN control_request='cancel' THEN 'Worker lease expired while cancellation was requested' ELSE 'Worker lease expired' END, detail=CASE WHEN control_request IN ('pause','cancel') AND detail ? 'checkpoint' THEN jsonb_build_object('reaped', true, 'checkpoint', detail->'checkpoint') ELSE jsonb_build_object('reaped', true) END, progress_phase=CASE WHEN control_request='pause' THEN 'paused' WHEN control_request='cancel' THEN 'cancelled' ELSE 'failed' END, eta_seconds=NULL, progress_updated_at=now() WHERE status='running' AND COALESCE(progress_updated_at, started_at) < now() - interval '2 hours'").execute(&db).await {
                 tracing::warn!(%error, maintenance = "content runner leases", "periodic maintenance failed");
             }
         }
@@ -2225,6 +2246,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/admin/content-runner-runs/{run_id}/progress",
             post_method(admin::update_content_runner_progress),
+        )
+        .route(
+            "/api/admin/content-runner-runs/{run_id}/control",
+            get(admin::content_runner_control_status).post(admin::content_runner_control),
         )
         .route(
             "/api/admin/content-runner-runs",

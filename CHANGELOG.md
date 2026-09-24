@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.22-20260924T13
+
+- Adds the optional content-package extension surface with bounded JSONL
+  progress, checkpoints, cooperative pause/cancel controls, and article-unit
+  publishing for long-running local story workflows.
+- Publishes each generated story day as an independent post while preserving
+  the full article, generated media, and sequential series navigation on the
+  detail page.
+- Makes the fixed timeline window and compact long-post preview a general
+  Swartzit UI rule for articles, generated content, imported posts, and normal
+  discussions over the timeline threshold.
+- Adds the migration, admin controls, worker adapter, documentation, and test
+  coverage needed to keep the extension disabled and isolated unless enabled.
+
 ## 0.1.21-20260924T11
 
 - Adds YouTube support to regular discussions: valid video links in post bodies
