@@ -355,7 +355,7 @@ pub struct StorageReplicationSummary {
 }
 
 const BACKUP_BUDGET_BYTES: i64 = 5 * 1024 * 1024 * 1024;
-const BACKUP_WARNING_BYTES: i64 = 4500 * 1024 * 1024;
+const BACKUP_WARNING_BYTES: i64 = BACKUP_BUDGET_BYTES - 500 * 1024 * 1024;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct BackupSnapshot {

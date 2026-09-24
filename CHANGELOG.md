@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.25-20260924T13
+
+- Aligns the backup warning threshold exactly 500 MiB below the 5 GiB archive
+  budget.
+
 ## 0.1.24-20260924T13
 
 - Adds an Admin → Server backup panel showing recent archive, database dump,
