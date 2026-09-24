@@ -13,6 +13,11 @@ pub enum Media {
     },
 }
 pub(crate) fn validate_media(media: &Media, provider: &str) -> Result<(), ApiError> {
+    if provider == "youtube" {
+        return Err(ApiError::Invalid(
+            "YouTube sources are embed-only and cannot include downloaded media",
+        ));
+    }
     let (kind, src, poster, alt) = match media {
         Media::Image(src) => ("image", src, None, None),
         Media::Attachment {
@@ -183,6 +188,40 @@ pub(crate) fn canonical(provider: &str, raw: &str) -> Result<String, ApiError> {
                 return Ok(format!("https://www.reddit.com/comments/{}", parts[0]));
             }
         }
+        "youtube"
+            if ["youtube.com", "www.youtube.com", "m.youtube.com"]
+                .contains(&u.host_str().unwrap_or("")) =>
+        {
+            let parts: Vec<_> = u.path().split('/').filter(|s| !s.is_empty()).collect();
+            let id = if u.path() == "/watch" {
+                u.query_pairs()
+                    .find(|(key, _)| key == "v")
+                    .map(|(_, value)| value.to_string())
+            } else if parts.len() == 2 && ["embed", "live", "shorts"].contains(&parts[0]) {
+                Some(parts[1].to_owned())
+            } else {
+                None
+            };
+            if id.as_deref().is_some_and(|value| {
+                value.len() == 11
+                    && value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+            }) {
+                return Ok(format!("https://www.youtube.com/watch?v={}", id.unwrap()));
+            }
+        }
+        "youtube" if u.host_str() == Some("youtu.be") => {
+            let parts: Vec<_> = u.path().split('/').filter(|s| !s.is_empty()).collect();
+            if parts.len() == 1
+                && parts[0].len() == 11
+                && parts[0]
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+            {
+                return Ok(format!("https://www.youtube.com/watch?v={}", parts[0]));
+            }
+        }
         "rss" => {
             let mut u = u;
             u.set_query(None);
@@ -192,7 +231,7 @@ pub(crate) fn canonical(provider: &str, raw: &str) -> Result<String, ApiError> {
         _ => {}
     }
     Err(ApiError::Invalid(
-        "Use a supported X, Reddit, RSS, or Wikimedia Commons source URL",
+        "Use a supported X, Reddit, YouTube, RSS, or Wikimedia Commons source URL",
     ))
 }
 pub async fn ingest(
@@ -387,9 +426,9 @@ pub async fn cross_post(
     Json(input): Json<Import>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let actor = active_author(&headers, &db).await?;
-    if !matches!(input.provider.as_str(), "x" | "reddit") {
+    if !matches!(input.provider.as_str(), "x" | "reddit" | "youtube") {
         return Err(ApiError::Invalid(
-            "Only public X or Reddit post links are supported",
+            "Only public X, Reddit, or YouTube video links are supported",
         ));
     }
     let source = canonical(&input.provider, &input.source_url)?;
@@ -416,6 +455,11 @@ pub async fn cross_post(
         || input.observed_at > Utc::now() + chrono::Duration::minutes(5)
     {
         return Err(ApiError::Invalid("Imported content exceeds allowed bounds"));
+    }
+    if input.provider == "youtube" && !input.media.is_empty() {
+        return Err(ApiError::Invalid(
+            "YouTube sources are embed-only and cannot include downloaded media",
+        ));
     }
     for value in [
         input.source_views,
@@ -651,6 +695,18 @@ mod tests {
             canonical("reddit", "https://redd.it/xyz789").unwrap(),
             "https://www.reddit.com/comments/xyz789"
         );
+        assert_eq!(
+            canonical("youtube", "https://youtu.be/dQw4w9WgXcQ?t=42").unwrap(),
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        );
+        assert_eq!(
+            canonical(
+                "youtube",
+                "https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share"
+            )
+            .unwrap(),
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        );
         for u in [
             "https://x.com.evil.test/a/status/123",
             "http://x.com/a/status/123",
@@ -665,6 +721,14 @@ mod tests {
             "https://www.reddit.com/user/person",
         ] {
             assert!(canonical("reddit", u).is_err());
+        }
+        for u in [
+            "https://www.youtube.com/channel/UC123",
+            "https://www.youtube.com/playlist?list=abc",
+            "https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ",
+            "https://www.youtube.com/watch?v=short",
+        ] {
+            assert!(canonical("youtube", u).is_err());
         }
         assert!(order(Some("score; DROP TABLE posts")).is_err());
     }

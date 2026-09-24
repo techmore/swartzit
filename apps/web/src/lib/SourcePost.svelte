@@ -1,5 +1,6 @@
 <script>
   import PostActions from '$lib/PostActions.svelte';
+  import { youtubeEmbedUrl } from '$lib/youtube-source.mjs';
   export let source;
   export let text = '';
   export let post = null;
@@ -38,7 +39,7 @@
     ? [['Score', source.source_likes, '▲'], ['Comments', source.source_replies, '💬']]
     : [['Likes', source.source_likes, '♥'], ['Reposts', source.source_reposts, '↻'], ['Replies', source.source_replies, '💬'], ['Views', source.source_views, '◉']])
     .filter(([, value]) => value != null);
-  $: providerLabel = source.provider === 'x' ? 'X' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'runner' ? 'Generated runner' : 'Wikimedia Commons';
+  $: providerLabel = source.provider === 'x' ? 'X' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? 'Generated runner' : 'Wikimedia Commons';
   $: generationConfig = source.generation_config && typeof source.generation_config === 'object' ? source.generation_config : null;
   $: mediaCount = source.media?.length ?? 0;
   $: if (activeMedia >= mediaCount) activeMedia = Math.max(0, mediaCount - 1);
@@ -94,7 +95,7 @@
     {:else}<span class="source-avatar source-avatar-fallback" aria-hidden="true">{(source.profile_display_name || source.source_author || '?').slice(0, 1).toUpperCase()}</span>
     {/if}
     <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<span class="source-handle">{source.source_author}</span>{#if displayDate}<time datetime={source.published_at || undefined}>{displayDate}</time>{/if}</div>
-    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a></div></div>
+    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a></div></div>
   {#if source.provider === 'x'}
     {#if parsed.text}<p class="source-text">{parsed.text}</p>{/if}
     {#if parsed.quotedText}<blockquote class="quoted-post"><strong>{parsed.quotedAuthor}</strong><p>{parsed.quotedText}</p></blockquote>{/if}
@@ -104,6 +105,11 @@
     {#if source.attribution}<p>{source.attribution}</p>{/if}
     {#if source.provider === 'runner' && generationConfig && Object.keys(generationConfig).length}<details class="generation-details"><summary>Generation settings · reuse this recipe</summary><pre>{JSON.stringify(generationConfig, null, 2)}</pre></details>{/if}
     {#if sourceMetrics.length}<div class="source-metrics" aria-label={`${providerLabel} metrics`}><div class="source-metric-items">{#each sourceMetrics as [label, value, icon]}<span title={label}>{icon} {count(value)}</span>{/each}</div><small>Source counts · {new Date(source.observed_at).toLocaleDateString()}</small></div>{/if}
+  {/if}
+  {#if source.provider === 'youtube' && youtubeEmbedUrl(source.source_url)}
+    <div class="youtube-embed">
+      <iframe src={youtubeEmbedUrl(source.source_url)} title={source.title || 'YouTube video'} loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+    </div>
   {/if}
   {#if post}<PostActions {post} />{/if}
   {#if source.media?.length}
@@ -161,6 +167,8 @@
   figure{margin:0;min-width:0} figcaption{margin-top:6px;color:var(--muted,#66766c)}
   .source-images img,.source-images video{width:100%;max-height:420px;object-fit:contain;background:var(--subtle,#dde3da);display:block}
   .source-images video{height:clamp(220px,30vw,420px);aspect-ratio:16/9}
+  .youtube-embed{position:relative;width:100%;margin:8px 0;overflow:hidden;background:#111;aspect-ratio:16/9;border-radius:8px}
+  .youtube-embed iframe{display:block;width:100%;height:100%;border:0}
   .count-1{grid-template-columns:1fr}
   .count-1 img{aspect-ratio:16/9;max-height:420px}
   .count-2{grid-template-columns:1fr 1fr}

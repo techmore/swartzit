@@ -347,7 +347,9 @@ impl FeedQuery {
     }
 
     fn hide_x(&self) -> bool {
-        self.hide_x.unwrap_or(false)
+        // Keep explicit opt-in (`hide_x=false`) available while making every
+        // feed/API request safe by default.
+        self.hide_x.unwrap_or(true)
     }
 }
 const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.content_rating, p.content_rating_source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
@@ -2369,6 +2371,24 @@ mod tests {
             .validate()
             .unwrap(),
             FEED_PAGE_SIZE
+        );
+    }
+    #[test]
+    fn hides_x_rated_content_by_default_but_allows_explicit_opt_in() {
+        assert!(FeedQuery::default().hide_x());
+        assert!(
+            FeedQuery {
+                hide_x: Some(true),
+                ..Default::default()
+            }
+            .hide_x()
+        );
+        assert!(
+            !FeedQuery {
+                hide_x: Some(false),
+                ..Default::default()
+            }
+            .hide_x()
         );
     }
     #[test]

@@ -14,9 +14,11 @@
   let searchOpen = Boolean(data.q);
   let composeOpen = false;
   let searchInput;
-  function applyContentFilters(params) { if (data.hideR) params.set('hide_r', 'true'); if (data.hideX) params.set('hide_x', 'true'); return params; }
+  function applyContentFilters(params) { if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params; }
   function pageLink(page) { return '/?' + applyContentFilters(new URLSearchParams({feed:data.feed,community:data.community,q:data.q,sort:data.sort,page:String(page)})); }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params) : '?' + params); }
+  function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
+  function communityHref(slug = '') { const params = new URLSearchParams(); if (slug) params.set('community', slug); if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params.toString() ? '/?' + params : '/'; }
   const initialCommunity = data.communities.find(item => item.slug === data.community)?.slug || data.communities[0]?.slug || '';
   let token = '', title = '', body = '', contentRating = 'general', community = initialCommunity, formError = '', formMessage = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedLoading = false, feedError = '', followingRequestKey = '';
@@ -39,7 +41,7 @@
     if (data.q) params.set('q',data.q);
     if (data.community) params.set('community',data.community);
     if (data.hideR) params.set('hide_r', 'true');
-    if (data.hideX) params.set('hide_x', 'true');
+    params.set('hide_x', data.hideX ? 'true' : 'false');
     try {
       const response = await fetch('/api/home?' + params,{headers:{authorization:'Bearer ' + token}});
       const result = await response.json();
@@ -73,7 +75,7 @@
       <input type="hidden" name="feed" value={data.feed} />
       <input type="hidden" name="sort" value={data.sort} />
       {#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}
-      {#if data.hideX}<input type="hidden" name="hide_x" value="true" />{/if}
+      {#if !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}
       {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
       <button type="submit" aria-label="Run search" title="Run search"><Icon name="search" size={18} /></button>
     </form>
@@ -83,26 +85,26 @@
 <div class="layout">
   <aside class="community-nav">
     <div class="sidebar-heading"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div>
-    <a class="selected" href="/">All discussions</a>
-    {#each data.communities as community}<a href="/?community={community.slug}"><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}
+    <a class="selected" href={communityHref()}>All discussions</a>
+    {#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}
   </aside>
   <section class="feed">
     <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a></nav>
-    <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class="selected" href="/">All discussions</a>{#each data.communities as community}<a href="/?community={community.slug}"><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
+    <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class="selected" href={communityHref()}>All discussions</a>{#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
     <div class="feed-head">
       <div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : 'Timeline'}</h1></div>
       <div class="feed-head-actions">
         {#if token}<button class="start-discussion-button" type="button" aria-label="Start a discussion" aria-expanded={composeOpen} aria-controls="compose-panel" onclick={() => composeOpen = true}><Icon name="plus" size={17} />Start discussion</button>{:else}<a class="post-cta" href="/login">Sign in to post</a>{/if}
-        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if data.hideX}<input type="hidden" name="hide_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
-        <details class="feed-options content-filters"><summary><span>Content</span>{#if data.hideR || data.hideX}<span class="filter-count">filtered</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="hide_x" value="true" checked={data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Hide X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR || data.hideX}<a class="clear-content-filters" href={feedHref(data.feed, false)}>Show all content</a>{/if}</form></details>
+        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
+        <details class="feed-options content-filters"><summary><span>Content</span>{#if data.hideR}<span class="filter-count">R filtered</span>{:else if data.hideX}<span class="filter-count">X hidden</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Include X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR}<a class="clear-content-filters" href={clearRHref()}>Clear R filter</a>{/if}</form></details>
       </div>
     </div>
     {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from communities you follow.</p>{:else if feedLoading}<p role="status">Loading Following…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.feed === 'following' ? 'Follow a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
       {#each feedPosts as post (post.id)}
         <article class:source-article={Boolean(post.source)}>
           {#if post.content_rating === 'r' || post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={post.content_rating === 'r'} class:content-rating-x={post.content_rating === 'x'} class="content-rating" title={post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}>{post.content_rating.toUpperCase()}</span><span>{post.content_rating === 'r' ? 'R-rated' : 'X-rated'}</span></div>{/if}
-          {#if post.source?.provider === 'x'}
-            <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from X</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
+          {#if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
+            <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
             {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
             <SourcePost source={post.source} text={post.body} post={post} embedded={true} />
           {:else}
@@ -240,6 +242,7 @@
     .compose-launcher{right:18px;bottom:132px}
     .compose-fab{width:54px;min-width:54px;height:54px;padding:0;border-radius:50%}
     .compose-label{display:none}
-    .compose-panel{bottom:66px;width:min(390px,calc(100vw - 28px));padding:17px}
+    .compose-panel{bottom:66px;width:min(390px,calc(100vw - 28px));max-height:calc(100dvh - 220px);overflow-y:auto;overscroll-behavior:contain;padding:17px}
+    .source-import :global(form button){grid-column:1;grid-row:auto}
   }
 </style>

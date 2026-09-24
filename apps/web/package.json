@@ -2,6 +2,6 @@
   "name": "swartzit-web",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite dev", "build": "vite build", "check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json" },
+  "scripts": { "dev": "vite dev", "build": "vite build", "check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json", "test": "node --test" },
   "devDependencies": { "@sveltejs/adapter-node": "latest", "@sveltejs/kit": "latest", "@sveltejs/vite-plugin-svelte": "latest", "svelte": "latest", "svelte-check": "latest", "typescript": "latest", "vite": "latest" }
 }

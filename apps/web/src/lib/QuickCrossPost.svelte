@@ -42,11 +42,11 @@
 <section class="quick-crosspost" aria-labelledby="crosspost-title">
   <div class="crosspost-heading">
     <div><p class="eyebrow">BRING A SOURCE INTO THE CONVERSATION</p><h2 id="crosspost-title">Share a post</h2></div>
-    <p>Paste a public X or Reddit link. We’ll bring in its text, media, source metrics, and available Reddit comments.</p>
+    <p>Paste a public X, Reddit, or YouTube video link. YouTube videos stay hosted by YouTube and are embedded here.</p>
   </div>
   <form on:submit={submit}>
     <label class="source-field">Post URL
-      <input type="url" bind:value={url} required maxlength="2048" placeholder="https://x.com/name/status/… or reddit.com/r/…" autocomplete="url" />
+      <input type="url" bind:value={url} required maxlength="2048" placeholder="https://x.com/… reddit.com/… or youtube.com/watch?v=…" autocomplete="url" />
     </label>
     <CommunityPicker communities={communities} bind:value={community} id="crosspost-community" />
     <label class="rating-field">Content rating

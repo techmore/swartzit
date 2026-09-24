@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 import { parseXStatusUrl, resolveXPost } from '$lib/x-source.mjs';
 import { parseRedditPostUrl, resolveRedditPost } from '$lib/reddit-source.mjs';
+import { parseYouTubeUrl, resolveYouTubePost } from '$lib/youtube-source.mjs';
 
 const api = (env.API_URL || 'http://127.0.0.1:8080').replace(/\/+$/, '');
 const json = (body, status = 200) => Response.json(body, { status });
@@ -19,7 +20,10 @@ export async function POST({ request }) {
   try { parseXStatusUrl(url); provider = 'x'; }
   catch {
     try { parseRedditPostUrl(url); provider = 'reddit'; }
-    catch { return json({ error: 'Paste a public X or Reddit post link.' }, 400); }
+    catch {
+      try { parseYouTubeUrl(url); provider = 'youtube'; }
+      catch { return json({ error: 'Paste a public X, Reddit, or YouTube video link.' }, 400); }
+    }
   }
 
   try {
@@ -30,10 +34,16 @@ export async function POST({ request }) {
   }
 
   let post;
-  try { post = provider === 'x' ? await resolveXPost(url) : await resolveRedditPost(url); }
+  try {
+    post = provider === 'x'
+      ? await resolveXPost(url)
+      : provider === 'reddit'
+        ? await resolveRedditPost(url)
+        : await resolveYouTubePost(url);
+  }
   catch (error) {
     const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
-    const sourceName = provider === 'reddit' ? 'Reddit' : 'X';
+    const sourceName = provider === 'reddit' ? 'Reddit' : provider === 'youtube' ? 'YouTube' : 'X';
     return json({ error: timedOut ? `${sourceName} took too long to respond. Try again shortly.` : error.message || `Could not read that public ${sourceName} post.` }, timedOut ? 504 : 502);
   }
 
