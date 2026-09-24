@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
+  import Brand from '$lib/Brand.svelte';
   let token = '', loaded = false, busy = false, error = '', folders = [], items = [], filter = 'all', page = 1, hasMore = false, name = '', rename = '', message = '';
   $: selected = folders.find(f => String(f.id) === filter);
   async function request(path, method = 'GET', body) {
@@ -26,7 +27,7 @@
   async function deleteFolder() { await run(async()=>{await request('/api/bookmark-folders/'+filter,'DELETE'); filter = 'unfiled'; page = 1; message = 'Folder deleted. Its bookmarks are in Unfiled.';}); }
 </script>
 <svelte:head><title>Bookmarks — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
-<header><a class="brand" href="/">swartzit</a><SessionNav /></header>
+<header><Brand /><SessionNav /></header>
 <main>
   <h1>Your bookmarks</h1><p>Private to your account. Save discussions and organize them into folders.</p>
   {#if !loaded}<p role="status">Loading bookmarks…</p>

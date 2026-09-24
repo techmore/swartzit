@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.26-20260924T13
+
+- Shows the exact build version beside the Swartzit logo across the web app,
+  sourced from the repository version file during each web build.
+
 ## 0.1.25-20260924T13
 
 - Aligns the backup warning threshold exactly 500 MiB below the 5 GiB archive

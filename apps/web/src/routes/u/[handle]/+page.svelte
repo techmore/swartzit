@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
+  import Brand from '$lib/Brand.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
   import PostBody from '$lib/PostBody.svelte';
 
@@ -49,7 +50,7 @@
   <meta name="description" content={data.profile.bio || 'Profile for u/' + data.profile.handle + ' on Swartzit.'} />
 </svelte:head>
 
-<header><a class="brand" href="/">swartzit</a><span>Member profile</span><SessionNav /></header>
+<header><Brand /><span>Member profile</span><SessionNav /></header>
 <main class="profile-page">
   <section class="profile-card">
     <div class="profile-identity">

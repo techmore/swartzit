@@ -1,5 +1,6 @@
 <script>
   export let form;
+  import Brand from '$lib/Brand.svelte';
   let password = '', visible = false, generated = false;
   function generate() {
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -8,7 +9,7 @@
   }
 </script>
 <svelte:head><title>Create account — Swartzit</title></svelte:head>
-<header><a class="brand" href="/">swartzit</a><a href="/communities">Browse communities</a><a class="login" href="/login">Sign in</a></header>
+<header><Brand /><a href="/communities">Browse communities</a><a class="login" href="/login">Sign in</a></header>
 <main class="auth">
   <p class="eyebrow">PARTICIPATE UNDER A PSEUDONYM</p><h1>Create your account</h1>
   <p class="lede">Choose a handle for your conversations. No real name or external identity provider is required.</p>

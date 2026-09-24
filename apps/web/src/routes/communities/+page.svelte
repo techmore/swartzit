@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
+  import Brand from '$lib/Brand.svelte';
   export let data;
   let token = '', slug = '', name = '', description = '', error = '', busy = false, busySlug = '', following = {};
   onMount(async () => {
@@ -38,7 +39,7 @@
   }
 </script>
 <svelte:head><title>Browse communities · Swartzit</title></svelte:head>
-<header><a class="brand" href="/">swartzit</a><SessionNav /></header>
+<header><Brand /><SessionNav /></header>
 <main class="community-directory">
   <p class="eyebrow">FIND YOUR PEOPLE</p><h1>Browse communities</h1>
   <p>Explore a topic, read a conversation, or start a place of your own.</p>

@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
   import ImportPanel from '$lib/ImportPanel.svelte';
+  import Brand from '$lib/Brand.svelte';
   import { isFailedRunnerRun, nextRunnerCopyName, runnerFailureHint } from '$lib/content-runner-editor.mjs';
   const tabs = ['Overview', 'Users', 'Content', 'Reports', 'Moderation', 'Security', 'Settings', 'Server', 'Analytics', 'Logs', 'Imports', 'Crawler Jobs', 'Content Runners'];
   let tab = 'Overview', overview = null, storage = null, rows = [], trend = [], jobs = [], runs = [], runners = [], runnerRuns = [], moderationHistory = [], uptime = null, settings = null, loading = true, error = '', notice = '';
@@ -345,7 +346,7 @@
 
 <svelte:head><title>Administration · Swartzit</title></svelte:head>
 {#if authState !== 'authenticated'}
-  <header><a class="brand" href="/">swartzit</a><span>Instance administration</span></header>
+  <header><Brand /><span>Instance administration</span></header>
   <main class="auth admin-auth" aria-live="polite">
     {#if authState === 'checking'}
       <p role="status">Checking administrator access…</p>
@@ -363,7 +364,7 @@
     {/if}
   </main>
 {:else}
-<header><a class="brand" href="/">swartzit</a><span>Instance administration</span><SessionNav /></header>
+<header><Brand /><span>Instance administration</span><SessionNav /></header>
 <main class="admin">
   <div class="admin-heading"><div><p class="eyebrow">YOUR COMMUNITY, YOUR INSTANCE</p><h1>Control room</h1><p class="muted">People, conversations, and the services that keep them connected.</p></div>
     <div class="refresh-controls"><button onclick={() => { paused = !paused; }}>{paused ? 'Resume live updates' : 'Pause live updates'}</button><button onclick={refresh}>Refresh</button><small>{refreshed ? 'Updated ' + refreshed.toLocaleTimeString() : 'Connecting…'}</small></div>

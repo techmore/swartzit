@@ -12,6 +12,7 @@
   import PostViews from '$lib/PostViews.svelte';
   import QuickCrossPost from '$lib/QuickCrossPost.svelte';
   import CommunityPicker from '$lib/CommunityPicker.svelte';
+  import Brand from '$lib/Brand.svelte';
   let searchOpen = Boolean(data.q);
   let composeOpen = false;
   let searchInput;
@@ -71,7 +72,7 @@
 <svelte:head><title>Swartzit — the commons</title></svelte:head>
 <header class="home-header">
   <div class="home-header-inner">
-    <a class="brand" href="/">swartzit</a>
+    <Brand />
     <span class="header-context">The community commons</span>
     <div class="header-actions">
       <button class="header-icon" type="button" aria-label={searchOpen ? 'Close search' : 'Search discussions'} title={searchOpen ? 'Close search' : 'Search discussions'} aria-expanded={searchOpen} onclick={toggleSearch}><Icon name={searchOpen ? 'x' : 'search'} /></button>
@@ -155,7 +156,7 @@
 <style>
   .home-header{height:auto;display:block;padding:0;background:color-mix(in srgb,var(--page,#f6f4ee) 94%,transparent);backdrop-filter:blur(14px);position:sticky;top:0;z-index:15}
   .home-header-inner{height:64px;max-width:1180px;margin:auto;padding:0 24px;display:flex;align-items:center;gap:18px}
-  .home-header .brand{flex:none}
+  :global(.home-header .brand){flex:none}
   .header-context{font-size:.78rem;color:var(--muted,#66766c);letter-spacing:.02em}
   .header-actions{display:flex;align-items:center;gap:4px;margin-left:auto}
   .header-icon{width:36px;height:36px;display:inline-grid;place-items:center;border-radius:9px;color:var(--muted,#66766c);background:transparent;border:0;cursor:pointer}
@@ -253,8 +254,8 @@
   @media(max-width:900px){.header-context{display:none}.layout{grid-template-columns:180px minmax(0,720px);gap:28px}.community-nav{position:static;max-height:none;overflow:visible}}
   @media(max-width:700px){
     .home-header-inner{height:60px;padding:0 16px;gap:10px}
-    .home-header .brand{font-size:1.2rem}
-    .home-header .brand::before{width:26px;height:26px}
+    :global(.home-header .brand){font-size:1.2rem}
+    :global(.home-header .brand::before){width:26px;height:26px}
     .header-actions{gap:0}
     .header-icon{width:32px;height:32px}
     .global-search{padding:0 16px 10px}

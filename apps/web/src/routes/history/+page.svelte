@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
+  import Brand from '$lib/Brand.svelte';
   let items = [], ready = false;
   function load() {
     try { items = JSON.parse(localStorage.getItem('swartzit_reading_history') || '[]'); }
@@ -15,7 +16,7 @@
 </script>
 
 <svelte:head><title>Reading history — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
-<header><a class="brand" href="/">swartzit</a><SessionNav /></header>
+<header><Brand /><SessionNav /></header>
 <main>
   <div class="heading"><div><h1>Reading history</h1><p>Posts you’ve paused on in your feed or opened. Stored in this browser.</p></div>{#if ready && items.length}<button on:click={clearHistory}>Clear history</button>{/if}</div>
   {#if !ready}<p role="status">Loading history…</p>

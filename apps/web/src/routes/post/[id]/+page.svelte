@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import SessionNav from '$lib/SessionNav.svelte';
+  import Brand from '$lib/Brand.svelte';
   import BookmarkButton from '$lib/BookmarkButton.svelte';
   import ShareButton from '$lib/ShareButton.svelte';
   import PostViews from '$lib/PostViews.svelte';
@@ -69,7 +70,7 @@
   <meta name="twitter:description" content={previewDescription} />
 </svelte:head>
 <header>
-  <a class="brand" href="/">swartzit</a>
+  <Brand />
   <SessionNav />
 </header>
 <main class="post-page" class:article-page={Boolean(article)}>

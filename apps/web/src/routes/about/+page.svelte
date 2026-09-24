@@ -1,11 +1,12 @@
 <script>
   import SessionNav from '$lib/SessionNav.svelte';
+  import Brand from '$lib/Brand.svelte';
 </script>
 
 <svelte:head><title>About Swartzit</title></svelte:head>
 
 <header>
-  <a class="brand" href="/">swartzit</a>
+  <Brand />
   <span>Read freely. Participate under a pseudonym. Take your community with you.</span>
   <SessionNav />
 </header>
