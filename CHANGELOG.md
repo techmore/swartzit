@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.24-20260924T13
+
+- Adds an Admin → Server backup panel showing recent archive, database dump,
+  and media sizes, SHA-256 manifest presence, retention count, and the 4.5/5
+  GiB archive-budget state.
+
 ## 0.1.23-20260924T13
 
 - Makes backup checksum manifests portable by recording paths relative to the

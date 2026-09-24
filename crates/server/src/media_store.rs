@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use hmac::{Hmac, Mac};
 use image::ImageFormat;
 use reqwest::{Client, Method, header};
@@ -354,6 +354,32 @@ pub struct StorageReplicationSummary {
     pub attempts: i64,
 }
 
+const BACKUP_BUDGET_BYTES: i64 = 5 * 1024 * 1024 * 1024;
+const BACKUP_WARNING_BYTES: i64 = 4500 * 1024 * 1024;
+
+#[derive(Serialize, Clone, Debug)]
+pub struct BackupSnapshot {
+    pub name: String,
+    pub created_at: Option<DateTime<Utc>>,
+    pub archive_bytes: i64,
+    pub dump_bytes: Option<i64>,
+    pub media_bytes: Option<i64>,
+    pub checksum_manifest: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct BackupOverview {
+    pub directory: PathBuf,
+    pub archive_count: i64,
+    pub total_archive_bytes: i64,
+    pub retention: i64,
+    pub budget_bytes: i64,
+    pub warning_threshold_bytes: i64,
+    pub status: String,
+    pub latest: Option<BackupSnapshot>,
+    pub recent: Vec<BackupSnapshot>,
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct StorageOverview {
     pub database_size_bytes: i64,
@@ -367,10 +393,118 @@ pub struct StorageOverview {
     pub content: Vec<StorageContentSummary>,
     pub replicas: Vec<StorageReplicaSummary>,
     pub replication: StorageReplicationSummary,
+    pub backups: BackupOverview,
+}
+
+fn backup_root() -> PathBuf {
+    env::var("SWARTZIT_BACKUP_DIR")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| data_root().join("backups"))
+}
+
+fn size_as_i64(size: u64) -> i64 {
+    size.min(i64::MAX as u64) as i64
+}
+
+async fn optional_file_size(path: &Path) -> Option<i64> {
+    let metadata = tokio::fs::metadata(path).await.ok()?;
+    metadata.is_file().then(|| size_as_i64(metadata.len()))
+}
+
+async fn backup_overview() -> Result<BackupOverview, String> {
+    let directory = backup_root();
+    let retention = env::var("SWARTZIT_BACKUP_RETENTION")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(7);
+    let mut entries = match tokio::fs::read_dir(&directory).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(BackupOverview {
+                directory,
+                archive_count: 0,
+                total_archive_bytes: 0,
+                retention,
+                budget_bytes: BACKUP_BUDGET_BYTES,
+                warning_threshold_bytes: BACKUP_WARNING_BYTES,
+                status: "unknown".to_owned(),
+                latest: None,
+                recent: Vec::new(),
+            });
+        }
+        Err(error) => {
+            return Err(format!("could not inspect backup directory: {error}"));
+        }
+    };
+    let mut snapshots = Vec::new();
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|error| format!("could not read backup directory: {error}"))?
+    {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(stamp) = name
+            .strip_prefix("swartzit-")
+            .and_then(|value| value.strip_suffix("-backup.tgz"))
+        else {
+            continue;
+        };
+        let metadata = entry
+            .metadata()
+            .await
+            .map_err(|error| format!("could not inspect backup archive {name}: {error}"))?;
+        if !metadata.is_file() {
+            continue;
+        }
+        let snapshot_dir = directory.join(stamp);
+        let created_at = NaiveDateTime::parse_from_str(stamp, "%Y%m%dT%H%M%SZ")
+            .ok()
+            .map(|value| DateTime::<Utc>::from_naive_utc_and_offset(value, Utc));
+        snapshots.push(BackupSnapshot {
+            name,
+            created_at,
+            archive_bytes: size_as_i64(metadata.len()),
+            dump_bytes: optional_file_size(&snapshot_dir.join("swartzit.dump")).await,
+            media_bytes: optional_file_size(&snapshot_dir.join("media.tgz")).await,
+            checksum_manifest: optional_file_size(&snapshot_dir.join("SHA256SUMS"))
+                .await
+                .is_some(),
+        });
+    }
+    snapshots.sort_by(|left, right| right.name.cmp(&left.name));
+    let total_archive_bytes = snapshots.iter().fold(0_i64, |total, item| {
+        total.saturating_add(item.archive_bytes)
+    });
+    let status = if snapshots.is_empty() {
+        "unknown"
+    } else if total_archive_bytes >= BACKUP_BUDGET_BYTES {
+        "critical"
+    } else if total_archive_bytes >= BACKUP_WARNING_BYTES {
+        "warning"
+    } else {
+        "healthy"
+    };
+    let latest = snapshots.first().cloned();
+    let recent = snapshots.iter().take(14).cloned().collect();
+    Ok(BackupOverview {
+        directory,
+        archive_count: snapshots.len().min(i64::MAX as usize) as i64,
+        total_archive_bytes,
+        retention,
+        budget_bytes: BACKUP_BUDGET_BYTES,
+        warning_threshold_bytes: BACKUP_WARNING_BYTES,
+        status: status.to_owned(),
+        latest,
+        recent,
+    })
 }
 
 pub async fn storage_overview(db: &PgPool) -> Result<StorageOverview, String> {
     let config = load_config(db).await?;
+    let backups = backup_overview().await?;
     let database_size_bytes: i64 =
         sqlx::query_scalar("SELECT pg_database_size(current_database())")
             .fetch_one(db)
@@ -459,6 +593,7 @@ pub async fn storage_overview(db: &PgPool) -> Result<StorageOverview, String> {
         content,
         replicas,
         replication,
+        backups,
     })
 }
 
