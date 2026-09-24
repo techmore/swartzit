@@ -72,6 +72,7 @@ if [[ -n "$WIREGUARD_INTERFACE" ]]; then
     /etc/systemd/system/caddy.service.d/10-wireguard.conf
   systemctl enable wg-quick@wg0
 fi
+systemctl daemon-reload
 if [[ -n "${CADDY_DOMAIN:-}" ]]; then
   cat > /etc/caddy/Caddyfile <<EOF
 $CADDY_DOMAIN {
@@ -81,6 +82,5 @@ $CADDY_DOMAIN {
 EOF
   systemctl enable --now caddy
 fi
-systemctl daemon-reload
 systemctl enable --now swartzit swartzit-web swartzit-worker.timer
 echo "Swartzit installed. Check: systemctl status swartzit swartzit-web swartzit-worker.timer"

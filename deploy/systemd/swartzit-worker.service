@@ -9,10 +9,11 @@ User=swartzit
 Group=swartzit
 WorkingDirectory=/var/lib/swartzit
 EnvironmentFile=/etc/swartzit/worker.env
+Environment=SWARTZIT_WORKER_ROOT=/var/lib/swartzit
+Environment=SWARTZIT_WORKER_STATE_DIR=/var/lib/swartzit/state
 ExecStart=/usr/bin/node /var/lib/swartzit/scripts/swartzit-worker.mjs
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/swartzit
-

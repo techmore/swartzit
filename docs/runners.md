@@ -7,7 +7,7 @@ web process.
 | Component | Runs where | Responsibility | Start it with |
 | --- | --- | --- | --- |
 | `scripts/run-local.sh` | Mac | PostgreSQL, API, LAN web server, optional Caddy | `bash scripts/run-local.sh` |
-| `scripts/swartzit-worker.mjs` | Linux/Incus | Claims enabled admin crawler jobs and records run results | systemd timer |
+| `scripts/swartzit-worker.mjs` | Any supported Node host | Claims enabled admin crawler jobs and records run results | launchd on macOS; systemd on Linux |
 | Content runners | Worker host | Runs administrator-configured command/cross-post publishers with lifecycle, retry, timeout, and log policy | Admin → Content Runners |
 | `scripts/hermes-content-sync.mjs` | Local Hermes machine | Publishes collector JSON from an inbox, leaving failures for retry | `node scripts/hermes-content-sync.mjs --inbox .local/hermes/inbox` |
 | `scripts/scheduled-imports.mjs` | Local or hosted | **The only source submitter**; validates, enriches, deduplicates, and sends imports to the moderation gate | called by the runners |
@@ -40,9 +40,10 @@ for the command contract and lifecycle behavior.
    safe; newly created posts remain hidden until moderator approval.
 3. A failed batch stays available for retry and never advances a Daddario
    checkpoint. Missing metrics remain `null`; a runner must not guess them.
-4. Browser collection belongs on a Mac host with a dedicated signed-in Ego Lite
-   session. Hosted Linux jobs use the official API adapters and their
-   environment-file credentials; they never scrape browser cookies.
+4. The worker and public API adapters are cross-platform Node code. Browser
+   collection still belongs on a Mac host with a dedicated signed-in Ego Lite
+   session; hosted Linux jobs use the official API adapters and their
+   environment-file credentials, and never scrape browser cookies.
 5. The profile-image cache is bounded maintenance, not a media mirror. It runs
    after a successful worker pass and never blocks publication of unrelated
    content.
@@ -66,6 +67,39 @@ bash scripts/status-local.sh
 The local launcher writes only `.local/*.log`, `.local/*.pid`, and generated
 Caddy configuration. Those files are ignored by Git and are safe to remove if
 the launcher needs to recover a stale process state.
+
+### Cross-platform worker operations
+
+The worker is one Node entrypoint on every platform. It resolves its scripts
+from its own location instead of the current working directory, and keeps
+batches, runner output, sync checkpoints, and profile caches under
+`SWARTZIT_WORKER_STATE_DIR` (or `SWARTZIT_STATE_DIR`/`SWARTZIT_DATA_DIR`). A
+one-shot run is:
+
+```sh
+bash scripts/run-worker.sh
+# or, on any Node host:
+node scripts/swartzit-worker.mjs
+```
+
+On macOS, create a mode-600 `worker.env` containing `API_URL`,
+`SCHEDULER_HANDLE`, `SCHEDULER_PASSWORD`, and optionally `X_BEARER_TOKEN`, then
+install the launchd schedule:
+
+```sh
+swartzit worker-install
+```
+
+On Linux, the source installer installs the same worker as a systemd timer. To
+repair or install the scheduler independently on an existing checkout:
+
+```sh
+sudo bash scripts/install-linux-worker.sh
+```
+
+The worker core can also be invoked directly on Windows with Node. Managed
+Windows scheduling can use Task Scheduler around the same one-shot command;
+the repository does not require a platform-specific crawler implementation.
 
 ## Hosted operations
 

@@ -1,6 +1,7 @@
 // Small, dependency-free contract helpers for optional long-form adapters.
 // The adapter is an external process; this module only describes the argv and
 // JSONL frames that the Swartzit worker understands.
+import {isAbsolute, resolve} from 'node:path';
 
 export const CONTENT_PACKAGE_FORMAT = 'content-package.v1';
 
@@ -14,7 +15,7 @@ export function contentPackageArgv(config) {
 
 export function contentPackageWorkingDirectory(config, fallback) {
   const value = String(config?.working_dir || '').trim();
-  return value || fallback;
+  return value ? (isAbsolute(value) ? value : resolve(fallback, value)) : fallback;
 }
 
 export function contentPackageEnvironment(config) {

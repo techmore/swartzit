@@ -18,6 +18,7 @@ test('validates a bounded content package manifest', () => {
   assert.equal(manifest.title, 'Ash and Bone');
   assert.deepEqual(contentPackageArgv({argv: ['python3', 'adapter.py']}), ['python3', 'adapter.py']);
   assert.equal(contentPackageWorkingDirectory({}, '/tmp/default'), '/tmp/default');
+  assert.equal(contentPackageWorkingDirectory({working_dir: '../packs/story'}, '/tmp/default'), '/tmp/packs/story');
 });
 
 test('rejects missing units and oversized argv definitions', () => {

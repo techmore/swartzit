@@ -3,7 +3,12 @@ import {extname, isAbsolute, resolve} from 'node:path';
 
 export const MAX_PROMPT_PERMUTATIONS = 8;
 
-export const expandHome = value => value === '~' ? homedir() : value.startsWith('~/') ? `${homedir()}/${value.slice(2)}` : value;
+export const expandHome = value => {
+  const text = String(value ?? '');
+  if (text === '~') return homedir();
+  if (text.startsWith('~/') || text.startsWith('~\\')) return `${homedir()}${text.slice(1)}`;
+  return text;
+};
 
 export function normalizePromptPermutations(value) {
   return (Array.isArray(value) ? value : []).map(item => ({
@@ -30,7 +35,7 @@ export function expandPromptPermutations(value, max = MAX_PROMPT_PERMUTATIONS) {
   return combinations;
 }
 
-export function runnerOutputPath(template, claimId, index, total, startedAt) {
+export function runnerOutputPath(template, claimId, index, total, startedAt, baseDir = process.cwd()) {
   const raw = String(template || `.local/draw-things/${claimId}-${startedAt}-${index + 1}.png`);
   let output = expandHome(raw)
     .replaceAll('{runner_id}', String(claimId))
@@ -40,7 +45,7 @@ export function runnerOutputPath(template, claimId, index, total, startedAt) {
     const extension = extname(output);
     output = `${output.slice(0, output.length - extension.length)}-${index + 1}${extension}`;
   }
-  return isAbsolute(output) ? output : resolve(process.cwd(), output);
+  return isAbsolute(output) ? output : resolve(baseDir, output);
 }
 
 export function drawThingsArgs(config, prompt, output, index) {

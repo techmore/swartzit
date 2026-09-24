@@ -26,7 +26,11 @@ else
 fi
 mkdir -p "$STATE_DIR"
 SCRIPT_HOME="$HOME_DIR/scripts"
-[[ -d "$SCRIPT_HOME" ]] || SCRIPT_HOME="$HOME_DIR/libexec"
+if [[ ! -d "$SCRIPT_HOME" && -d "$HOME_DIR/libexec/scripts" ]]; then
+  SCRIPT_HOME="$HOME_DIR/libexec/scripts"
+elif [[ ! -d "$SCRIPT_HOME" ]]; then
+  SCRIPT_HOME="$HOME_DIR/libexec"
+fi
 
 MACOS_LAUNCHD_DOMAIN="gui/$(id -u)"
 MACOS_API_LAUNCHD_LABEL="${SWARTZIT_API_LAUNCHD_LABEL:-org.stoverparc.swartzit-homebrew-api}"
@@ -369,7 +373,9 @@ case "${1:-status}" in
   update) shift; exec "$SCRIPT_HOME/swartzit-update.sh" "$@" ;;
   monitor) shift; exec "$SCRIPT_HOME/swartzit-monitor.sh" "$@" ;;
   monitor-install) shift; exec "$SCRIPT_HOME/install-mac-monitor.sh" "$@" ;;
+  worker) shift; exec "$SCRIPT_HOME/run-worker.sh" "$@" ;;
+  worker-install) shift; exec "$SCRIPT_HOME/install-worker.sh" "$@" ;;
   status-install) shift; exec "$SCRIPT_HOME/install-mac-status.sh" "$@" ;;
   orchard) shift; exec "$SCRIPT_HOME/swartzit-orchard.sh" "$@" ;;
-  *) echo 'Usage: swartzit {version|start|restart|stop|status|interfaces|caddy|caddy-install|status-install|backup|backup-install|restore-verify|rollback|update|monitor|monitor-install|orchard}' >&2; exit 2 ;;
+  *) echo 'Usage: swartzit {version|start|restart|stop|status|interfaces|caddy|caddy-install|status-install|backup|backup-install|restore-verify|rollback|update|monitor|monitor-install|worker|worker-install|orchard}' >&2; exit 2 ;;
 esac

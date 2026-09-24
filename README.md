@@ -590,6 +590,13 @@ recorded as failed; the worker never scrapes a browser login or reports a
 fabricated success. Provider credentials belong in the worker environment, not
 in the job record or repository.
 
+The worker is cross-platform Node code: use `bash scripts/run-worker.sh` or
+`node scripts/swartzit-worker.mjs` for a one-shot pass on any supported host.
+macOS can install a launchd schedule with `swartzit worker-install`; Linux uses
+the same worker through `swartzit-worker.timer`. Browser-session collection
+remains a Mac-only capability because it requires the dedicated signed-in Ego
+Lite session; RSS, Reddit, and official X API jobs can run on any host.
+
 ### Scheduled X cross-posts and local Draw Things
 
 Admin → **Content Runners** includes disabled starter recipes for a bounded X

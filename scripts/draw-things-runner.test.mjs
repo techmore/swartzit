@@ -4,7 +4,7 @@ import {mkdtemp, readFile, rm, stat} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawn} from 'node:child_process';
-import {drawThingsArgs, drawThingsBody, drawThingsGeneration, expandPromptPermutations, parseDrawThingsProgress} from './draw-things-runner.mjs';
+import {drawThingsArgs, drawThingsBody, expandHome, drawThingsGeneration, expandPromptPermutations, parseDrawThingsProgress, runnerOutputPath} from './draw-things-runner.mjs';
 import {renderRunnerPrompt} from './runner-prompt.mjs';
 
 function run(command, args) {
@@ -98,6 +98,11 @@ test('parses Draw Things redraw progress and strips terminal control codes', () 
     totalSteps: 28
   });
   assert.equal(parseDrawThingsProgress('Wrote: /tmp/image.png'), null);
+});
+
+test('resolves worker-relative output paths from the supplied runtime directory', () => {
+  assert.equal(runnerOutputPath('.local/draw-things/{index}.png', 12, 0, 1, 42, '/tmp/swartzit-state'), '/tmp/swartzit-state/.local/draw-things/1.png');
+  assert.equal(expandHome('~/DrawThings/test.png'), `${homedir()}/DrawThings/test.png`);
 });
 
 test('runs the same argv contract through the deterministic Draw Things stub', async () => {

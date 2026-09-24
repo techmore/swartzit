@@ -7,6 +7,7 @@ import {collectReddit, collectX, collectRss} from './crawler-adapters.mjs';
 import {renderRunnerPrompt} from './runner-prompt.mjs';
 import {drawThingsArgs, drawThingsBody, drawThingsGeneration, expandHome, expandPromptPermutations, parseDrawThingsProgress, runnerOutputPath} from './draw-things-runner.mjs';
 import {contentPackageArgv, contentPackageEnvironment, contentPackageWorkingDirectory, packageFrameCheckpoint, packageFramePercent, parseContentPackageFrame, validateContentPackageManifest} from './content-package-runner.mjs';
+import {currentWorkerPaths as workerPaths} from './worker-runtime.mjs';
 const exec = (cmd, args, opts={}) => new Promise(resolve => {
   const started = Date.now();
   const {timeoutMs: configuredTimeoutMs = 0, onStdout, onStderr, onChild, ...spawnOptions} = opts;
@@ -25,6 +26,12 @@ const exec = (cmd, args, opts={}) => new Promise(resolve => {
 const api=process.env.API_URL??'http://127.0.0.1:18080';
 const handle=process.env.SCHEDULER_HANDLE, password=process.env.SCHEDULER_PASSWORD;
 if(!handle||!password) throw Error('SCHEDULER_HANDLE and SCHEDULER_PASSWORD are required');
+const workerRoot=workerPaths.root;
+const workerStateDir=workerPaths.stateDir;
+const workerEnv={...process.env,SWARTZIT_WORKER_ROOT:workerRoot,SWARTZIT_WORKER_STATE_DIR:workerStateDir};
+const scheduledImportsScript=workerPaths.script('scheduled-imports.mjs');
+const statePath=name=>workerPaths.state(name);
+await mkdir(workerStateDir,{recursive:true});
 async function responseValue(path, response) {
   const text = await response.text();
   let value = null;
@@ -52,7 +59,7 @@ for(const job of jobs.filter(j=>j.enabled)){
   let result={status:'skipped',imported_count:0,error:null,detail:{provider:job.provider}};
   try{
     if(job.provider==='commons'){
-      const r=await exec(process.execPath,['scripts/scheduled-imports.mjs','--job','ddario','--limit',String(job.max_items),'--due-hours',String(job.interval_seconds/3600)],{cwd:process.cwd(),env:process.env});
+      const r=await exec(process.execPath,[scheduledImportsScript,'--job','ddario','--limit',String(job.max_items),'--due-hours',String(job.interval_seconds/3600),'--state',statePath('sync-ddario.json')],{cwd:workerRoot,env:workerEnv});
       if(r.code!==0) throw Error(r.err.slice(-1000)||'Commons publisher failed');
       const receipt=JSON.parse(r.out.trim().split('\n').at(-1));
       result={status:receipt.status==='success'?'success':'skipped',imported_count:(receipt.created??0)+(receipt.updated??0),error:receipt.error??null,detail:receipt};
@@ -61,8 +68,8 @@ for(const job of jobs.filter(j=>j.enabled)){
       const items=job.provider==='reddit'?await collectReddit(job):job.provider==='x'?await collectX(job):await collectRss(job);
       if(!items.length) { result={status:'skipped',imported_count:0,error:null,detail:{provider:job.provider,reason:'no eligible public posts'}}; }
       else {
-        await mkdir('.local/worker-batches',{recursive:true}); const path=`.local/worker-batches/job-${job.id}-${Date.now()}.json`; await writeFile(path,JSON.stringify(items));
-        const r=await exec(process.execPath,['scripts/scheduled-imports.mjs','--job','feed','--batch',path,'--limit',String(items.length)],{cwd:process.cwd(),env:process.env});
+        const batchDir=statePath('worker-batches'); await mkdir(batchDir,{recursive:true}); const path=statePath('worker-batches',`job-${job.id}-${Date.now()}.json`); await writeFile(path,JSON.stringify(items));
+        const r=await exec(process.execPath,[scheduledImportsScript,'--job','feed','--batch',path,'--limit',String(items.length),'--state',statePath(`sync-job-${job.id}.json`)],{cwd:workerRoot,env:workerEnv});
         if(r.code!==0) throw Error(r.err.slice(-1000)||'Import failed');
         const receipt=JSON.parse(r.out.trim().split('\n').at(-1)); result={status:receipt.status==='success'?'success':'failed',imported_count:(receipt.created??0)+(receipt.updated??0),error:receipt.error??null,detail:receipt};
       }
@@ -303,7 +310,7 @@ async function contentRunnerControl(runId) {
 
 async function runContentPackage(claim, config, runnerEnv, runStarted) {
   const argv = contentPackageArgv(config);
-  const workingDirectory = contentPackageWorkingDirectory(config, process.cwd());
+  const workingDirectory = contentPackageWorkingDirectory(config, workerRoot);
   const options = contentPackageEnvironment(config);
   const progress = createContentPackageProgressReporter(claim.run_id, runStarted);
   let child = null;
@@ -367,7 +374,7 @@ async function runContentPackage(claim, config, runnerEnv, runStarted) {
       env: {
         ...runnerEnv,
         RUNNER_PROMPT: claim.prompt,
-        RUNNER_OUTPUT_PATH: `.local/runner-output-${claim.id}-${Date.now()}.json`,
+        RUNNER_OUTPUT_PATH: statePath(`runner-output-${claim.id}-${Date.now()}.json`),
         RUNNER_DRY_RUN: String(claim.dry_run === true),
         SWARTZIT_RUNNER_NAME: claim.name,
         SWARTZIT_RUNNER_RUN_ID: String(claim.run_id),
@@ -517,9 +524,13 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
     const maxLogBytes = Math.min(20000, Math.max(1024, Number(claim.max_log_bytes) || 20000));
     try {
       const dryRun = claim.dry_run === true;
-      const outputPath = `.local/runner-output-${claim.id}-${Date.now()}.json`;
+      const outputPath = statePath(`runner-output-${claim.id}-${Date.now()}.json`);
       const inheritedKeys = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'NODE_PATH'];
-      const runnerEnv = Object.fromEntries(inheritedKeys.filter(key => process.env[key]).map(key => [key, process.env[key]]));
+      const runnerEnv = {
+        ...Object.fromEntries(inheritedKeys.filter(key => process.env[key]).map(key => [key, process.env[key]])),
+        SWARTZIT_WORKER_ROOT: workerRoot,
+        SWARTZIT_WORKER_STATE_DIR: workerStateDir,
+      };
       for (const key of (Array.isArray(claim.environment_keys) ? claim.environment_keys : [])) if (process.env[key] !== undefined) runnerEnv[key] = process.env[key];
       const runStarted = Date.now();
       const generatedFiles = [], previews = [], published = [], warnings = [], skippedExisting = [];
@@ -530,7 +541,7 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
           ? promptPermutations.length
           : Math.min(8, Math.max(1, Number(config.posts_per_run ?? 1)));
         for (let index = 0; index < total; index += 1) {
-          const output = runnerOutputPath(config.output_path, claim.id, index, total, runStarted);
+          const output = runnerOutputPath(config.output_path, claim.id, index, total, runStarted, workerStateDir);
           await mkdir(dirname(output), {recursive: true});
           const seed = config.seed === null || config.seed === undefined ? null : Number(config.seed) + index;
           const promptVariables = promptPermutations[index] || {};
@@ -540,7 +551,7 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
           progress.start();
           let r;
           try {
-            r = await exec(argv[0], argv.slice(1), { cwd: process.cwd(), env: { ...runnerEnv, RUNNER_PROMPT: prompt, RUNNER_OUTPUT_PATH: output, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000, onStdout: progress.observeText });
+            r = await exec(argv[0], argv.slice(1), { cwd: workerRoot, env: { ...runnerEnv, RUNNER_PROMPT: prompt, RUNNER_OUTPUT_PATH: output, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000, onStdout: progress.observeText });
           } finally {
             await progress.flush();
           }
@@ -605,7 +616,7 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
         const argv = Array.isArray(claim.command) ? claim.command.map(String) : [];
         if (!argv.length || argv.length > 32) throw Error('Runner command must contain an executable and argv');
         const prompt = renderRunnerPrompt(claim.prompt, {now: runStarted, runner: claim.name, community: claim.community, author: claim.author, runId: claim.run_id, dryRun});
-        const r = await exec(argv[0], argv.slice(1), { cwd: process.cwd(), env: { ...runnerEnv, RUNNER_PROMPT: prompt, RUNNER_OUTPUT_PATH: outputPath, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000 });
+        const r = await exec(argv[0], argv.slice(1), { cwd: workerRoot, env: { ...runnerEnv, RUNNER_PROMPT: prompt, RUNNER_OUTPUT_PATH: outputPath, RUNNER_DRY_RUN: String(dryRun), SWARTZIT_RUNNER_NAME: claim.name }, timeoutMs: claim.timeout_seconds * 1000 });
         if (claim.capture_output !== false) { result.stdout = truncateLog(r.out, maxLogBytes); result.stderr = truncateLog(r.err, maxLogBytes); }
         result.exit_code = r.code; result.duration_ms = r.durationMs; result.timed_out = r.timedOut;
         if (r.timedOut) throw Error(`Runner exceeded its ${claim.timeout_seconds}s timeout`);
@@ -636,7 +647,7 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
 // Keep small public X avatars local after imports. A cache miss is harmless;
 // the web UI falls back to the source URL until a later run succeeds.
 try {
-  const cached=await exec(process.execPath,['scripts/cache-profile-images.mjs'],{cwd:process.cwd(),env:process.env});
+  const cached=await exec(process.execPath,[workerPaths.script('cache-profile-images.mjs')],{cwd:workerRoot,env:{...workerEnv,PROFILE_IMAGE_CACHE_DIR:workerPaths.state('profile-cache')}});
   if(cached.code!==0) console.error(cached.err.slice(-1000)||'profile image cache failed');
 } catch(e) { console.error(`profile image cache failed: ${e.message}`); }
 await call('/api/sessions','DELETE');

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.29-20260924T14
+
+- Makes the Node crawler/content worker cross-platform by resolving scripts and
+  runtime state from explicit paths rather than the current working directory.
+- Adds launchd and systemd worker installers, a portable worker launcher, and
+  packaged worker modules for the Homebrew/macOS install.
+- Ensures the Linux worker unit has stable root/state paths and the server
+  installer reloads systemd before starting drop-in-dependent services.
+
 ## 0.1.28-20260924T14
 
 - Makes the Ubuntu Caddy edge WireGuard-aware so it waits for `wg0`, follows

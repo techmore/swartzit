@@ -21,16 +21,9 @@ class Swartzit < Formula
 
     bin.install "scripts/swartzit"
     libexec.install "VERSION", "apps/web/build", "apps/web/static/swartzit-icon.png"
-    libexec.install "scripts/status-local.sh", "scripts/network-options.sh", "scripts/db-backup.sh",
-      "scripts/db-restore-verify.sh", "scripts/db-restore.sh",
-      "scripts/swartzit-update.sh",
-      "scripts/swartzit-monitor.sh", "scripts/install-mac-monitor.sh",
-      "scripts/install-mac-status.sh", "scripts/install-mac-backup.sh",
-      "scripts/swartzit-caddy.sh", "scripts/install-mac-caddy.sh",
-      "scripts/record-uptime-pulse.mjs", "scripts/runner-starter.mjs",
-      "scripts/runner-prompt.mjs", "scripts/draw-things-runner.mjs",
-      "scripts/x-cross-post-runner.mjs", "scripts/crawler-adapters.mjs", "scripts/x-media.mjs",
-      "scripts/swartzit-orchard.sh"
+    # Keep the relative scripts/ paths used by runner templates intact in the
+    # packaged worker. The launcher discovers this directory automatically.
+    libexec.install "scripts" => "scripts"
     etc.install ".env.example" => "swartzit.env.example"
   end
 
