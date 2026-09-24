@@ -28,7 +28,13 @@ else
   git -C "$APP_DIR" checkout -q FETCH_HEAD
 fi
 chown -R swartzit:swartzit "$APP_DIR"
-runuser -u swartzit -- bash -lc "cd '$APP_DIR' && cargo build --release --locked && npm --prefix apps/web ci && npm --prefix apps/web run build"
+runuser -u swartzit -- bash -lc "cd '$APP_DIR' && cargo build --release --locked && npm ci --omit=dev && npm --prefix apps/web ci && npm --prefix apps/web run build"
+# Playwright is an optional worker capability, but installing the pinned
+# Chromium runtime here keeps a fresh Ubuntu source install ready for the
+# dedicated read-only X runner. The browser profile itself is created later
+# under the worker state directory after an administrator signs into X.
+PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/.cache/ms-playwright" npx --prefix "$APP_DIR" playwright install --with-deps chromium
+chown -R swartzit:swartzit "$APP_DIR/.cache"
 install -o root -g root -m 0755 "$APP_DIR/target/release/swartzit-server" /usr/local/bin/swartzit-server
 
 if [[ -z "$DATABASE_URL" || -z "$SCHEDULER_HANDLE" || -z "$SCHEDULER_PASSWORD" || -z "$ORIGIN" ]]; then

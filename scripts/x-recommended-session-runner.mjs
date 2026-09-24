@@ -41,7 +41,7 @@ export function recommendedStatePath({runnerName = process.env.SWARTZIT_RUNNER_N
   return join(cwd, '.local', 'x-recommended', `${stateSlug(runnerName)}.json`);
 }
 
-async function loadSeen(path) {
+export async function loadSeen(path) {
   try {
     const parsed = JSON.parse(await readFile(path, 'utf8'));
     const values = Array.isArray(parsed) ? parsed : parsed?.seen_source_urls;
@@ -52,7 +52,7 @@ async function loadSeen(path) {
   }
 }
 
-async function saveSeen(path, urls, limit) {
+export async function saveSeen(path, urls, limit) {
   await mkdir(dirname(path), {recursive: true});
   const temporary = `${path}.${process.pid}.tmp`;
   await writeFile(temporary, JSON.stringify({seen_source_urls: urls.slice(-limit), updated_at: new Date().toISOString()}) + '\n', {mode: 0o600});

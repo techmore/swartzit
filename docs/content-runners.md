@@ -299,6 +299,43 @@ post per execution and resolves the selected public status through the shared
 X syndication adapter before handing it to the normal moderation/publishing
 path.
 
+### X Recommended timeline through Ubuntu Playwright
+
+`scripts/x-playwright-recommended-runner.mjs` is the Ubuntu-compatible
+alternative to the Ego Lite recipe. It launches the pinned Playwright
+Chromium build with a dedicated persistent profile, selects the signed-in X
+**For You** timeline, and returns at most one unseen public status per run.
+The browser is read-only: it never likes, reposts, follows, messages, or opens
+compose. The profile is stored outside Git under the worker state directory by
+default:
+
+```text
+/var/lib/swartzit/state/x-playwright-profile
+```
+
+Install the dependency and browser on a source checkout with:
+
+```sh
+npm ci --omit=dev
+PLAYWRIGHT_BROWSERS_PATH=/var/lib/swartzit/.cache/ms-playwright \
+  npx playwright install --with-deps chromium
+```
+
+Before enabling the runner, an administrator must sign into X once in that
+dedicated profile. Keep `X_PLAYWRIGHT_USER_DATA_DIR` separate from any normal
+browser profile. The runner defaults to headless operation for the unattended
+worker; use a controlled headed/Xvfb session only for initial sign-in or
+diagnosis. Allow-list these optional worker environment names when configuring
+the runner:
+
+```text
+X_PLAYWRIGHT_USER_DATA_DIR, X_PLAYWRIGHT_HEADLESS, X_PLAYWRIGHT_EXECUTABLE_PATH
+```
+
+The recipe shares the same bounded seen-URL state and X media resolver as the
+Ego Lite Recommended runner, so switching collection backends does not make
+already-selected source URLs eligible again.
+
 The existing crawler jobs remain the right choice for broad recurring imports.
 Use the X cross-post runner when the source list, topic window, and destination
 need to be versioned together as one bounded scheduled workflow.

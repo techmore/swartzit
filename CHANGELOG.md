@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.30-20260924T14
+
+- Adds a bounded, read-only Playwright Chromium runner for X Recommended on
+  Ubuntu, with a persistent dedicated profile and the same seen-source state as
+  the Ego Lite runner.
+- Packages the pinned Playwright dependency and Chromium install step into the
+  source server installer without changing the configured web bind.
+
 ## 0.1.29-20260924T14
 
 - Makes the Node crawler/content worker cross-platform by resolving scripts and
