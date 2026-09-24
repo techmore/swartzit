@@ -550,6 +550,29 @@ systemctl status swartzit swartzit-web swartzit-worker.timer
 journalctl -u swartzit-worker.service
 ```
 
+For an Ubuntu host that receives its public HTTPS traffic through a separate
+WireGuard-connected Caddy edge, set the web bind to the host's WireGuard
+address and install the optional `wg0` startup dependency. The WireGuard
+profile must already be installed at `/etc/wireguard/wg0.conf`; the installer
+does not accept or store private keys:
+
+```sh
+sudo WEB_HOST=192.168.3.251 \
+  WIREGUARD_INTERFACE=wg0 \
+  REPO_URL=https://github.com/techmore/swartzit.git \
+  REF=main \
+  DATABASE_URL='postgres://...' \
+  ORIGIN=https://stoverparc.org \
+  SCHEDULER_HANDLE=techmore \
+  SCHEDULER_PASSWORD='use-a-password-manager-value' \
+  bash scripts/install-server.sh
+```
+
+This enables `wg-quick@wg0` at boot and makes `swartzit-web` wait for the
+tunnel before binding. If Caddy runs on the Ubuntu host, its upstream follows
+`WEB_HOST`; if Caddy terminates TLS on another machine, point that edge at
+`192.168.3.251:4173` and keep the API on loopback.
+
 The admin **Crawler Jobs** tab stores provider, source, destination community,
 interval, maximum items, moderation mode, and run status. The worker runs once
 per minute and claims due jobs without overlapping runs. The Commons/Daddario

@@ -12,6 +12,9 @@ DATABASE_URL=${DATABASE_URL:-}
 SCHEDULER_HANDLE=${SCHEDULER_HANDLE:-}
 SCHEDULER_PASSWORD=${SCHEDULER_PASSWORD:-}
 X_BEARER_TOKEN=${X_BEARER_TOKEN:-}
+WEB_HOST=${WEB_HOST:-${SWARTZIT_WEB_HOST:-127.0.0.1}}
+WIREGUARD_INTERFACE=${WIREGUARD_INTERFACE:-}
+CADDY_UPSTREAM=${CADDY_UPSTREAM:-$WEB_HOST:4173}
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -44,7 +47,7 @@ BIND_ADDR=127.0.0.1:18080
 EOF
 cat > /etc/swartzit/web.env <<EOF
 API_URL=http://127.0.0.1:18080
-HOST=127.0.0.1
+HOST=$WEB_HOST
 PORT=4173
 ORIGIN=$ORIGIN
 EOF
@@ -59,11 +62,18 @@ install -m 0644 "$APP_DIR/deploy/systemd/swartzit.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-web.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-worker.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-worker.timer" /etc/systemd/system/
+if [[ -n "$WIREGUARD_INTERFACE" ]]; then
+  [[ "$WIREGUARD_INTERFACE" == wg0 ]] || { echo 'WIREGUARD_INTERFACE currently supports only wg0.' >&2; exit 1; }
+  install -d -m 0755 /etc/systemd/system/swartzit-web.service.d
+  install -m 0644 "$APP_DIR/deploy/systemd/swartzit-web-wireguard-wg0.conf" \
+    /etc/systemd/system/swartzit-web.service.d/10-wireguard.conf
+  systemctl enable wg-quick@wg0
+fi
 if [[ -n "${CADDY_DOMAIN:-}" ]]; then
   cat > /etc/caddy/Caddyfile <<EOF
 $CADDY_DOMAIN {
   encode gzip zstd
-  reverse_proxy 127.0.0.1:4173
+  reverse_proxy $CADDY_UPSTREAM
 }
 EOF
   systemctl enable --now caddy

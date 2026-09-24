@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.27-20260924T13
+
+- Adds an optional Ubuntu `wg0` systemd drop-in so the web service starts after
+  WireGuard and follows its restart lifecycle.
+- Lets the source installer set the web bind with `WEB_HOST`, enable the
+  `wg-quick@wg0` boot service with `WIREGUARD_INTERFACE=wg0`, and point an
+  installed Caddy instance at the selected web address.
+
 ## 0.1.26-20260924T13
 
 - Shows the exact build version beside the Swartzit logo across the web app,
