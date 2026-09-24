@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.28-20260924T14
+
+- Makes the Ubuntu Caddy edge WireGuard-aware so it waits for `wg0`, follows
+  tunnel restarts, and can terminate HTTPS directly on the deployed tunnel
+  address before proxying to Swartzit's `:4173` listener.
+
 ## 0.1.27-20260924T13
 
 - Adds an optional Ubuntu `wg0` systemd drop-in so the web service starts after

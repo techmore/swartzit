@@ -67,6 +67,9 @@ if [[ -n "$WIREGUARD_INTERFACE" ]]; then
   install -d -m 0755 /etc/systemd/system/swartzit-web.service.d
   install -m 0644 "$APP_DIR/deploy/systemd/swartzit-web-wireguard-wg0.conf" \
     /etc/systemd/system/swartzit-web.service.d/10-wireguard.conf
+  install -d -m 0755 /etc/systemd/system/caddy.service.d
+  install -m 0644 "$APP_DIR/deploy/systemd/swartzit-caddy-wireguard-wg0.conf" \
+    /etc/systemd/system/caddy.service.d/10-wireguard.conf
   systemctl enable wg-quick@wg0
 fi
 if [[ -n "${CADDY_DOMAIN:-}" ]]; then

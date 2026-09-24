@@ -569,9 +569,12 @@ sudo WEB_HOST=192.168.3.251 \
 ```
 
 This enables `wg-quick@wg0` at boot and makes `swartzit-web` wait for the
-tunnel before binding. If Caddy runs on the Ubuntu host, its upstream follows
-`WEB_HOST`; if Caddy terminates TLS on another machine, point that edge at
-`192.168.3.251:4173` and keep the API on loopback.
+tunnel before binding. When `CADDY_DOMAIN` is set with `WIREGUARD_INTERFACE=wg0`,
+the installer also makes Ubuntu Caddy wait for and follow that tunnel, so the
+gateway can forward TCP 80/443 directly to `192.168.3.251`. Caddy proxies to
+the selected `WEB_HOST:4173` listener and the API remains on loopback. If Caddy
+terminates TLS on another machine, point that edge at `192.168.3.251:4173`
+instead.
 
 The admin **Crawler Jobs** tab stores provider, source, destination community,
 interval, maximum items, moderation mode, and run status. The worker runs once
