@@ -19,7 +19,10 @@ swartzit_pg_resolve_run_as
 
 BINARY=${1:-}
 BACKUP=${2:-}
-[[ -x "$BINARY" && -f "$BACKUP" ]] || { echo "Usage: $0 /path/to/swartzit-server /path/to/swartzit.dump" >&2; exit 2; }
+# The binary does not need to arrive executable: a mode-0755 copy is staged
+# below before it runs. Requiring the execute bit here would reject a freshly
+# downloaded release asset, which curl creates as 0644.
+[[ -f "$BINARY" && -f "$BACKUP" ]] || { echo "Usage: $0 /path/to/swartzit-server /path/to/swartzit.dump" >&2; exit 2; }
 swartzit_pg_require_tools psql pg_restore createdb dropdb dropuser curl python3
 
 SERVICE_DATABASE_URL=${SWARTZIT_SERVICE_DATABASE_URL:-}
