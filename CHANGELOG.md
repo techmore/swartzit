@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.31-20260925T17
+
+- Adds a guarded Mac/VM-to-Ubuntu production update workflow with native
+  PostgreSQL pre-update backups, checksum/dump validation, bind-preserving
+  systemd restarts, automatic code rollback on failed health checks, and
+  operator-opt-in error notifications.
+- Adds an opt-in GitHub push-to-production workflow and a maintenance timer;
+  neither can update a host until the operator enables it explicitly.
+
 ## 0.1.30-20260924T14
 
 - Adds a bounded, read-only Playwright Chromium runner for X Recommended on

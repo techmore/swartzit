@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for Swartzit updates on a safe maintenance schedule
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=swartzit-update.service
+
+[Install]
+WantedBy=timers.target

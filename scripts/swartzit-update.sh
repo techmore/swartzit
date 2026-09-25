@@ -16,6 +16,9 @@ mkdir -p "$STATE_DIR"
 UPDATE_STATUS_FILE="$(printenv SWARTZIT_UPDATE_STATUS_FILE || true)"
 [[ -n "$UPDATE_STATUS_FILE" ]] || UPDATE_STATUS_FILE="$STATE_DIR/update-status.json"
 mkdir -p "$(dirname "$UPDATE_STATUS_FILE")"
+VERIFY_BACKUP="${SWARTZIT_VERIFY_BACKUP:-1}"
+UPDATE_ERROR_URL="${SWARTZIT_UPDATE_ERROR_URL:-}"
+UPDATE_ERROR_TOKEN="${SWARTZIT_UPDATE_ERROR_TOKEN:-}"
 
 write_update_status() {
   local state="$1"
@@ -70,11 +73,35 @@ wait_for_healthy_services() {
 }
 
 previous_version=""
+send_update_error() {
+  local detail="$1"
+  [[ -n "$UPDATE_ERROR_URL" ]] || return 0
+  payload=$(
+    UPDATE_ERROR_DETAIL="$detail" \
+    UPDATE_ERROR_VERSION="${previous_version:-unknown}" \
+    UPDATE_ERROR_BIND="${restart_network:-unknown}" \
+      node --input-type=module <<'NODE'
+console.log(JSON.stringify({
+  source: 'swartzit-macos-update',
+  detail: process.env.UPDATE_ERROR_DETAIL,
+  version: process.env.UPDATE_ERROR_VERSION,
+  bind: process.env.UPDATE_ERROR_BIND,
+  host: process.env.HOSTNAME || 'unknown',
+  occurred_at: new Date().toISOString(),
+}));
+NODE
+  )
+  headers=(-H 'content-type: application/json')
+  [[ -n "$UPDATE_ERROR_TOKEN" ]] && headers+=(-H "authorization: Bearer $UPDATE_ERROR_TOKEN")
+  curl -fsS --max-time 10 -X POST "${headers[@]}" --data "$payload" "$UPDATE_ERROR_URL" >/dev/null || true
+}
+
 fail_update() {
   local detail="$1"
   local version="$previous_version"
   [[ $# -ge 2 ]] && version="$2"
   write_update_status "failed" "failed" "$detail" "$version"
+  send_update_error "$detail"
   exit 1
 }
 
@@ -100,6 +127,12 @@ printf '%s\n' "$backup_output" | tee "$STATE_DIR/last-update-backup.txt"
 backup_path=$(printf '%s\n' "$backup_output" | sed -n 's/^Backup: //p' | head -n 1)
 archive_path=$(printf '%s\n' "$backup_output" | sed -n 's/^Archive: //p' | head -n 1)
 previous_version=$("$LAUNCHER" version 2>/dev/null || echo unknown)
+if [[ "$VERIFY_BACKUP" == 1 ]]; then
+  write_update_status "updating" "verify-backup" "Validating the recovery backup" "$previous_version"
+  if [[ -z "$archive_path" ]] || ! "$SCRIPT_HOME/db-restore-verify.sh" "$archive_path"; then
+    fail_update "The recovery backup could not be restored and verified." "$previous_version"
+  fi
+fi
 manifest="$STATE_DIR/last-update.json"
 printf '{"started_at":"%s","previous_version":"%s","backup":"%s","archive":"%s"}\n' \
   "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$previous_version" "$backup_path" "$archive_path" > "$manifest"
