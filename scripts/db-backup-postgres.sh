@@ -66,8 +66,15 @@ swartzit_pg_admin pg_isready -d "$SWARTZIT_DB_NAME" >/dev/null
 # compresses, so the small production database stays cheap to copy around.
 # --no-owner/--no-acl keeps the dump restorable by the rehearsal role, which
 # deliberately does not reuse the production service credential.
+# The dump is written to stdout and redirected here rather than with
+# pg_dump --file. The admin helper runs the client as the postgres OS account,
+# which cannot write into a root-owned backup directory; redirecting as the
+# invoking user keeps the archive owned by whoever requested the backup.
 swartzit_pg_admin pg_dump -d "$SWARTZIT_DB_NAME" \
-  --format=custom --no-owner --no-acl --file="$OUT_DIR/swartzit.dump"
+  --format=custom --no-owner --no-acl > "$OUT_DIR/swartzit.dump"
+# A zero-length dump is never a valid backup, and an unwritable output
+# directory is the usual cause. Fail loudly rather than archiving an empty file.
+[[ -s "$OUT_DIR/swartzit.dump" ]] || { echo 'pg_dump produced an empty dump.' >&2; exit 1; }
 swartzit_pg_table_row_counts "$SWARTZIT_DB_NAME" > "$OUT_DIR/row-counts.tsv"
 cp "$OUT_DIR/row-counts.tsv" "$OUT_DIR/source-row-counts.tsv"
 
