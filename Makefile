@@ -1,4 +1,4 @@
-.PHONY: check test fmt web-build perf-smoke db-performance-benchmark pg-diagnostics release-preflight
+.PHONY: check test fmt web-build perf-smoke db-performance-benchmark pg-diagnostics release-preflight release-update dry-run-release-update
 
 check:
 	cargo check --workspace
@@ -23,3 +23,9 @@ pg-diagnostics:
 
 release-preflight:
 	bash scripts/release-preflight.sh
+
+dry-run-release-update:
+	bash scripts/swartzit-release-update.sh --tag "$(TAG)" --dry-run
+
+release-update:
+	bash scripts/swartzit-release-update.sh --tag "$(TAG)" --yes

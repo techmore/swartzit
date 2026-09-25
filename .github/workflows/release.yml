@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build web
+        run: |
+          npm ci
+          npm --prefix apps/web ci
+          npm --prefix apps/web run build
+      - name: Build server
+        run: cargo build --release --locked
+      - name: Package release
+        run: |
+          mkdir -p dist
+          cp target/release/swartzit-server dist/swartzit-server-linux-amd64
+          tar -C apps/web -czf dist/swartzit-web-linux-amd64.tar.gz build
+          (cd dist && sha256sum swartzit-server-linux-amd64 swartzit-web-linux-amd64.tar.gz > SHA256SUMS)
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*
