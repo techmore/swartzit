@@ -161,6 +161,21 @@ swartzit_pg_as_role() {
   PGPASSWORD="$password" "$@" -h "$host" -p "$port" -U "$role" -d "$database"
 }
 
+# Endpoint for a disposable rehearsal role.
+#
+# A disposable role can only authenticate with its password, and a unix socket
+# connection is governed by peer authentication, which maps the invoking OS
+# account instead. When the configured host is a socket directory, connect to
+# loopback over TCP so the generated password is actually used.
+swartzit_pg_role_endpoint() {
+  local host="${1:-}" port="${2:-}"
+  if [[ -z "$host" || "$host" == /* ]]; then
+    printf '127.0.0.1 %s\n' "${port:-5432}"
+  else
+    printf '%s %s\n' "$host" "${port:-5432}"
+  fi
+}
+
 # Tear down a disposable rehearsal database and its role.
 #
 # A candidate server that fails mid-startup can leave a session attached, and

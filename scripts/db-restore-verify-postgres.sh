@@ -55,7 +55,10 @@ ADMIN_ENDPOINT=(-h "$ADMIN_HOST")
 swartzit_pg psql "${ADMIN_ENDPOINT[@]}" -U "$SWARTZIT_PG_ADMIN_USER" -d postgres -v ON_ERROR_STOP=1 -q -c \
   "create role \"$TEST_ROLE\" login password '$TEST_PASSWORD'" >/dev/null
 swartzit_pg createdb "${ADMIN_ENDPOINT[@]}" -O "$TEST_ROLE" "$TEST_DB"
-swartzit_pg_as_role "$TEST_ROLE" "$TEST_PASSWORD" "$ADMIN_HOST" "${ADMIN_PORT:-5432}" "$TEST_DB" \
+# The disposable role authenticates by password, so it must not use the admin's
+# unix socket: peer authentication there would map the invoking OS account.
+read -r ROLE_HOST ROLE_PORT < <(swartzit_pg_role_endpoint "$ADMIN_HOST" "$ADMIN_PORT")
+swartzit_pg_as_role "$TEST_ROLE" "$TEST_PASSWORD" "$ROLE_HOST" "$ROLE_PORT" "$TEST_DB" \
   pg_restore --no-owner --exit-on-error "$BACKUP"
 swartzit_pg_table_row_counts "$TEST_DB" > "$WORK_DIR/restored-row-counts.tsv"
 cp "$WORK_DIR/restored-row-counts.tsv" "$REPORT_PATH"
