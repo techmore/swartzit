@@ -53,9 +53,18 @@ git commit -m "Describe the tested change"
 git push -u origin codex/your-change
 ```
 
-Merge to `main` only after CI and the disposable restore check pass. The
-production workflow deploys the `main` checkout, so a merge is the explicit
-promotion event.
+Merge to `main` only after CI and the disposable restore check pass. Merging
+does **not** change a live host. Promotion is a separate, explicit step: cut a
+release tag, and the deploy workflow installs that published release.
+
+```sh
+git tag -a v0.1.36-20260925T19 -m "Swartzit 0.1.36-20260925T19"
+git push origin v0.1.36-20260925T19
+```
+
+`release.yml` builds and publishes the checksummed assets for the tag, and
+`deploy-production.yml` then installs them on the host. A tag can also be
+deployed by hand with `workflow_dispatch` and the `tag` input.
 
 ## 3. Opt the Ubuntu host into push-to-production updates
 
@@ -75,8 +84,14 @@ secrets in the `production` environment:
 The deploy user needs a narrowly scoped `sudoers` rule for the updater:
 
 ```text
-deploy ALL=(root) NOPASSWD: /var/lib/swartzit/scripts/swartzit-linux-update.sh --yes, /bin/cat /var/lib/swartzit/state/update-receipt.json
+deploy ALL=(root) NOPASSWD: /var/lib/swartzit/scripts/swartzit-linux-update.sh --tag v*, --yes, /bin/cat /var/lib/swartzit/state/update-receipt.json
 ```
+
+`swartzit-linux-update.sh` holds no update logic. It delegates to
+`scripts/swartzit-release-update.sh`, so the sudoers grant stays scoped to a
+stable path while the gates it runs live in one reviewed place. Because the
+grant accepts any `v*` tag, require a reviewer on the `production` environment
+so no tag can deploy unattended.
 
 Install the updater units without enabling automatic polling:
 
@@ -89,21 +104,33 @@ sudo systemctl daemon-reload
 
 The updater performs this sequence:
 
-1. Refuses a dirty production checkout.
-2. Dumps PostgreSQL in custom format using the native `pg_dump` client.
-3. Writes row counts, SHA256 sums, and a rolling archive under the configured
-   state backup directory.
-4. Validates the checksum and `pg_restore --list` before stopping anything.
-5. Stops the API, web, and worker timer, fetches `main`, builds the Rust and
-   SvelteKit releases, and installs the systemd unit files.
-6. Restarts services using the existing environment files, so the current
+1. Refuses a checkout with tracked modifications. Untracked operational state in
+   the deployment directory is ignored, so `state/` and caches do not make a
+   host unupgradeable.
+2. Downloads the tagged release assets and verifies every SHA-256 before
+   anything is installed, so a truncated or tampered asset cannot be applied.
+3. Dumps PostgreSQL in custom format using the service's own credentials, and
+   writes row counts, a media archive, and checksums.
+4. **Restore rehearsal:** restores that archive into a throwaway database and
+   compares per-table row counts. Content tables must match exactly;
+   operational tables that are expected to move are reported with their delta.
+5. **Migration rehearsal:** restores the dump again into a disposable role's
+   database and starts the *candidate* binary against that copy, waiting for
+   `/health`. An incompatible migration fails here, before any live service is
+   touched.
+6. Stops the API, web, and worker timer, then installs the verified binary and
+   swaps the web build directory by atomic rename.
+7. Restarts services using the existing environment files, so the current
    WireGuard/web bind is preserved.
-7. Requires API, web, and optional public URL health checks to pass.
-8. On a build/start/health failure, switches the code checkout back to the
-   previous commit and retries the health gate. It never restores the database
+8. Requires `/ready`, `/health`, the web root, and an optional public URL to
+   pass. `/ready` proves startup finished and `/health` proves the database
+   answers.
+9. On a start or health failure, restores the previous binary, web build, and
+   commit, then re-checks health. It never restores the database
    automatically; the verified pre-update backup is recorded in
-   `/var/lib/swartzit/state/update-receipt.json` for an operator-controlled
-   data rollback.
+   `/var/lib/swartzit/state/update-receipt.json` and in the recovery bundle
+   under `/var/backups/swartzit/releases/` for an operator-controlled data
+   rollback.
 
 For hosts that should poll GitHub without Actions, create
 `/etc/swartzit/update.env` and enable the timer explicitly:
