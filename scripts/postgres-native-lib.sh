@@ -27,11 +27,21 @@ swartzit_pg_resolve_run_as() {
     if [[ -n "$SWARTZIT_PG_RUN_AS" ]]; then
       SWARTZIT_PG_ADMIN_USER="$SWARTZIT_PG_RUN_AS"
     else
-      SWARTZIT_PG_ADMIN_USER="$SWARTZIT_DB_USER"
+      # No privilege drop, so the admin identity is the account local
+      # authentication maps to. Peer and trust both resolve to the OS user, so
+      # naming the configured database role here would fail to connect.
+      SWARTZIT_PG_ADMIN_USER=$(id -un)
     fi
   fi
   SWARTZIT_PG_ADMIN_HOST=${SWARTZIT_PG_ADMIN_HOST:-$SWARTZIT_DB_HOST}
   SWARTZIT_PG_ADMIN_PORT=${SWARTZIT_PG_ADMIN_PORT:-$SWARTZIT_DB_PORT}
+  # A socket directory that does not exist is worse than useless: PostgreSQL
+  # reports a bare "No such file or directory". Homebrew keeps its socket in
+  # /tmp, so fall back to loopback when the configured path is absent.
+  if [[ "$SWARTZIT_PG_ADMIN_HOST" == /* && ! -d "$SWARTZIT_PG_ADMIN_HOST" ]]; then
+    SWARTZIT_PG_ADMIN_HOST=127.0.0.1
+    SWARTZIT_PG_ADMIN_PORT=${SWARTZIT_PG_ADMIN_PORT:-5432}
+  fi
 }
 
 swartzit_pg_privilege_wrapper() {

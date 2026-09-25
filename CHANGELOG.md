@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.38-20260925T19
+
+- Fixes the migration rehearsal connecting for administrative work over TCP,
+  where the postgres account has no password. Administrative work now uses the
+  local socket and peer authentication; only the disposable rehearsal role, which
+  carries a generated password, connects over TCP.
+- Resolves the administrative identity to the account local authentication maps
+  to, and falls back to loopback when the configured socket directory does not
+  exist, so a Homebrew rehearsal no longer fails on a missing socket.
+
 ## 0.1.37-20260925T19
 
 - Fixes an undefined `BUNDLE` reference in the release updater that aborted a

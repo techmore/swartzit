@@ -56,10 +56,12 @@ TEST_ROLE="swartzit_preflight_${SUFFIX}"
 TEST_PASSWORD=$(swartzit_pg_random_password)
 TEST_PORT=${SWARTZIT_PREFLIGHT_PORT:-18081}
 TEST_URL="http://127.0.0.1:${TEST_PORT}/health"
-# The rehearsal talks to the same endpoint the service uses, so the admin
-# helper is pointed at that host/port rather than the local socket default.
-SWARTZIT_PG_ADMIN_HOST=$PG_HOST
-SWARTZIT_PG_ADMIN_PORT=$PG_PORT
+# Administrative work (creating the disposable role and database) runs as the
+# postgres OS account over the local socket, where peer authentication applies.
+# Pointing it at the service's TCP endpoint instead demands a password that
+# account does not have. Only the disposable role, which carries a generated
+# password, connects over TCP.
+#
 # The service account has to be able to read the staged binary, and a private
 # root-owned temp directory would hide it.
 STAGE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/swartzit-preflight.XXXXXX")
