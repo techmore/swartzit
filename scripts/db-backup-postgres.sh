@@ -85,7 +85,10 @@ else
   MEDIA_STATUS="absent ($MEDIA_ROOT)"
 fi
 
-MANIFEST_FILES=(swartzit.dump row-counts.tsv source-row-counts.tsv)
+MANIFEST_FILES=(swartzit.dump row-counts.tsv source-row-counts.tsv volatile-tables.txt)
+# Record which tables the rehearsal treats as expected-to-move, so a restore
+# report is reproducible even if the default list changes later.
+printf '%s\n' "$SWARTZIT_VOLATILE_TABLES" > "$OUT_DIR/volatile-tables.txt"
 [[ -f "$OUT_DIR/media.tgz" ]] && MANIFEST_FILES+=(media.tgz)
 (cd "$OUT_DIR" && sha256 "${MANIFEST_FILES[@]}") > "$OUT_DIR/SHA256SUMS"
 

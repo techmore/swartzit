@@ -197,6 +197,58 @@ swartzit_pg_drop_rehearsal() {
   return 1
 }
 
+# Tables that keep changing while a live instance is running.
+#
+# The backup manifest is collected after pg_dump has taken its snapshot, so a
+# table that is written continuously can legitimately hold a different number
+# of rows by then. Comparing those tables for equality produces false failures;
+# comparing content tables strictly is the check that actually proves the
+# restore is faithful.
+SWARTZIT_VOLATILE_TABLES=${SWARTZIT_VOLATILE_TABLES:-sessions system_logs ip_activity ip_blocks post_view_visits crawler_runs content_runner_runs media_replication_jobs}
+
+# Compare a backup manifest against restored row counts.
+#
+# Content tables must match exactly. Volatile tables are reported with their
+# delta but do not fail the rehearsal. A table present in one side and not the
+# other always fails, because that means the restore is structurally wrong.
+swartzit_pg_compare_row_counts() {
+  local manifest="$1" restored="$2"
+  awk -v volatile="$SWARTZIT_VOLATILE_TABLES" '
+    BEGIN {
+      count = split(volatile, list, " ")
+      for (i = 1; i <= count; i++) if (list[i] != "") isVolatile[list[i]] = 1
+    }
+    FNR == NR { manifest[$1] = $2; next }
+    {
+      name = $1
+      got = $2
+      if (!(name in manifest)) {
+        printf("  FAIL  %s exists after restore but not in the manifest\n", name)
+        bad = 1
+        next
+      }
+      if (manifest[name] != got) {
+        if (name in isVolatile) {
+          printf("  note  %s is expected to move: manifest %s, restored %s\n", name, manifest[name], got)
+        } else {
+          printf("  FAIL  %s manifest %s, restored %s\n", name, manifest[name], got)
+          bad = 1
+        }
+      }
+      seen[name] = 1
+    }
+    END {
+      for (name in manifest) {
+        if (!(name in seen)) {
+          printf("  FAIL  %s is in the manifest but missing after restore\n", name)
+          bad = 1
+        }
+      }
+      exit bad
+    }
+  ' "$manifest" "$restored"
+}
+
 swartzit_pg_require_tools() {
   local missing=()
   for tool in "$@"; do

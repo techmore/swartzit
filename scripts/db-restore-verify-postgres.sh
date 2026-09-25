@@ -65,10 +65,10 @@ cp "$WORK_DIR/restored-row-counts.tsv" "$REPORT_PATH"
 
 STATUS=0
 if [[ -f "$SOURCE_COUNTS" ]]; then
-  if diff -u "$SOURCE_COUNTS" "$WORK_DIR/restored-row-counts.tsv"; then
-    echo 'Row counts match the backup manifest.'
+  if swartzit_pg_compare_row_counts "$SOURCE_COUNTS" "$WORK_DIR/restored-row-counts.tsv"; then
+    echo 'Content table row counts match the backup manifest.'
   else
-    echo 'Restored row counts differ from the backup manifest.' >&2
+    echo 'Restored content row counts differ from the backup manifest.' >&2
     STATUS=1
   fi
 else
