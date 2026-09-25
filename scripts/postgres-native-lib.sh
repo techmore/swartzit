@@ -47,6 +47,18 @@ swartzit_pg_resolve_run_as() {
 swartzit_pg_privilege_wrapper() {
   local tool="$1"
   shift
+  # Never let a client prompt. An unattended upgrade that blocks on
+  # "Password for user postgres:" holds its lock and presents as a hang rather
+  # than a failure, which is far harder to diagnose and recover from.
+  if [[ -z "${PGPASSWORD+x}" ]]; then
+    export PGPASSWORD=""
+  fi
+  export PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-10}
+  case "$tool" in
+    psql|pg_dump|pg_restore|createdb|dropdb|dropuser)
+      set -- --no-password "$@"
+      ;;
+  esac
   if [[ -z "$SWARTZIT_PG_RUN_AS" ]]; then
     "$tool" "$@"
     return
@@ -168,7 +180,7 @@ swartzit_pg_service_database_url() {
 swartzit_pg_as_role() {
   local role="$1" password="$2" host="$3" port="$4" database="$5"
   shift 5
-  PGPASSWORD="$password" "$@" -h "$host" -p "$port" -U "$role" -d "$database"
+  PGPASSWORD="$password" "$@" --no-password -h "$host" -p "$port" -U "$role" -d "$database"
 }
 
 # Endpoint for a disposable rehearsal role.

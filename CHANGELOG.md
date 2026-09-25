@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.39-20260925T20
+
+- Makes every PostgreSQL client in the backup and rehearsal scripts
+  non-interactive with `--no-password` and a connect timeout. An unattended
+  upgrade that blocked on a `Password for user postgres:` prompt held its
+  release lock and presented as a hang rather than a failure, which is far
+  harder to diagnose and recover from.
+
 ## 0.1.38-20260925T19
 
 - Fixes the migration rehearsal connecting for administrative work over TCP,

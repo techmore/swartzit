@@ -64,6 +64,7 @@ ROW_COUNTS_SQL="select tablename || E'\\t' || (xpath('/table/row/count/text()', 
 
 db_ready() {
   if [[ "$DB_BACKEND" == native ]]; then
+    # pg_isready is a connectivity probe and never prompts, so it takes no -w.
     pg_isready --dbname="$DATABASE_URL" >/dev/null
   else
     container exec "$CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
@@ -73,7 +74,7 @@ db_ready() {
 db_dump() {
   local destination="$1"
   if [[ "$DB_BACKEND" == native ]]; then
-    pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --file="$destination"
+    pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --file="$destination" -w
     return
   fi
   local temporary_dump=/tmp/swartzit.dump
@@ -84,7 +85,7 @@ db_dump() {
 
 db_row_counts() {
   if [[ "$DB_BACKEND" == native ]]; then
-    psql --dbname="$DATABASE_URL" -Atqc "$ROW_COUNTS_SQL"
+    psql --dbname="$DATABASE_URL" -w -Atqc "$ROW_COUNTS_SQL"
   else
     container exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atqc "$ROW_COUNTS_SQL"
   fi
