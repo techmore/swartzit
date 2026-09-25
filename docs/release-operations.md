@@ -104,6 +104,34 @@ SWARTZIT_WEB_URL   defaults to http://127.0.0.1:3000
 The public Caddy listener is WireGuard-bound, so the loopback web port is the
 reliable post-swap health target.
 
+## Upgrading a host whose checkout is still on an old commit
+
+The updater records the currently checked-out commit before it advances the
+checkout, so it is best run from a copy of the tools staged outside the
+deployment directory. That keeps the old commit available for rollback even
+though the run itself checks out the new tag.
+
+```sh
+TAG=v0.1.32-20260925T18
+sudo git -C /var/lib/swartzit fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+sudo rm -rf "/var/tmp/swartzit-tools-$TAG"
+sudo mkdir -p "/var/tmp/swartzit-tools-$TAG"
+sudo git -C /var/lib/swartzit archive "$TAG" scripts | sudo tar -x -C "/var/tmp/swartzit-tools-$TAG"
+sudo bash "/var/tmp/swartzit-tools-$TAG/scripts/swartzit-release-update.sh" --tag "$TAG" --dry-run
+sudo bash "/var/tmp/swartzit-tools-$TAG/scripts/swartzit-release-update.sh" --tag "$TAG" --yes
+sudo bash /var/lib/swartzit/scripts/install-release-automation.sh
+```
+
+## Installing the automation on an existing host
+
+`install-server.sh` wires up the release tooling on a fresh install. An existing
+host gets the same scripts and timer without touching the database or the
+running release:
+
+```sh
+sudo bash /var/lib/swartzit/scripts/install-release-automation.sh
+```
+
 ## Scheduled checking
 
 The installer enables `swartzit-upgrade-check.timer`, which runs daily with a

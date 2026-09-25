@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.32-20260925T18
+
+- Runs the release upgrade from a staged copy of the tools, so the commit that
+  was running before an upgrade stays available for rollback even when the
+  upgrade is what advances the checkout.
+- Adds `install-release-automation.sh` for hosts that are already deployed, so
+  the release scripts and the daily check timer install without touching the
+  database or the running release.
+
 ## 0.1.31-20260925T16
 
 - Adds a tagged GitHub release workflow that publishes the Linux server binary,

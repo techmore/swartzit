@@ -4,6 +4,11 @@ set -euo pipefail
 REPO_URL=${SWARTZIT_RELEASE_REPOSITORY:-https://github.com/techmore/swartzit.git}
 RELEASE_REPO=${SWARTZIT_RELEASE_REPO:-techmore/swartzit}
 APP_DIR=${SWARTZIT_APP_DIR:-/var/lib/swartzit}
+# Helper scripts come from wherever this script itself lives, not from the
+# deployment checkout. A staged tools directory can therefore run the upgrade
+# while the checkout is still on the old commit, which is what makes the
+# previous-commit rollback meaningful.
+SCRIPT_HOME=$(cd "$(dirname "$0")" && pwd)
 BACKUP_DIR=${SWARTZIT_RELEASE_BACKUP_DIR:-/var/backups/swartzit/releases}
 # Production defaults: the API binds loopback 18080 and the SvelteKit Node
 # build serves 3000. Caddy publishes 192.168.3.251:4173 -> 3000 over WireGuard,
@@ -112,12 +117,12 @@ verify_release_checksums
 SERVER_ASSET="$WORK/swartzit-server-linux-amd64"
 WEB_ASSET="$WORK/swartzit-web-linux-amd64.tar.gz"
 RELEASE_VERSION=$(tr -d '[:space:]' < "$WORK/VERSION")
-BACKUP_OUTPUT=$(bash "$APP_DIR/scripts/db-backup-postgres.sh")
+BACKUP_OUTPUT=$(bash "$SCRIPT_HOME/db-backup-postgres.sh")
 printf '%s\n' "$BACKUP_OUTPUT" | tee "$BACKUP_TAG/backup.txt"
 DB_DUMP=$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Backup: //p' | head -n1)
 [[ -f "$DB_DUMP" ]] || { echo 'Database backup path could not be determined.' >&2; exit 1; }
 cp "$DB_DUMP" "$BACKUP_TAG/"
-bash "$APP_DIR/scripts/preflight-release.sh" "$SERVER_ASSET" "$DB_DUMP"
+bash "$SCRIPT_HOME/preflight-release.sh" "$SERVER_ASSET" "$DB_DUMP"
 tar -C "$APP_DIR/apps/web" -czf "$BACKUP_TAG/web-build.tgz" build 2>/dev/null || true
 cp /usr/local/bin/swartzit-server "$BACKUP_TAG/swartzit-server.previous" 2>/dev/null || true
 git -C "$APP_DIR" fetch --tags origin "$TAG"
