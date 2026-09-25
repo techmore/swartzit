@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.31-20260925T16
+
+- Adds a tagged GitHub release workflow that publishes the Linux server binary,
+  the SvelteKit web build, the release version, and a `SHA256SUMS` manifest after
+  running the same gates as CI.
+- Adds a safe Ubuntu release updater that verifies release checksums, takes a
+  native PostgreSQL backup, rehearses the candidate release against a restored
+  copy of the production data, swaps the binary and web build atomically, checks
+  API and web health, and rolls back on failure.
+- Adds native PostgreSQL backup and restore-rehearsal scripts for the Ubuntu
+  deployment, with per-table row-count manifests and a media archive, usable as a
+  full local rehearsal on the Mac.
+- Adds a migration preflight that restores the backup into a throwaway database
+  owned by a disposable role and refuses a release whose migrations cannot apply
+  to the current data.
+- Adds a daily `swartzit-upgrade-check` systemd timer that stays check-only
+  unless a release tag is pinned and unattended updates are explicitly enabled.
+
 ## 0.1.30-20260924T14
 
 - Adds a bounded, read-only Playwright Chromium runner for X Recommended on
