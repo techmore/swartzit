@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.34-20260925T19
+
+- Runs the checkout fetch, diff check, tag checkout, and rollback checkout as the
+  repository owner rather than as root, so an upgrade on the Ubuntu host is not
+  blocked by git's dubious-ownership guard and does not leave root-owned files
+  behind in the deployment tree.
+- Restores the previous web build with the repository owner's ownership instead
+  of a hard-coded account.
+
 ## 0.1.33-20260925T19
 
 - Verifies the published web archive is a complete adapter-node build

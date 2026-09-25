@@ -63,6 +63,15 @@ fi
 [[ "$(id -u)" -eq 0 ]] || { echo 'Run this updater as root: sudo bash scripts/swartzit-release-update.sh --tag ... --yes' >&2; exit 1; }
 command -v systemctl >/dev/null || { echo 'systemd is required.' >&2; exit 1; }
 [[ -d "$APP_DIR/.git" ]] || { echo "Swartzit checkout not found at $APP_DIR." >&2; exit 1; }
+# The deployment checkout is owned by the service account, not root. Git refuses
+# to operate on another user's repository, and checking out as root would leave
+# root-owned files behind, so git runs as the repository owner.
+REPO_USER=$(stat -c '%U' "$APP_DIR" 2>/dev/null || stat -f '%Su' "$APP_DIR")
+GIT=(git -C "$APP_DIR" -c safe.directory="$APP_DIR")
+if [[ "$(id -u)" -eq 0 && "$REPO_USER" != "root" ]] && id "$REPO_USER" >/dev/null 2>&1; then
+  GIT=(runuser -u "$REPO_USER" -- git -C "$APP_DIR" -c safe.directory="$APP_DIR")
+  echo "Running checkout updates as $REPO_USER."
+fi
 if [[ "$ASSUME_YES" -ne 1 ]]; then
   echo "This will back up PostgreSQL, preflight the release on a restored DB, stop services, install $TAG, and roll back on failure."
   read -r -p "Type the tag to continue: $TAG " CONFIRM || true
@@ -77,7 +86,7 @@ trap cleanup EXIT
 STAMP=$(date -u '+%Y%m%dT%H%M%SZ')
 BACKUP_TAG="$BACKUP_DIR/$STAMP"
 mkdir -p "$BACKUP_TAG"
-PREVIOUS_COMMIT=$(git -C "$APP_DIR" rev-parse HEAD)
+PREVIOUS_COMMIT=$("${GIT[@]}" rev-parse HEAD)
 PREVIOUS_VERSION=$(cat "$APP_DIR/VERSION" 2>/dev/null || echo unknown)
 AUTH_HEADER=()
 [[ -n "$GITHUB_TOKEN" ]] && AUTH_HEADER=(-H "Authorization: Bearer $GITHUB_TOKEN")
@@ -104,7 +113,7 @@ verify_release_checksums() {
   # The workflow signs the raw asset names; verify before renaming anything.
   (cd "$WORK" && sha256sum -c SHA256SUMS)
 }
-if ! git -C "$APP_DIR" diff --quiet || ! git -C "$APP_DIR" diff --cached --quiet; then
+if ! "${GIT[@]}" diff --quiet || ! "${GIT[@]}" diff --cached --quiet; then
   echo 'The Swartzit checkout has tracked modifications; refusing to update.' >&2
   exit 1
 fi
@@ -125,8 +134,8 @@ cp "$DB_DUMP" "$BACKUP_TAG/"
 bash "$SCRIPT_HOME/preflight-release.sh" "$SERVER_ASSET" "$DB_DUMP"
 tar -C "$APP_DIR/apps/web" -czf "$BACKUP_TAG/web-build.tgz" build 2>/dev/null || true
 cp /usr/local/bin/swartzit-server "$BACKUP_TAG/swartzit-server.previous" 2>/dev/null || true
-git -C "$APP_DIR" fetch --tags origin "$TAG"
-git -C "$APP_DIR" checkout --detach "$TAG"
+"${GIT[@]}" fetch --tags origin "$TAG"
+"${GIT[@]}" checkout --detach "$TAG"
 printf '%s\n' "$PREVIOUS_COMMIT" > "$BACKUP_TAG/previous-commit"
 printf '%s\n' "$PREVIOUS_VERSION" > "$BACKUP_TAG/previous-version"
 SERVICES=(swartzit swartzit-web)
@@ -155,9 +164,9 @@ rollback() {
     tar -xzf "$BACKUP_TAG/web-build.tgz" -C "$WORK/web-rollback"
     rm -rf "$APP_DIR/apps/web/build"
     mv "$WORK/web-rollback/build" "$APP_DIR/apps/web/build"
-    chown -R swartzit:swartzit "$APP_DIR/apps/web/build"
+    chown -R "$REPO_USER" "$APP_DIR/apps/web/build"
   fi
-  git -C "$APP_DIR" checkout --detach "$PREVIOUS_COMMIT" >/dev/null 2>&1 || true
+  "${GIT[@]}" checkout --detach "$PREVIOUS_COMMIT" >/dev/null 2>&1 || true
   resume_services
 }
 systemctl stop "${SERVICES[@]}" || { echo 'Could not stop Swartzit services.' >&2; exit 1; }
@@ -177,7 +186,7 @@ fi
 rm -rf "$APP_DIR/apps/web/build.previous"
 mv "$APP_DIR/apps/web/build" "$APP_DIR/apps/web/build.previous"
 mv "$WORK/web-build/build" "$APP_DIR/apps/web/build"
-chown -R swartzit:swartzit "$APP_DIR/apps/web/build"
+chown -R "$REPO_USER" "$APP_DIR/apps/web/build"
 systemctl start swartzit swartzit-web || { rollback; exit 1; }
 healthy=0
 for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
@@ -192,7 +201,7 @@ fi
 resume_services
 mkdir -p "$APP_DIR/state"
 printf '{"tag":"%s","version":"%s","commit":"%s","previous_commit":"%s","previous_version":"%s","backup":"%s","recovery_bundle":"%s","installed_at":"%s"}\n' \
-  "$TAG" "$RELEASE_VERSION" "$(git -C "$APP_DIR" rev-parse HEAD)" "$PREVIOUS_COMMIT" "$PREVIOUS_VERSION" "$DB_DUMP" "$BACKUP_TAG" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$APP_DIR/state/release-$STAMP.json"
+  "$TAG" "$RELEASE_VERSION" "$("${GIT[@]}" rev-parse HEAD)" "$PREVIOUS_COMMIT" "$PREVIOUS_VERSION" "$DB_DUMP" "$BACKUP_TAG" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$APP_DIR/state/release-$STAMP.json"
 ln -sfn "$APP_DIR/state/release-$STAMP.json" "$APP_DIR/state/current-release.json"
 rm -rf "$APP_DIR/apps/web/build.previous"
 echo "Swartzit updated to $TAG ($RELEASE_VERSION) and passed API/web health checks."
