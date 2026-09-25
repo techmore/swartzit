@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.35-20260925T20
+
+- Adds `deploy/upgrade-to-release.sh`, a single production upgrade entry point
+  that stages the release tools from the tagged commit, verifies the release
+  assets, applies the backup-and-rollback upgrade, installs the daily check, and
+  reports the resulting version and health. A `--check` mode verifies the release
+  without changing anything.
+
 ## 0.1.34-20260925T19
 
 - Runs the checkout fetch, diff check, tag checkout, and rollback checkout as the

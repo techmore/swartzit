@@ -111,8 +111,18 @@ checkout, so it is best run from a copy of the tools staged outside the
 deployment directory. That keeps the old commit available for rollback even
 though the run itself checks out the new tag.
 
+`deploy/upgrade-to-release.sh` wraps the whole sequence, including staging those
+tools out of the tagged commit:
+
 ```sh
-TAG=v0.1.32-20260925T18
+sudo bash deploy/upgrade-to-release.sh v0.1.34-20260925T19 --check   # verify only
+sudo bash deploy/upgrade-to-release.sh v0.1.34-20260925T19            # apply
+```
+
+The equivalent manual sequence is:
+
+```sh
+TAG=v0.1.34-20260925T19
 sudo git -C /var/lib/swartzit fetch origin "refs/tags/$TAG:refs/tags/$TAG"
 sudo rm -rf "/var/tmp/swartzit-tools-$TAG"
 sudo mkdir -p "/var/tmp/swartzit-tools-$TAG"
@@ -121,6 +131,9 @@ sudo bash "/var/tmp/swartzit-tools-$TAG/scripts/swartzit-release-update.sh" --ta
 sudo bash "/var/tmp/swartzit-tools-$TAG/scripts/swartzit-release-update.sh" --tag "$TAG" --yes
 sudo bash /var/lib/swartzit/scripts/install-release-automation.sh
 ```
+
+The updater runs git as the repository owner, so the checkout never ends up with
+root-owned files and git's dubious-ownership guard does not block the run.
 
 ## Installing the automation on an existing host
 
