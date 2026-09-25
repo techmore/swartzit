@@ -5,8 +5,12 @@ REPO_URL=${SWARTZIT_RELEASE_REPOSITORY:-https://github.com/techmore/swartzit.git
 RELEASE_REPO=${SWARTZIT_RELEASE_REPO:-techmore/swartzit}
 APP_DIR=${SWARTZIT_APP_DIR:-/var/lib/swartzit}
 BACKUP_DIR=${SWARTZIT_RELEASE_BACKUP_DIR:-/var/backups/swartzit/releases}
+# Production defaults: the API binds loopback 18080 and the SvelteKit Node
+# build serves 3000. Caddy publishes 192.168.3.251:4173 -> 3000 over WireGuard,
+# so the loopback web port is the reliable post-swap health target.
 API_URL=${SWARTZIT_API_URL:-http://127.0.0.1:18080}
-WEB_URL=${SWARTZIT_WEB_URL:-http://127.0.0.1:4173}
+WEB_URL=${SWARTZIT_WEB_URL:-http://127.0.0.1:3000}
+HEALTH_ATTEMPTS=${SWARTZIT_HEALTH_ATTEMPTS:-60}
 GITHUB_TOKEN=${GITHUB_TOKEN:-${GH_TOKEN:-}}
 TAG=""
 ASSUME_YES=0
@@ -22,8 +26,36 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$TAG" ]] || { echo "Usage: $0 --tag vX.Y.Z [--yes] [--dry-run]" >&2; exit 2; }
-[[ "$(id -u)" -eq 0 ]] || { echo 'Run this updater as root: sudo bash scripts/swartzit-release-update.sh --tag ... --yes' >&2; exit 1; }
 command -v curl >/dev/null || { echo 'curl is required.' >&2; exit 1; }
+command -v python3 >/dev/null || { echo 'python3 is required.' >&2; exit 1; }
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "Release tag: $TAG"
+  echo "Release repository: $RELEASE_REPO"
+  for asset in swartzit-server-linux-amd64 swartzit-web-linux-amd64.tar.gz VERSION SHA256SUMS; do
+    python3 - "$RELEASE_REPO" "$TAG" "$asset" "${GITHUB_TOKEN:-}" <<'PY'
+import json, sys, urllib.request
+repo, tag, name, token = sys.argv[1:]
+headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'swartzit-updater'}
+if token:
+    headers['Authorization'] = 'Bearer ' + token
+request = urllib.request.Request(f'https://api.github.com/repos/{repo}/releases/tags/{tag}', headers=headers)
+try:
+    with urllib.request.urlopen(request) as response:
+        release = json.load(response)
+except Exception as error:
+    print(f'Release {tag} is not available: {error}', file=sys.stderr)
+    raise SystemExit(1)
+sizes = {asset['name']: asset['size'] for asset in release.get('assets', [])}
+if name not in sizes:
+    print(f'Missing release asset: {name}', file=sys.stderr)
+    raise SystemExit(1)
+print(f'Found {name} ({sizes[name]} bytes)')
+PY
+  done
+  echo 'Dry run passed: release assets are present and downloadable.'
+  exit 0
+fi
+[[ "$(id -u)" -eq 0 ]] || { echo 'Run this updater as root: sudo bash scripts/swartzit-release-update.sh --tag ... --yes' >&2; exit 1; }
 command -v systemctl >/dev/null || { echo 'systemd is required.' >&2; exit 1; }
 [[ -d "$APP_DIR/.git" ]] || { echo "Swartzit checkout not found at $APP_DIR." >&2; exit 1; }
 if [[ "$ASSUME_YES" -ne 1 ]]; then
@@ -44,7 +76,6 @@ PREVIOUS_COMMIT=$(git -C "$APP_DIR" rev-parse HEAD)
 PREVIOUS_VERSION=$(cat "$APP_DIR/VERSION" 2>/dev/null || echo unknown)
 AUTH_HEADER=()
 [[ -n "$GITHUB_TOKEN" ]] && AUTH_HEADER=(-H "Authorization: Bearer $GITHUB_TOKEN")
-api_get() { curl -fsSL "${AUTH_HEADER[@]}" -H 'Accept: application/vnd.github+json' "$1"; }
 download_asset() {
   local name="$1" out="$2"
   local url
@@ -62,26 +93,25 @@ PY
 )
   curl -fsSL "${AUTH_HEADER[@]}" -o "$out" "$url"
 }
-verify_sha() {
-  local file="$1"
-  (cd "$(dirname "$file")" && shasum -a 256 -c "$(basename "$file").sha256")
+verify_release_checksums() {
+  local sums="$WORK/SHA256SUMS"
+  [[ -s "$sums" ]] || { echo 'Release is missing SHA256SUMS.' >&2; exit 1; }
+  # The workflow signs the raw asset names; verify before renaming anything.
+  (cd "$WORK" && sha256sum -c SHA256SUMS)
 }
-if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "Would check GitHub release $TAG in $RELEASE_REPO."
-  echo "Would back up PostgreSQL, preflight migrations, and roll forward atomically."
-  exit 0
-fi
 if ! git -C "$APP_DIR" diff --quiet || ! git -C "$APP_DIR" diff --cached --quiet; then
   echo 'The Swartzit checkout has tracked modifications; refusing to update.' >&2
   exit 1
 fi
 printf 'Current commit: %s\nPrevious version: %s\n' "$PREVIOUS_COMMIT" "$PREVIOUS_VERSION"
-SERVER_ASSET="$WORK/swartzit-server"
-WEB_ASSET="$WORK/swartzit-web.tar.gz"
-download_asset swartzit-server-linux-amd64 "$SERVER_ASSET"
-download_asset swartzit-web-linux-amd64.tar.gz "$WEB_ASSET"
-verify_sha "$SERVER_ASSET"
-verify_sha "$WEB_ASSET"
+download_asset swartzit-server-linux-amd64 "$WORK/swartzit-server-linux-amd64"
+download_asset swartzit-web-linux-amd64.tar.gz "$WORK/swartzit-web-linux-amd64.tar.gz"
+download_asset VERSION "$WORK/VERSION"
+download_asset SHA256SUMS "$WORK/SHA256SUMS"
+verify_release_checksums
+SERVER_ASSET="$WORK/swartzit-server-linux-amd64"
+WEB_ASSET="$WORK/swartzit-web-linux-amd64.tar.gz"
+RELEASE_VERSION=$(tr -d '[:space:]' < "$WORK/VERSION")
 BACKUP_OUTPUT=$(bash "$APP_DIR/scripts/db-backup-postgres.sh")
 printf '%s\n' "$BACKUP_OUTPUT" | tee "$BACKUP_TAG/backup.txt"
 DB_DUMP=$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Backup: //p' | head -n1)
@@ -94,33 +124,69 @@ git -C "$APP_DIR" fetch --tags origin "$TAG"
 git -C "$APP_DIR" checkout --detach "$TAG"
 printf '%s\n' "$PREVIOUS_COMMIT" > "$BACKUP_TAG/previous-commit"
 printf '%s\n' "$PREVIOUS_VERSION" > "$BACKUP_TAG/previous-version"
+SERVICES=(swartzit swartzit-web)
+# The crawler worker must not claim a job while the API and web build are being
+# swapped underneath it.
+if systemctl is-enabled --quiet swartzit-worker.timer 2>/dev/null || systemctl is-active --quiet swartzit-worker.timer 2>/dev/null; then
+  WORKER_TIMER_WAS_ACTIVE=1
+  systemctl stop swartzit-worker.timer swartzit-worker.service 2>/dev/null || true
+fi
+resume_services() {
+  systemctl start "${SERVICES[@]}" || true
+  if [[ "${WORKER_TIMER_WAS_ACTIVE:-0}" -eq 1 ]]; then
+    systemctl start swartzit-worker.timer || true
+  fi
+}
 rollback() {
   echo 'Rolling back Swartzit after failed health checks.' >&2
-  systemctl stop swartzit-web swartzit || true
-  if [[ -f "$BACKUP_TAG/swartzit-server.previous" ]]; then install -m 0755 "$BACKUP_TAG/swartzit-server.previous" /usr/local/bin/swartzit-server; fi
-  if [[ -f "$BACKUP_TAG/web-build.tgz" ]]; then rm -rf "$APP_DIR/apps/web/build.rollback"; mkdir -p "$APP_DIR/apps/web/build.rollback"; tar -xzf "$BACKUP_TAG/web-build.tgz" -C "$APP_DIR/apps/web/build.rollback"; rm -rf "$APP_DIR/apps/web/build"; mv "$APP_DIR/apps/web/build.rollback/build" "$APP_DIR/apps/web/build"; rmdir "$APP_DIR/apps/web/build.rollback" 2>/dev/null || true; fi
+  systemctl stop "${SERVICES[@]}" || true
+  if [[ -f "$BACKUP_TAG/swartzit-server.previous" ]]; then
+    install -m 0755 "$BACKUP_TAG/swartzit-server.previous" /usr/local/bin/swartzit-server.new
+    mv -f /usr/local/bin/swartzit-server.new /usr/local/bin/swartzit-server
+  fi
+  if [[ -f "$BACKUP_TAG/web-build.tgz" ]]; then
+    rm -rf "$WORK/web-rollback"
+    mkdir -p "$WORK/web-rollback"
+    tar -xzf "$BACKUP_TAG/web-build.tgz" -C "$WORK/web-rollback"
+    rm -rf "$APP_DIR/apps/web/build"
+    mv "$WORK/web-rollback/build" "$APP_DIR/apps/web/build"
+    chown -R swartzit:swartzit "$APP_DIR/apps/web/build"
+  fi
   git -C "$APP_DIR" checkout --detach "$PREVIOUS_COMMIT" >/dev/null 2>&1 || true
-  systemctl start swartzit swartzit-web || true
+  resume_services
 }
-systemctl stop swartzit-web swartzit || { echo 'Could not stop Swartzit services.' >&2; exit 1; }
-install -m 0755 "$SERVER_ASSET" /usr/local/bin/swartzit-server
+systemctl stop "${SERVICES[@]}" || { echo 'Could not stop Swartzit services.' >&2; exit 1; }
+# Stage then rename so a running process never observes a truncated binary.
+install -m 0755 "$SERVER_ASSET" /usr/local/bin/swartzit-server.new
+mv -f /usr/local/bin/swartzit-server.new /usr/local/bin/swartzit-server
 rm -rf "$WORK/web-build"
 mkdir -p "$WORK/web-build"
 tar -xzf "$WEB_ASSET" -C "$WORK/web-build"
-[[ -d "$WORK/web-build/build" ]] || { echo 'Web release archive did not contain build/.' >&2; rollback; exit 1; }
+if [[ ! -d "$WORK/web-build/build" ]]; then
+  echo 'Web release archive did not contain build/.' >&2
+  rollback
+  exit 1
+fi
 rm -rf "$APP_DIR/apps/web/build.previous"
 mv "$APP_DIR/apps/web/build" "$APP_DIR/apps/web/build.previous"
 mv "$WORK/web-build/build" "$APP_DIR/apps/web/build"
 chown -R swartzit:swartzit "$APP_DIR/apps/web/build"
 systemctl start swartzit swartzit-web || { rollback; exit 1; }
 healthy=0
-for _ in {1..45}; do
+for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
   if curl -fsS --max-time 3 "$API_URL/health" >/dev/null 2>&1 && curl -fsS --max-time 3 "$WEB_URL/" >/dev/null 2>&1; then healthy=1; break; fi
   sleep 1
 done
-if [[ "$healthy" -ne 1 ]]; then rollback; echo 'Updated release failed API/web health checks. Database backup: '"$DB_DUMP" >&2; exit 1; fi
-printf '{"tag":"%s","commit":"%s","previous_commit":"%s","backup":"%s","previous_version":"%s","installed_at":"%s"}\n' "$TAG" "$(git -C "$APP_DIR" rev-parse HEAD)" "$PREVIOUS_COMMIT" "$DB_DUMP" "$PREVIOUS_VERSION" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$APP_DIR/state/release-$STAMP.json"
+if [[ "$healthy" -ne 1 ]]; then
+  rollback
+  echo "Updated release failed API/web health checks. Database backup: $DB_DUMP" >&2
+  exit 1
+fi
+resume_services
+mkdir -p "$APP_DIR/state"
+printf '{"tag":"%s","version":"%s","commit":"%s","previous_commit":"%s","previous_version":"%s","backup":"%s","recovery_bundle":"%s","installed_at":"%s"}\n' \
+  "$TAG" "$RELEASE_VERSION" "$(git -C "$APP_DIR" rev-parse HEAD)" "$PREVIOUS_COMMIT" "$PREVIOUS_VERSION" "$DB_DUMP" "$BACKUP_TAG" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$APP_DIR/state/release-$STAMP.json"
 ln -sfn "$APP_DIR/state/release-$STAMP.json" "$APP_DIR/state/current-release.json"
 rm -rf "$APP_DIR/apps/web/build.previous"
-echo "Swartzit updated to $TAG and passed API/web health checks."
+echo "Swartzit updated to $TAG ($RELEASE_VERSION) and passed API/web health checks."
 echo "Recovery bundle: $BACKUP_TAG"

@@ -11,6 +11,18 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: swartzit
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d swartzit"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/swartzit
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,23 +31,54 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build web
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+
+      # The same gates CI runs, so a release tag can never publish an asset that
+      # CI would have rejected.
+      - name: Rust checks
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo test --workspace
+      - name: Web checks
         run: |
           npm ci
-          npm --prefix apps/web ci
-          npm --prefix apps/web run build
-      - name: Build server
-        run: cargo build --release --locked
-      - name: Package release
+          npm run check
+          npm test
+          npm run build
+        working-directory: apps/web
+      - name: Node and shell checks
         run: |
+          npm ci
+          node --check scripts/perf-smoke.mjs
+          node --test scripts/*.test.mjs apps/web/src/lib/*.test.mjs
+          while IFS= read -r -d '' script; do bash -n "$script"; done < <(find scripts -maxdepth 1 -type f -name '*.sh' -print0)
+
+      - name: Build release assets
+        run: |
+          cargo build --release --locked
           mkdir -p dist
           cp target/release/swartzit-server dist/swartzit-server-linux-amd64
           tar -C apps/web -czf dist/swartzit-web-linux-amd64.tar.gz build
-          (cd dist && sha256sum swartzit-server-linux-amd64 swartzit-web-linux-amd64.tar.gz > SHA256SUMS)
+          printf '%s\n' "${GITHUB_REF_NAME#v}" > dist/VERSION
+          # A rehearsal of the production updater: checksum, list, and unpack the
+          # exact assets that will be published.
+          (cd dist && sha256sum swartzit-server-linux-amd64 swartzit-web-linux-amd64.tar.gz VERSION > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
+          test -x dist/swartzit-server-linux-amd64
+          tar -tzf dist/swartzit-web-linux-amd64.tar.gz | grep -q '^build/index.html$'
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          name: Swartzit ${{ github.ref_name }}
           generate_release_notes: true
           files: |
-            dist/*
+            dist/swartzit-server-linux-amd64
+            dist/swartzit-web-linux-amd64.tar.gz
+            dist/VERSION
+            dist/SHA256SUMS
