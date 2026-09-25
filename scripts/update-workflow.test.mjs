@@ -57,6 +57,41 @@ test('the checkout gate ignores untracked operational state', () => {
   assert.match(updater, /"\$\{GIT\[@\]\}" diff --quiet/);
 });
 
+test('the release updater references only variables it defines', () => {
+  // `set -u` turns a single undefined reference into an upgrade that dies
+  // partway through, so every ${VAR} must be a parameter default, a local, or
+  // assigned before use.
+  const updater = read('scripts/swartzit-release-update.sh');
+  const assigned = new Set();
+  for (const match of updater.matchAll(/^\s*(?:local\s+)?([A-Za-z_][A-Za-z0-9_]*)=/gm)) {
+    assigned.add(match[1]);
+  }
+  for (const match of updater.matchAll(/for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in/g)) {
+    assigned.add(match[1]);
+  }
+  // `read -r -p prompt NAME` assigns NAME.
+  for (const line of updater.split('\n')) {
+    if (!/\bread\b/.test(line)) continue;
+    for (const match of line.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g)) {
+      assigned.add(match[1]);
+    }
+  }
+  for (const match of updater.matchAll(/\b([A-Z][A-Z0-9_]{2,})=["']?/g)) {
+    assigned.add(match[1]);
+  }
+  const ambient = new Set(['PATH', 'HOME', 'HOSTNAME', 'PWD', 'USER', 'TMPDIR', 'SHLVL', 'IFS', 'BASH', 'UID', 'EUID', 'RANDOM', 'SECONDS', 'LINENO', 'PS1', 'PS2', 'OPTARG', 'OSTYPE', 'MACHTYPE', 'HOSTTYPE']);
+  for (const match of updater.matchAll(/\$\{?([A-Z][A-Z0-9_]{2,})\}?/g)) {
+    const name = match[1];
+    // ${NAME:-default} and ${NAME:=default} read an optional environment
+  // override, which is a defined read rather than an undefined variable.
+  const overrides = new Set(
+    [...updater.matchAll(/\$\{([A-Z][A-Z0-9_]{2,}):[-=]/g)].map((match) => match[1]),
+  );
+  if (ambient.has(name) || overrides.has(name)) continue;
+    assert.ok(assigned.has(name), `release updater uses $${name} without assigning it`);
+  }
+});
+
 test('database backup supports native PostgreSQL and keeps container mode', () => {
   const backup = read('scripts/db-backup.sh');
   assert.match(backup, /DB_MODE=.*SWARTZIT_DB_BACKUP_MODE/);

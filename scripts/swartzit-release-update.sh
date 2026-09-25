@@ -148,15 +148,15 @@ fi
 BACKUP_OUTPUT=$(
   SWARTZIT_DB_BACKUP_MODE=native \
   SWARTZIT_DATABASE_URL="$SERVICE_DATABASE_URL" \
-  SWARTZIT_BACKUP_DIR="$BUNDLE/db" \
+  SWARTZIT_BACKUP_DIR="$BACKUP_TAG/db" \
   SWARTZIT_MEDIA_ROOT="$APP_DIR/state/media" \
     bash "$SCRIPT_HOME/db-backup.sh"
 )
-printf '%s\n' "$BACKUP_OUTPUT" | tee "$BUNDLE/backup.txt"
+printf '%s\n' "$BACKUP_OUTPUT" | tee "$BACKUP_TAG/backup.txt"
 DB_DUMP=$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Backup: //p' | head -n1)
 DB_ARCHIVE=$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Archive: //p' | head -n1)
 [[ -f "$DB_DUMP" ]] || { echo 'Database backup path could not be determined.' >&2; exit 1; }
-cp "$DB_DUMP" "$BUNDLE/"
+cp "$DB_DUMP" "$BACKUP_TAG/"
 
 # Prove the backup is actually restorable before treating it as a recovery
 # point. This restores the archive into a throwaway database and compares

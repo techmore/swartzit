@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.37-20260925T19
+
+- Fixes an undefined `BUNDLE` reference in the release updater that aborted a
+  production upgrade partway through, before any service was stopped.
+- Adds a test that fails when the release updater reads a variable it never
+  assigns, so a `set -u` abort cannot ship again.
+
 ## 0.1.36-20260925T19
 
 - Merges the guarded production update workflow: an opt-in push-to-production
