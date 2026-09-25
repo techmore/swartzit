@@ -346,6 +346,7 @@ final class StatusApp: NSObject, NSApplicationDelegate {
     private func updatePhaseTitle(_ phase: String?) -> String {
         switch phase {
         case "backup": return "Backing up"
+        case "verify-backup": return "Verifying backup"
         case "stopping": return "Stopping"
         case "installing": return "Installing"
         case "starting": return "Starting"

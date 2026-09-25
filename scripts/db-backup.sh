@@ -6,6 +6,8 @@ cd "$ROOT"
 CONTAINER="${SWARTZIT_DB_CONTAINER:-swartzit-db}"
 DB_USER="${SWARTZIT_DB_USER:-swartzit}"
 DB_NAME="${SWARTZIT_DB_NAME:-swartzit}"
+DATABASE_URL="${SWARTZIT_DATABASE_URL:-${DATABASE_URL:-}}"
+DB_MODE="${SWARTZIT_DB_BACKUP_MODE:-auto}"
 RETENTION="${SWARTZIT_BACKUP_RETENTION:-7}"
 [[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || { echo 'SWARTZIT_BACKUP_RETENTION must be a positive integer.' >&2; exit 2; }
 if [[ -n "${SWARTZIT_BACKUP_DIR:-}" ]]; then
@@ -26,6 +28,68 @@ fi
 cleanup_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
 trap cleanup_lock EXIT
 
+DB_BACKEND="native"
+case "$DB_MODE" in
+  native|postgres)
+    DB_BACKEND="native"
+    ;;
+  container)
+    DB_BACKEND="container"
+    ;;
+  auto)
+    if command -v container >/dev/null 2>&1 && container inspect "$CONTAINER" >/dev/null 2>&1; then
+      DB_BACKEND="container"
+    fi
+    ;;
+  *)
+    echo 'SWARTZIT_DB_BACKUP_MODE must be auto, container, or native.' >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$DB_BACKEND" == native ]]; then
+  [[ -n "$DATABASE_URL" ]] || {
+    echo 'Native PostgreSQL backups require DATABASE_URL or SWARTZIT_DATABASE_URL.' >&2
+    exit 1
+  }
+  command -v pg_dump >/dev/null 2>&1 || { echo 'pg_dump is required for native PostgreSQL backups.' >&2; exit 1; }
+  command -v pg_isready >/dev/null 2>&1 || { echo 'pg_isready is required for native PostgreSQL backups.' >&2; exit 1; }
+  command -v psql >/dev/null 2>&1 || { echo 'psql is required for native PostgreSQL backups.' >&2; exit 1; }
+elif ! command -v container >/dev/null 2>&1 || ! container inspect "$CONTAINER" >/dev/null 2>&1; then
+  echo "Database container $CONTAINER was not found." >&2
+  exit 1
+fi
+
+ROW_COUNTS_SQL="select tablename || E'\\t' || (xpath('/table/row/count/text()', query_to_xml('select count(*) as count from ' || quote_ident(tablename), true, false, '')))[1]::text from pg_tables where schemaname='public' and tablename <> '_sqlx_migrations' order by tablename"
+
+db_ready() {
+  if [[ "$DB_BACKEND" == native ]]; then
+    pg_isready --dbname="$DATABASE_URL" >/dev/null
+  else
+    container exec "$CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
+  fi
+}
+
+db_dump() {
+  local destination="$1"
+  if [[ "$DB_BACKEND" == native ]]; then
+    pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --file="$destination"
+    return
+  fi
+  local temporary_dump=/tmp/swartzit.dump
+  container exec "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" --format=custom --no-owner --file="$temporary_dump"
+  container cp "$CONTAINER:$temporary_dump" "$destination"
+  container exec "$CONTAINER" rm -f "$temporary_dump"
+}
+
+db_row_counts() {
+  if [[ "$DB_BACKEND" == native ]]; then
+    psql --dbname="$DATABASE_URL" -Atqc "$ROW_COUNTS_SQL"
+  else
+    container exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atqc "$ROW_COUNTS_SQL"
+  fi
+}
+
 STAMP="$(date -u '+%Y%m%dT%H%M%SZ')"
 OUT_DIR="$BACKUP_ROOT/$STAMP"
 while [[ -e "$OUT_DIR" || -e "$BACKUP_ROOT/swartzit-$STAMP-backup.tgz" ]]; do
@@ -45,12 +109,9 @@ else
   MEDIA_ROOT="$HOME/Library/Application Support/Swartzit/media"
 fi
 
-container inspect "$CONTAINER" >/dev/null 2>&1 || { echo "Database container $CONTAINER was not found." >&2; exit 1; }
-container exec "$CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
-container exec "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" --format=custom --no-owner --file=/tmp/swartzit.dump
-container cp "$CONTAINER:/tmp/swartzit.dump" "$OUT_DIR/swartzit.dump"
-container exec "$CONTAINER" rm -f /tmp/swartzit.dump
-container exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atqc "select tablename || E'\\t' || (xpath('/table/row/count/text()', query_to_xml('select count(*) as count from ' || quote_ident(tablename), true, false, '')))[1]::text from pg_tables where schemaname='public' and tablename <> '_sqlx_migrations' order by tablename" > "$OUT_DIR/row-counts.tsv"
+db_ready
+db_dump "$OUT_DIR/swartzit.dump"
+db_row_counts > "$OUT_DIR/row-counts.tsv"
 if [[ -d "$MEDIA_ROOT" ]]; then
   tar -C "$MEDIA_ROOT" -czf "$OUT_DIR/media.tgz" .
   MEDIA_STATUS="included"
@@ -88,4 +149,5 @@ echo "Backup: $OUT_DIR/swartzit.dump"
 echo "Archive: $BACKUP_ROOT/swartzit-$STAMP-backup.tgz"
 echo "Counts: $OUT_DIR/row-counts.tsv"
 echo "Media: $MEDIA_STATUS ($MEDIA_ROOT)"
+echo "Database: $DB_BACKEND"
 echo "Retention: $RETENTION archive(s); pruned: $pruned"

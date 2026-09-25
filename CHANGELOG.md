@@ -1,37 +1,23 @@
 # Changelog
 
-## 0.1.35-20260925T20
+## 0.1.36-20260925T19
 
-- Adds `deploy/upgrade-to-release.sh`, a single production upgrade entry point
-  that stages the release tools from the tagged commit, verifies the release
-  assets, applies the backup-and-rollback upgrade, installs the daily check, and
-  reports the resulting version and health. A `--check` mode verifies the release
-  without changing anything.
-
-## 0.1.34-20260925T19
-
-- Runs the checkout fetch, diff check, tag checkout, and rollback checkout as the
-  repository owner rather than as root, so an upgrade on the Ubuntu host is not
-  blocked by git's dubious-ownership guard and does not leave root-owned files
-  behind in the deployment tree.
-- Restores the previous web build with the repository owner's ownership instead
-  of a hard-coded account.
-
-## 0.1.33-20260925T19
-
-- Verifies the published web archive is a complete adapter-node build
-  (`index.js`, `handler.js`, `client`, `server`) in both the release workflow
-  and the production updater, so a truncated or mis-built archive can neither be
-  published nor installed.
-
-## 0.1.32-20260925T18
-
-- Runs the release upgrade from a staged copy of the tools, so the commit that
-  was running before an upgrade stays available for rollback even when the
-  upgrade is what advances the checkout.
-- Adds `install-release-automation.sh` for hosts that are already deployed, so
-  the release scripts and the daily check timer install without touching the
-  database or the running release.
+- Merges the guarded production update workflow: an opt-in push-to-production
+  deploy gated on a repository variable and the `production` environment, a
+  lock-guarded Linux updater, and operator-configurable error notifications.
+- Keeps the release-based upgrade path as the mechanism that actually changes a
+  host: the deploy workflow installs SHA-256-verified release assets rather than
+  building from source on production, so the production host needs no Rust or
+  Node toolchain and every deploy is a reproducible artifact.
+- Gates every upgrade on a migration rehearsal: the backup is restored into a
+  throwaway database owned by a disposable role and the candidate server is
+  started against that copy, so an incompatible migration fails before any live
+  service is touched.
+- Gates every upgrade on a real restore rehearsal that restores the archive and
+  compares per-table row counts, comparing content tables strictly and
+  reporting operational tables that are expected to move.
+- Fixes the checkout-cleanliness gate to ignore untracked files, so operational
+  state in the deployment directory no longer blocks an upgrade.
 
 ## 0.1.31-20260925T16
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=Update Swartzit from GitHub with backup and health gates
+After=network-online.target postgresql.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/swartzit/.git
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/lib/swartzit
+EnvironmentFile=-/etc/swartzit/update.env
+ExecStart=/var/lib/swartzit/scripts/swartzit-linux-update.sh --yes
+Nice=10
+IOSchedulingClass=best-effort

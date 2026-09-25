@@ -221,6 +221,11 @@ monitor LaunchAgents from the new release while preserving their settings. Use
 that command instead of a bare `brew upgrade swartzit` when preserving a
 recovery point matters.
 
+For the full Mac/VM prototype-to-Ubuntu production workflow, including restore
+verification, the guarded GitHub deployment workflow, bind preservation,
+automatic code rollback, and opt-in upgrade error reporting, see
+[`docs/production-updates.md`](docs/production-updates.md).
+
 ## Media storage and sharing
 
 Swartzit keeps a provider-neutral `media_assets` record and serves stable URLs:
@@ -551,6 +556,14 @@ already exist. It keeps the API on `127.0.0.1:18080`, the web server on
 systemctl status swartzit swartzit-web swartzit-worker.timer
 journalctl -u swartzit-worker.service
 ```
+
+The Linux source updater is installed at
+`scripts/swartzit-linux-update.sh`. It creates and validates a native
+PostgreSQL backup before stopping services, keeps `/etc/swartzit/*.env`
+unchanged, and gates promotion on API/web health. It is intentionally opt-in:
+configure the production GitHub environment described in
+[`docs/production-updates.md`](docs/production-updates.md), or enable the
+provided `swartzit-update.timer` explicitly.
 
 For an Ubuntu host that receives its public HTTPS traffic through a separate
 WireGuard-connected Caddy edge, set the web bind to the host's WireGuard
