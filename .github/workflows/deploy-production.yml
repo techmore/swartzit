@@ -1,9 +1,19 @@
 name: Deploy production
 
 on:
+  # Tag-triggered rather than every push to main. Each production deploy is a
+  # published, checksummed release artifact, so a merge to main cannot change a
+  # live host by itself. This pairs with release.yml, which builds the assets
+  # this workflow installs.
   push:
-    branches: [main]
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to deploy, for example v0.1.36-20260925T19'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -43,17 +53,28 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
 
-      - name: Update production from this commit
+      - name: Update production from this release
         env:
           DEPLOY_HOST: ${{ secrets.SWARTZIT_DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.SWARTZIT_DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.SWARTZIT_DEPLOY_PORT }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
+          case "$RELEASE_TAG" in
+            v[0-9]*) ;;
+            *)
+              echo "Refusing to deploy unexpected tag: $RELEASE_TAG" >&2
+              exit 1
+              ;;
+          esac
+          # The remote updater verifies the published release checksums, backs
+          # up PostgreSQL, rehearses the candidate release against a restored
+          # copy, and rolls back if the health gate fails.
           ssh -p "${DEPLOY_PORT:-22}" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            'sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --yes'
+            "sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --tag $RELEASE_TAG --yes"
 
       - name: Collect production update receipt
         if: ${{ failure() }}

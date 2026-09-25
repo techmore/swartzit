@@ -41,10 +41,16 @@ export SWARTZIT_DB_PORT=5432
 export SWARTZIT_DATABASE_URL="postgres://$(id -un)@127.0.0.1:5432/swartzit_rehearsal"
 export SWARTZIT_BACKUP_DIR="$PWD/.local/backups"
 
-bash scripts/db-backup-postgres.sh
+# The backup uses the service credentials, so it needs no superuser session.
+SWARTZIT_DB_BACKUP_MODE=native bash scripts/db-backup.sh
 bash scripts/db-restore-verify-postgres.sh .local/backups/<archive>.tgz
 bash scripts/preflight-release.sh ./target/release/swartzit-server .local/backups/<stamp>/swartzit.dump
 ```
+
+The backup is the same `scripts/db-backup.sh` used on the Mac and in CI. It
+picks the container or native backend automatically, and
+`SWARTZIT_DB_BACKUP_MODE=native` selects native PostgreSQL explicitly, which is
+what an Ubuntu host uses.
 
 `preflight-release.sh` is the database-compatibility gate. It restores the
 backup into a throwaway database, starts the candidate binary against that copy,

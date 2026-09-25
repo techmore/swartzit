@@ -15,7 +15,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP_DIR=${SWARTZIT_APP_DIR:-/var/lib/swartzit}
 [[ "$ROOT" == "$APP_DIR" ]] || { echo "Run this script from the deployment checkout at $APP_DIR." >&2; exit 1; }
 
-SCRIPTS=(postgres-native-lib.sh db-backup-postgres.sh db-restore-verify-postgres.sh preflight-release.sh swartzit-release-update.sh swartzit-upgrade-check.sh)
+SCRIPTS=(postgres-native-lib.sh db-restore-verify-postgres.sh preflight-release.sh swartzit-release-update.sh swartzit-linux-update.sh swartzit-upgrade-check.sh)
 for script in "${SCRIPTS[@]}"; do
   [[ -f "$ROOT/scripts/$script" ]] || { echo "Missing $ROOT/scripts/$script" >&2; exit 1; }
   chmod 0755 "$ROOT/scripts/$script"

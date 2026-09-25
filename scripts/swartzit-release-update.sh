@@ -113,6 +113,9 @@ verify_release_checksums() {
   # The workflow signs the raw asset names; verify before renaming anything.
   (cd "$WORK" && sha256sum -c SHA256SUMS)
 }
+# Only tracked modifications block an update. The deployment directory also
+# holds operational state that is untracked by design (state/, caches, dotfiles),
+# and refusing to update because of it would make the host unupgradeable.
 if ! "${GIT[@]}" diff --quiet || ! "${GIT[@]}" diff --cached --quiet; then
   echo 'The Swartzit checkout has tracked modifications; refusing to update.' >&2
   exit 1
@@ -126,11 +129,47 @@ verify_release_checksums
 SERVER_ASSET="$WORK/swartzit-server-linux-amd64"
 WEB_ASSET="$WORK/swartzit-web-linux-amd64.tar.gz"
 RELEASE_VERSION=$(tr -d '[:space:]' < "$WORK/VERSION")
-BACKUP_OUTPUT=$(bash "$SCRIPT_HOME/db-backup-postgres.sh")
-printf '%s\n' "$BACKUP_OUTPUT" | tee "$BACKUP_TAG/backup.txt"
+# The backup is taken with the service's own PostgreSQL credentials rather than
+# a superuser session, so it authenticates exactly the way the server does and
+# needs no runuser. The rehearsal below is the step that needs elevated access,
+# because it creates a disposable role and database.
+SERVICE_ENV_FILE=${SWARTZIT_SERVER_ENV_FILE:-/etc/swartzit/server.env}
+SERVICE_DATABASE_URL=${DATABASE_URL:-}
+if [[ -z "$SERVICE_DATABASE_URL" && -r "$SERVICE_ENV_FILE" ]]; then
+  SERVICE_DATABASE_URL=$(
+    grep -m1 -E '^[[:space:]]*DATABASE_URL=' "$SERVICE_ENV_FILE" 2>/dev/null \
+      | sed -E 's/^[[:space:]]*DATABASE_URL=//; s/^"//; s/"$//; s/^'\''//; s/'\''$//'
+  )
+fi
+[[ -n "$SERVICE_DATABASE_URL" ]] || {
+  echo "No DATABASE_URL found in $SERVICE_ENV_FILE; cannot back up the production database." >&2
+  exit 1
+}
+BACKUP_OUTPUT=$(
+  SWARTZIT_DB_BACKUP_MODE=native \
+  SWARTZIT_DATABASE_URL="$SERVICE_DATABASE_URL" \
+  SWARTZIT_BACKUP_DIR="$BUNDLE/db" \
+  SWARTZIT_MEDIA_ROOT="$APP_DIR/state/media" \
+    bash "$SCRIPT_HOME/db-backup.sh"
+)
+printf '%s\n' "$BACKUP_OUTPUT" | tee "$BUNDLE/backup.txt"
 DB_DUMP=$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Backup: //p' | head -n1)
+DB_ARCHIVE=$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Archive: //p' | head -n1)
 [[ -f "$DB_DUMP" ]] || { echo 'Database backup path could not be determined.' >&2; exit 1; }
-cp "$DB_DUMP" "$BACKUP_TAG/"
+cp "$DB_DUMP" "$BUNDLE/"
+
+# Prove the backup is actually restorable before treating it as a recovery
+# point. This restores the archive into a throwaway database and compares
+# per-table row counts, which a checksum alone cannot establish.
+if [[ -n "$DB_ARCHIVE" && -f "$DB_ARCHIVE" ]]; then
+  bash "$SCRIPT_HOME/db-restore-verify-postgres.sh" "$DB_ARCHIVE"
+else
+  echo 'Backup archive path could not be determined; refusing to continue.' >&2
+  exit 1
+fi
+
+# Prove the candidate release can migrate a restored copy of the real data
+# before any live service is stopped.
 bash "$SCRIPT_HOME/preflight-release.sh" "$SERVER_ASSET" "$DB_DUMP"
 tar -C "$APP_DIR/apps/web" -czf "$BACKUP_TAG/web-build.tgz" build 2>/dev/null || true
 cp /usr/local/bin/swartzit-server "$BACKUP_TAG/swartzit-server.previous" 2>/dev/null || true
@@ -190,7 +229,11 @@ chown -R "$REPO_USER" "$APP_DIR/apps/web/build"
 systemctl start swartzit swartzit-web || { rollback; exit 1; }
 healthy=0
 for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
-  if curl -fsS --max-time 3 "$API_URL/health" >/dev/null 2>&1 && curl -fsS --max-time 3 "$WEB_URL/" >/dev/null 2>&1; then healthy=1; break; fi
+  # /ready proves the server finished its startup work, /health proves the
+  # database answers, and the web root proves the new build is being served.
+  if curl -fsS --max-time 3 "$API_URL/ready" >/dev/null 2>&1 \
+    && curl -fsS --max-time 3 "$API_URL/health" >/dev/null 2>&1 \
+    && curl -fsS --max-time 3 "$WEB_URL/" >/dev/null 2>&1; then healthy=1; break; fi
   sleep 1
 done
 if [[ "$healthy" -ne 1 ]]; then
