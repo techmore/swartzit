@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.33-20260925T19
+
+- Verifies the published web archive is a complete adapter-node build
+  (`index.js`, `handler.js`, `client`, `server`) in both the release workflow
+  and the production updater, so a truncated or mis-built archive can neither be
+  published nor installed.
+
 ## 0.1.32-20260925T18
 
 - Runs the release upgrade from a staged copy of the tools, so the commit that

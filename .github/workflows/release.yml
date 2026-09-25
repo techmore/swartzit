@@ -70,7 +70,11 @@ jobs:
           (cd dist && sha256sum swartzit-server-linux-amd64 swartzit-web-linux-amd64.tar.gz VERSION > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
           test -x dist/swartzit-server-linux-amd64
-          tar -tzf dist/swartzit-web-linux-amd64.tar.gz | grep -q '^build/index.html$'
+          # adapter-node emits an SSR build, so the entry point is build/index.js
+          # rather than an index.html.
+          tar -tzf dist/swartzit-web-linux-amd64.tar.gz | grep -qx 'build/index.js'
+          tar -tzf dist/swartzit-web-linux-amd64.tar.gz | grep -qx 'build/handler.js'
+          tar -tzf dist/swartzit-web-linux-amd64.tar.gz | grep -q '^build/client/'
 
       - name: Publish release
         uses: softprops/action-gh-release@v2

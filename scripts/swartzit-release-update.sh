@@ -167,8 +167,10 @@ mv -f /usr/local/bin/swartzit-server.new /usr/local/bin/swartzit-server
 rm -rf "$WORK/web-build"
 mkdir -p "$WORK/web-build"
 tar -xzf "$WEB_ASSET" -C "$WORK/web-build"
-if [[ ! -d "$WORK/web-build/build" ]]; then
-  echo 'Web release archive did not contain build/.' >&2
+# adapter-node emits an SSR build. Checking the entry point and the client and
+# server bundles keeps a truncated or mis-built archive from being installed.
+if [[ ! -f "$WORK/web-build/build/index.js" || ! -f "$WORK/web-build/build/handler.js" || ! -d "$WORK/web-build/build/client" || ! -d "$WORK/web-build/build/server" ]]; then
+  echo 'Web release archive is not a complete adapter-node build (index.js, handler.js, client, server).' >&2
   rollback
   exit 1
 fi
