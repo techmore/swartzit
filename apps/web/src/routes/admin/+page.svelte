@@ -13,9 +13,12 @@
   let search = '', level = '', kind = 'posts', cursors = [], before = null, paused = false, refreshed = null, busy = false, security = null, blockIp = '', blockReason = '', blockExpiry = '';
   let runnerEditorOpen = false, runnerFilter = 'all', runnerSearch = '', runnerFormError = '', runnerEditorMode = 'new';
   let runnerEditorElement, runnerNameInput;
+  let ratingSelections = {};
   let generation = 0, authState = 'signed_out', authError = '';
   const number = value => new Intl.NumberFormat().format(value ?? 0);
   const date = value => value ? new Date(value).toLocaleString() : '—';
+  const contentRatingLabel = value => ({ general: 'General', r: 'R', x: 'X' })[value] ?? 'General';
+  const contentRatingSourceLabel = value => ({ legacy: 'Imported / existing', uploader: 'Set by uploader', automatic: 'Auto-tagged', moderator: 'Changed by admin' })[value] ?? 'Source not recorded';
   const replicaCount = (replicas, role, state) => (replicas ?? []).filter(item => item.role === role && item.state === state).reduce((total, item) => total + Number(item.replica_count || 0), 0);
   const replicaBytes = (replicas, role, state) => (replicas ?? []).filter(item => item.role === role && item.state === state).reduce((total, item) => total + Number(item.bytes || 0), 0);
   const backupStateTone = value => value === 'critical' ? 'error' : value === 'warning' ? 'warn' : value === 'healthy' ? 'positive' : '';
@@ -263,13 +266,20 @@
     try { await api(path, method); notice = 'Change saved and recorded in the operational log.'; await refresh(); }
     catch (e) { notice = e.message; } finally { busy = false; }
   }
-  async function updatePostRating(id, rating) {
+  async function updateContentRating(item) {
+    const nextRating = ratingSelections[item.id] ?? item.content_rating ?? 'general';
+    const currentRating = item.content_rating ?? 'general';
+    if (nextRating === currentRating) return;
+    const title = item.title || `Post #${item.id}`;
+    if (!window.confirm(`Change “${title}” from ${contentRatingLabel(currentRating)} to ${contentRatingLabel(nextRating)}? This changes which rated feeds include it.`)) return;
     busy = true; notice = '';
     try {
-      await api(`posts/${id}/content-rating`, 'POST', { content_rating: rating });
-      notice = rating === 'general' ? `Cleared the content rating on post #${id}.` : `Marked post #${id} ${rating.toUpperCase()}-rated.`;
-      await refresh();
-    } catch (e) { notice = e.message; } finally { busy = false; }
+      const result = await api(`posts/${item.id}/content-rating`, 'POST', { content_rating: nextRating });
+      rows = rows.map(row => row.id === item.id ? { ...row, content_rating: result.content_rating, content_rating_source: result.content_rating_source, content_rating_updated_at: result.content_rating_updated_at } : row);
+      ratingSelections = { ...ratingSelections, [item.id]: result.content_rating };
+      notice = `Rating confirmed as ${contentRatingLabel(result.content_rating)} for “${title}”. Admin change recorded.`;
+    } catch (e) { notice = e.message; }
+    finally { busy = false; }
   }
   async function createJob(event) {
     event.preventDefault(); busy = true; notice = '';
@@ -666,7 +676,11 @@
       {:else if tab === 'Users'}
         <table><thead><tr><th>User</th><th>Role</th><th>Created</th><th>Posts / comments</th><th>Sessions</th><th>Action</th></tr></thead><tbody>{#each rows as user}<tr><td><strong>u/{user.handle}</strong><small>#{user.id} · {user.registered ? 'Registered' : 'Demo identity'}</small></td><td><span class="badge">{user.is_admin ? 'Admin' : 'Member'}</span></td><td>{date(user.created_at)}</td><td>{user.posts} / {user.comments}</td><td>{user.sessions}</td><td><button disabled={busy || !user.sessions} onclick={() => action('users/' + user.id + '/revoke-sessions', 'Sign u/' + user.handle + ' out of every device?')}>Revoke sessions</button></td></tr>{/each}</tbody></table>
       {:else if tab === 'Content'}
-        <table><thead><tr><th>Content</th><th>Author / community</th><th>Created</th>{#if kind === 'posts'}<th>Rating</th>{/if}<th>Open</th></tr></thead><tbody>{#each rows as item}<tr><td><strong>{item.title ?? item.name ?? 'Comment #' + item.id}</strong>{#if kind === 'posts'}<small>{item.view_count} views · {item.engaged_view_count} engaged (10s) · {item.deep_view_count} deeper reads (30s)</small>{/if}<details><summary>Inspect text</summary><p class="content-body">{item.body ?? item.description}</p></details></td><td>{item.author ? 'u/' + item.author : 'c/' + item.slug}<small>{item.community ? 'c/' + item.community : ''}</small></td><td>{date(item.created_at)}</td>{#if kind === 'posts'}<td><span class={'badge rating-badge rating-' + (item.content_rating || 'general')}>{(item.content_rating || 'general').toUpperCase()}</span>{#if item.content_rating_source === 'moderator'}<small>Moderator label</small>{/if}<div class="rating-actions" role="group" aria-label={'Set content rating for post #' + item.id}><button type="button" disabled={busy || item.content_rating === 'r'} aria-label={'Mark post #' + item.id + ' R-rated'} aria-pressed={item.content_rating === 'r'} onclick={() => updatePostRating(item.id, 'r')}>R</button><button type="button" disabled={busy || item.content_rating === 'x'} aria-label={'Mark post #' + item.id + ' X-rated'} aria-pressed={item.content_rating === 'x'} onclick={() => updatePostRating(item.id, 'x')}>X</button><button type="button" disabled={busy || !item.content_rating || item.content_rating === 'general'} aria-label={'Clear rating for post #' + item.id} onclick={() => updatePostRating(item.id, 'general')}>General</button></div></td>{/if}<td><a href={kind === 'communities' ? '/?community=' + item.slug : '/post/' + (item.post_id ?? item.id)}>View ↗</a></td></tr>{/each}</tbody></table>
+        {#if kind === 'posts'}
+          <table class="rated-content-table"><thead><tr><th>Post</th><th>Author / community</th><th>Current rating / source</th><th>Change rating</th><th>Created</th><th>Open</th></tr></thead><tbody>{#each rows as item}<tr><td><strong>{item.title ?? 'Post #' + item.id}</strong><small>{item.view_count} views · {item.engaged_view_count} engaged (10s) · {item.deep_view_count} deeper reads (30s)</small><details><summary>Inspect text</summary><p class="content-body">{item.body}</p></details></td><td>u/{item.author}<small>c/{item.community}</small></td><td><span class={'badge content-rating-badge rating-' + (item.content_rating ?? 'general')}>{contentRatingLabel(item.content_rating)}</span><small>{contentRatingSourceLabel(item.content_rating_source)}</small>{#if item.content_rating_updated_at}<small>Updated {date(item.content_rating_updated_at)}</small>{/if}</td><td class="rating-editor"><label class="visually-hidden" for={'post-rating-' + item.id}>Choose rating for {item.title ?? 'post ' + item.id}</label><select id={'post-rating-' + item.id} aria-label={'Choose rating for ' + (item.title ?? 'post ' + item.id)} value={ratingSelections[item.id] ?? item.content_rating ?? 'general'} onchange={event => ratingSelections = { ...ratingSelections, [item.id]: event.currentTarget.value }}><option value="general">General</option><option value="r">R</option><option value="x">X</option></select><button disabled={busy || (ratingSelections[item.id] ?? item.content_rating ?? 'general') === (item.content_rating ?? 'general')} onclick={() => updateContentRating(item)}>Save rating</button></td><td>{date(item.created_at)}</td><td><a href={'/post/' + item.id}>View ↗</a></td></tr>{/each}</tbody></table>
+        {:else}
+          <table><thead><tr><th>Content</th><th>Author / community</th><th>Created</th><th>Open</th></tr></thead><tbody>{#each rows as item}<tr><td><strong>{item.title ?? item.name ?? 'Comment #' + item.id}</strong><details><summary>Inspect text</summary><p class="content-body">{item.body ?? item.description}</p></details></td><td>{item.author ? 'u/' + item.author : 'c/' + item.slug}<small>{item.community ? 'c/' + item.community : ''}</small></td><td>{date(item.created_at)}</td><td><a href={kind === 'communities' ? '/?community=' + item.slug : '/post/' + (item.post_id ?? item.id)}>View ↗</a></td></tr>{/each}</tbody></table>
+        {/if}
       {:else if tab === 'Reports'}
         <table><thead><tr><th>Report</th><th>Reporter</th><th>Status</th><th>Actions</th></tr></thead><tbody>{#each rows as item}<tr><td>#{item.id}<p class="content-body">{item.reason}</p><small>{date(item.created_at)}</small></td><td>u/{item.reporter}</td><td><span class="badge">{item.resolved_at ? 'Resolved' : 'Open'}</span></td><td><a href={'/post/' + item.discussion_id}>View discussion ↗</a>{#if !item.resolved_at}<button disabled={busy} onclick={() => action('reports/' + item.id + '/resolve', 'Mark report #' + item.id + ' as resolved? This does not remove the content.')}>Resolve</button>{/if}</td></tr>{/each}</tbody></table>
       {:else}

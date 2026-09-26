@@ -12,6 +12,11 @@ endpoints require no account:
 - `GET /feed.xml`
 - `GET /.well-known/nodeinfo` — public instance metadata
 
+Feed reads accept `hide_r` and `hide_x`; X-rated posts stay hidden unless the
+reader opts in. `ratings=r`, `ratings=x`, or `ratings=rx` selects only that
+rating (or both), and takes precedence over the hide options. The older
+`mature_only=true` parameter remains an alias for `ratings=rx`.
+
 Participation endpoints use `Authorization: Bearer <token>`:
 
 - `POST /api/accounts` — create a handle and Argon2 password hash
@@ -34,6 +39,12 @@ Participation endpoints use `Authorization: Bearer <token>`:
 Tokens are returned once at login and stored only as SHA-256 hashes server-side.
 Clients should keep them in a protected credential store and send them only to
 the same Swartzit origin.
+
+Administrators can correct a post label with
+`POST /api/admin/posts/:id/content-rating` and a JSON body containing
+`content_rating` (`general`, `r`, or `x`) and optional `reason`. The response
+contains the saved rating, `moderator` source, and update time; the correction
+is also recorded in the operational log.
 
 Media storage is intentionally separate from posts. Migration `0007_media_assets`
 stores content hashes, media types, sizes, and optional magnet URIs; migration

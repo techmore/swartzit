@@ -138,7 +138,7 @@ pub async fn content(
     require_admin(&headers, &db).await?;
     let sql = match f.kind.as_deref().unwrap_or("posts") {
         "posts" => {
-            "SELECT row_to_json(t) FROM (SELECT p.id,p.view_count,p.engaged_view_count,p.deep_view_count,p.title,p.body,p.content_rating,p.content_rating_source,p.created_at,a.handle AS author,c.slug AS community,(SELECT count(*) FROM comments WHERE post_id=p.id) AS comments FROM posts p JOIN authors a ON a.id=p.author_id JOIN communities c ON c.id=p.community_id WHERE strpos(lower(p.title || ' ' || p.body),lower($1))>0 AND ($2::bigint IS NULL OR p.id<$2) ORDER BY p.id DESC LIMIT 50) t"
+            "SELECT row_to_json(t) FROM (SELECT p.id,p.view_count,p.engaged_view_count,p.deep_view_count,p.content_rating,p.content_rating_source,p.content_rating_updated_at,p.title,p.body,p.created_at,a.handle AS author,c.slug AS community,(SELECT count(*) FROM comments WHERE post_id=p.id) AS comments FROM posts p JOIN authors a ON a.id=p.author_id JOIN communities c ON c.id=p.community_id WHERE strpos(lower(p.title || ' ' || p.body),lower($1))>0 AND ($2::bigint IS NULL OR p.id<$2) ORDER BY p.id DESC LIMIT 50) t"
         }
         "comments" => {
             "SELECT row_to_json(t) FROM (SELECT c.id,c.post_id,c.body,c.created_at,a.handle AS author FROM comments c JOIN authors a ON a.id=c.author_id WHERE strpos(lower(c.body),lower($1))>0 AND ($2::bigint IS NULL OR c.id<$2) ORDER BY c.id DESC LIMIT 50) t"
@@ -3732,8 +3732,8 @@ pub async fn set_post_content_rating(
             .await?;
     let previous = previous.ok_or(ApiError::Missing)?;
 
-    let updated: (String, String) = sqlx::query_as(
-        "UPDATE posts SET content_rating = $1, content_rating_source = 'moderator', content_rating_confidence = NULL, content_rating_updated_at = now() WHERE id = $2 RETURNING content_rating, content_rating_source",
+    let updated: (String, String, DateTime<Utc>) = sqlx::query_as(
+        "UPDATE posts SET content_rating = $1, content_rating_source = 'moderator', content_rating_confidence = NULL, content_rating_updated_at = now() WHERE id = $2 RETURNING content_rating, content_rating_source, content_rating_updated_at",
     )
     .bind(&rating)
     .bind(post_id)
@@ -3761,5 +3761,6 @@ pub async fn set_post_content_rating(
         "post_id": post_id,
         "content_rating": updated.0,
         "content_rating_source": updated.1,
+        "content_rating_updated_at": updated.2,
     })))
 }
