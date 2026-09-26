@@ -63,6 +63,12 @@ maintenance actions are `POST /api/admin/media/test`,
 `/migrate`, `/verify`, `/cache/clear`, and
 `/api/admin/media/:id/share` with `{ "variant": "original" }`.
 
+Administrators can set a post's content rating from the Content panel with
+`POST /api/admin/posts/:id/content-rating` and `{ "content_rating": "r" }`
+or `{ "content_rating": "x" }`; send `{ "content_rating": "general" }` to
+clear the label. The endpoint requires an administrator session and records
+moderator attribution in the operational log.
+
 Catbox.moe is an explicit share/export adapter only. IPFS uses a Kubo RPC
 endpoint, pins uploaded variants, and can be selected as either the primary or
 secondary durable provider. New secondary writes are queued independently and
