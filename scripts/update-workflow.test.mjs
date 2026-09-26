@@ -138,3 +138,13 @@ test('the deploy runs on a self-hosted runner with no remote access', () => {
   // A failure still surfaces the receipt.
   assert.match(workflow, /if: always\(\)/);
 });
+
+test('an unattended deploy only installs the tag the operator pinned', () => {
+  // A tag push is unattended, so it must fail closed unless the repository
+  // variable names that exact tag. Otherwise any new tag would deploy.
+  const workflow = read('.github/workflows/deploy-production.yml');
+  assert.match(workflow, /vars\.SWARTZIT_DEPLOY_TAG/);
+  assert.match(workflow, /if: \$\{\{ github\.event_name == 'push' \}\}/);
+  assert.match(workflow, /is not the approved deployment tag/);
+  assert.match(workflow, /No approved deployment tag is pinned/);
+});

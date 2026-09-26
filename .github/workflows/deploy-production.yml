@@ -51,6 +51,28 @@ jobs:
           esac
           echo "tag=$REQUESTED" >> "$GITHUB_OUTPUT"
 
+      - name: Require an approved tag for unattended deploys
+        # A tag push is unattended, so it may only install the one tag the
+        # operator has explicitly pinned. Any other tag fails closed rather than
+        # deploying whatever was just pushed. A manual dispatch is already a
+        # deliberate human action, so it is not gated this way.
+        if: ${{ github.event_name == 'push' }}
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          APPROVED_TAG: ${{ vars.SWARTZIT_DEPLOY_TAG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPROVED_TAG" ]; then
+            echo 'No approved deployment tag is pinned. Set the SWARTZIT_DEPLOY_TAG' >&2
+            echo 'repository variable to the tag that may deploy unattended.' >&2
+            exit 1
+          fi
+          if [ "$TAG" != "$APPROVED_TAG" ]; then
+            echo "Tag $TAG is not the approved deployment tag ($APPROVED_TAG)." >&2
+            exit 1
+          fi
+          echo "Approved tag: $TAG"
+
       - name: Wait for the release assets to be published
         # release.yml runs concurrently with this workflow, so the assets may not
         # exist yet. Fail loudly rather than letting the updater report a
