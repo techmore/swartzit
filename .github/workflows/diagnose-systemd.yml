@@ -1,0 +1,49 @@
+name: Diagnose systemd access
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, swartzit]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect the systemd bus situation
+        run: |
+          set +e
+          echo "=== identity and namespaces ==="
+          id
+          echo "pid: $$"
+          echo "=== is /run/systemd/system present? (sd_booted) ==="
+          ls -ld /run/systemd/system 2>&1
+          echo "=== private socket ==="
+          ls -l /run/systemd/private 2>&1
+          echo "=== dbus system socket ==="
+          ls -l /run/dbus/system_bus_socket 2>&1
+          echo "=== who is PID 1 ==="
+          cat /proc/1/comm
+          echo "=== systemctl as this (unprivileged) user ==="
+          systemctl is-system-running 2>&1
+          echo "=== systemctl as root via sudo -n ==="
+          sudo -n /usr/bin/systemctl is-system-running 2>&1
+          echo "=== is our session in the host pid namespace? ==="
+          readlink /proc/self/ns/pid
+          readlink /proc/1/ns/pid
+          echo "=== cgroup namespace ==="
+          readlink /proc/self/ns/cgroup
+          readlink /proc/1/ns/cgroup
+          echo "=== can root see PID 1's root? ==="
+          sudo -n /usr/bin/readlink /proc/1/root 2>&1
+          echo "=== strace-free probe of the private socket ==="
+          sudo -n /usr/bin/python3 - <<'PY'
+          import socket, struct
+          s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+          try:
+              s.connect("/run/systemd/private")
+              print("connected")
+          except OSError as error:
+              print("connect failed:", error.errno, error.strerror)
+          PY
