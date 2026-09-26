@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.44-20260926T08
+
+- Fixes "e is not a function" beside every bookmark star. The coalescing
+  bookmark-status batcher resolved its waiters by iterating the entries and
+  calling each one, but an entry is a `{resolve, reject}` pair, so calling it
+  threw a `TypeError` that rejected every bookmark on the page. In a production
+  build the minified name is what surfaced, which is why the error read "e" and
+  not "resolve". Present since 0.1.14.
+
 ## 0.1.43-20260926T06
 
 - Admins can correct a post's content rating after the fact. Content arrives

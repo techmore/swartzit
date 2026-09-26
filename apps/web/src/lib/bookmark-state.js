@@ -22,7 +22,10 @@ function flush(token, batch) {
       for (const id of ids) {
         const value = items[String(id)] || { saved: false, folder_id: null };
         statusCache.set(cacheKey(token, id), value);
-        for (const resolve of batch.waiters.get(id) || []) resolve(value);
+        // Each entry is a {resolve, reject} pair, so the waiter object is what
+        // gets called. Iterating and calling the entries themselves throws
+        // "resolve is not a function" and fails every bookmark on the page.
+        for (const waiter of batch.waiters.get(id) || []) waiter.resolve(value);
       }
     })
     .catch(error => {
