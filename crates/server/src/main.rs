@@ -171,9 +171,12 @@ struct FeedQuery {
     page: Option<i64>,
     hide_r: Option<bool>,
     hide_x: Option<bool>,
+    /// Exact rating selection for a dedicated rated feed: `r`, `x`, or `rx`.
+    /// When present, this takes precedence over the exclusion toggles below.
+    ratings: Option<String>,
     /// Show only R- and X-rated posts, for readers who want the mature feed
-    /// specifically rather than by exclusion. Composes with `hide_r`/`hide_x`,
-    /// so `mature_only` with `hide_r` narrows the feed to X alone.
+    /// specifically rather than by exclusion. This legacy option includes
+    /// both ratings regardless of the default X-hidden setting.
     mature_only: Option<bool>,
 }
 const FEED_PAGE_SIZE: i64 = 12;
@@ -352,6 +355,13 @@ impl FeedQuery {
     fn validate(&self) -> Result<i64, ApiError> {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
             return Err(ApiError::Invalid("Search must be at most 200 bytes"));
+        }
+        if self
+            .ratings
+            .as_deref()
+            .is_some_and(|ratings| !matches!(ratings, "r" | "x" | "rx"))
+        {
+            return Err(ApiError::Invalid("Ratings must be r, x, or rx"));
         }
         let page = self.page.unwrap_or(1);
         if !(1..=10000).contains(&page) {
@@ -1878,23 +1888,26 @@ async fn posts(
     let offset = query.validate()?;
     let q = query.q.as_deref().unwrap_or("").trim();
     let order = imports::order(query.sort.as_deref())?;
-    let hide_r = query.hide_r();
-    let hide_x = query.hide_x();
-    let mature_only = query.mature_only();
+    let ratings = query.ratings.as_deref();
+    let mature_only = query.mature_only() && ratings.is_none();
+    // Positive rated-feed selections must not inherit the default X-hidden
+    // preference or an exclusion from the mixed timeline.
+    let hide_r = ratings.is_none() && !mature_only && query.hide_r();
+    let hide_x = ratings.is_none() && !mature_only && query.hide_x();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND (NOT $4 OR p.content_rating <> 'r') AND (NOT $5 OR p.content_rating <> 'x') AND (NOT $6 OR p.content_rating IN ('r', 'x')) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND (NOT $4 OR p.content_rating <> 'r') AND (NOT $5 OR p.content_rating <> 'x') AND (NOT $6 OR p.content_rating IN ('r', 'x')) AND ($7::text IS NULL OR ($7 = 'r' AND p.content_rating = 'r') OR ($7 = 'x' AND p.content_rating = 'x') OR ($7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
         FEED_PAGE_SIZE + 1
     );
-    // The cache is shared by every reader, so the key has to carry the mature
-    // filter too. Leaving it out would serve the general feed from a cache
-    // entry built for the mature one.
+    // The cache is shared by every reader, so the key includes the exact rated
+    // selection as well as the mixed-feed exclusions.
     let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
         Some(format!(
-            "posts:{}:{}:{}:{}",
+            "posts:{}:{}:{}:{}:{}",
             query.sort.as_deref().unwrap_or("newest"),
             hide_r,
             hide_x,
             mature_only,
+            ratings.unwrap_or("all"),
         ))
     } else {
         None
@@ -1916,6 +1929,7 @@ async fn posts(
             .bind(hide_r)
             .bind(hide_x)
             .bind(mature_only)
+            .bind(ratings)
             .fetch_all(&db),
     )
     .await?;
@@ -1936,11 +1950,12 @@ async fn home_feed(
     let author_id = authenticated_author(&headers, &db).await?;
     let order = imports::order(query.sort.as_deref())?;
     let offset = query.validate()?;
-    let hide_r = query.hide_r();
-    let hide_x = query.hide_x();
-    let mature_only = query.mature_only();
+    let ratings = query.ratings.as_deref();
+    let mature_only = query.mature_only() && ratings.is_none();
+    let hide_r = ratings.is_none() && !mature_only && query.hide_r();
+    let hide_x = ratings.is_none() && !mature_only && query.hide_x();
     let sql = format!(
-        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') AND (NOT $7 OR p.content_rating IN ('r', 'x')) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
+        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') AND (NOT $7 OR p.content_rating IN ('r', 'x')) AND ($8::text IS NULL OR ($8 = 'r' AND p.content_rating = 'r') OR ($8 = 'x' AND p.content_rating = 'x') OR ($8 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
         FEED_PAGE_SIZE + 1
     );
     let mut posts: Vec<Post> = operations::timed_query(
@@ -1953,6 +1968,7 @@ async fn home_feed(
             .bind(hide_r)
             .bind(hide_x)
             .bind(mature_only)
+            .bind(ratings)
             .fetch_all(&db),
     )
     .await?;
@@ -2521,6 +2537,27 @@ mod tests {
                 ..Default::default()
             }
             .hide_x()
+        );
+    }
+    #[test]
+    fn validates_exact_rating_filters() {
+        for ratings in ["r", "x", "rx"] {
+            assert!(
+                FeedQuery {
+                    ratings: Some(ratings.to_string()),
+                    ..Default::default()
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        assert!(
+            FeedQuery {
+                ratings: Some("general".to_string()),
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
         );
     }
     #[test]

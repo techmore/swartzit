@@ -16,11 +16,11 @@
   let searchOpen = Boolean(data.q);
   let composeOpen = false;
   let searchInput;
-  function applyContentFilters(params) { if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); if (data.matureOnly) params.set('mature', 'true'); return params; }
+  function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (targetFeed === 'following' && data.feed === 'following' && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params; }
   function pageLink(page) { return '/?' + applyContentFilters(new URLSearchParams({feed:data.feed,community:data.community,q:data.q,sort:data.sort,page:String(page)})); }
-  function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params) : '?' + params); }
-  function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); if (data.matureOnly) params.set('mature', 'true'); return '/?' + params; }
-  function communityHref(slug = '') { const params = new URLSearchParams(); if (slug) params.set('community', slug); if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); if (data.matureOnly) params.set('mature', 'true'); return params.toString() ? '/?' + params : '/'; }
+  function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
+  function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
+  function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
   const initialCommunity = data.communities.find(item => item.slug === data.community)?.slug || data.communities[0]?.slug || '';
   let token = '', title = '', body = '', contentRating = 'general', community = initialCommunity, formError = '', formMessage = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedLoading = false, feedError = '', followingRequestKey = '';
@@ -45,15 +45,17 @@
   }
   async function loadFollowing() {
     if (!token) return;
-    const key = `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.matureOnly}`;
+    const key = `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.ratings}`;
     if (followingRequestKey === key) return;
     followingRequestKey = key; feedLoading = true; feedError = '';
     const params = new URLSearchParams({sort:data.sort,page:String(data.page)});
     if (data.q) params.set('q',data.q);
     if (data.community) params.set('community',data.community);
-    if (data.hideR) params.set('hide_r', 'true');
-    params.set('hide_x', data.hideX ? 'true' : 'false');
-    if (data.matureOnly) params.set('mature_only', 'true');
+    if (data.ratings) params.set('ratings', data.ratings);
+    else {
+      if (data.hideR) params.set('hide_r', 'true');
+      params.set('hide_x', data.hideX ? 'true' : 'false');
+    }
     try {
       const response = await fetch('/api/home?' + params,{headers:{authorization:'Bearer ' + token}});
       const result = await response.json();
@@ -62,7 +64,7 @@
     } catch (error) { feedError = error.message || 'Could not reach Swartzit.'; }
     finally { feedLoading = false; }
   }
-  $: if (data.feed === 'following' && token && followingRequestKey !== `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.matureOnly}`) loadFollowing();
+  $: if (data.feed === 'following' && token && followingRequestKey !== `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.ratings}`) loadFollowing();
   $: if (data.feed === 'following') {
     if (token) loadFollowing();
     else { feedPosts = []; feedHasMore = false; feedError = 'Sign in to see posts from communities you follow.'; }
@@ -86,8 +88,8 @@
       <input bind:this={searchInput} name="q" value={data.q} maxlength="200" placeholder="Search discussions" aria-label="Search discussions" />
       <input type="hidden" name="feed" value={data.feed} />
       <input type="hidden" name="sort" value={data.sort} />
-      {#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}
-      {#if !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}
+      {#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}
+      {#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}
       {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
       <button type="submit" aria-label="Run search" title="Run search"><Icon name="search" size={18} /></button>
     </form>
@@ -101,17 +103,21 @@
     {#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}
   </aside>
   <section class="feed">
-    <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a></nav>
+    <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a><a class:active={data.feed === 'rated'} href={feedHref('rated')}>Rated</a></nav>
     <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class="selected" href={communityHref()}>All discussions</a>{#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
     <div class="feed-head">
-      <div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : 'Timeline'}</h1></div>
+      <div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : data.feed === 'rated' ? 'Rated posts' : 'Timeline'}</h1></div>
       <div class="feed-head-actions">
         {#if token}<button class="start-discussion-button" type="button" aria-label="Start a discussion" aria-expanded={composeOpen} aria-controls="compose-panel" onclick={() => composeOpen = true}><Icon name="plus" size={17} />Start discussion</button>{:else}<a class="post-cta" href="/login">Sign in to post</a>{/if}
-        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}{#if data.matureOnly}<input type="hidden" name="mature" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
-        <details class="feed-options content-filters"><summary><span>Content</span>{#if data.matureOnly}<span class="filter-count">Mature only</span>{:else if data.hideR}<span class="filter-count">R filtered</span>{:else if data.hideX}<span class="filter-count">X hidden</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="mature" value="true" checked={data.matureOnly} /><span>Only R and X-rated</span></label><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Include X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR}<a class="clear-content-filters" href={clearRHref()}>Clear R filter</a>{/if}</form></details>
+        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
+        {#if data.ratings}
+          <form class="rated-filter" method="GET"><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="community" value={data.community} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label for="rated-selection">Show</label><select id="rated-selection" name="ratings" aria-label="Choose ratings to show" value={data.ratings}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select><button type="submit">Apply</button></form>
+        {:else}
+          <details class="feed-options content-filters"><summary><span>Content</span>{#if data.hideR}<span class="filter-count">R hidden</span>{:else if data.hideX}<span class="filter-count">X hidden</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Show X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR}<a class="clear-content-filters" href={clearRHref()}>Clear R filter</a>{/if}</form></details>
+        {/if}
       </div>
     </div>
-    {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from communities you follow.</p>{:else if feedLoading}<p role="status">Loading Following…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.feed === 'following' ? 'Follow a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
+    {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from communities you follow.</p>{:else if feedLoading}<p role="status">Loading {data.feed === 'following' ? 'Following' : 'rated posts'}…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
       {#each feedPosts as post (post.id)}
         <article class:source-article={Boolean(post.source)}>
           {#if post.content_rating === 'r' || post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={post.content_rating === 'r'} class:content-rating-x={post.content_rating === 'x'} class="content-rating" title={post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}>{post.content_rating.toUpperCase()}</span><span>{post.content_rating === 'r' ? 'R-rated' : 'X-rated'}</span></div>{/if}
@@ -201,6 +207,9 @@
   .feed-options>summary{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--border,#c7ccc3);border-radius:8px;color:var(--muted,#66766c);font-size:.78rem;font-weight:700;cursor:pointer;list-style:none}
   .feed-options>summary::-webkit-details-marker{display:none}
   .feed-options[open]>summary,.feed-options>summary:hover{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
+  .rated-filter{display:flex;align-items:center;gap:7px;padding:4px 7px 4px 11px;border:1px solid var(--border,#c7ccc3);border-radius:8px;color:var(--muted,#66766c);font-size:.78rem;font-weight:700}
+  .rated-filter select{height:30px;max-width:120px;border:0;background:transparent;color:var(--heading,#173d34);font:inherit;cursor:pointer}
+  .rated-filter button{height:30px;padding:0 9px;border-radius:6px;background:var(--button-bg,#173d34);color:var(--button-text,#fff);font-size:.72rem;font-weight:750}
   .feed-options form{position:absolute;right:0;top:calc(100% + 8px);z-index:5;width:220px;padding:12px;border:1px solid var(--border,#c7ccc3);border-radius:10px;background:var(--surface,#fff);box-shadow:0 12px 28px #0002}
   .feed-options select{width:100%;height:38px;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:0 8px;background:var(--page,#f6f4ee);font:inherit;font-size:.8rem}
   .feed-options button{margin-top:9px;width:100%;height:36px;border-radius:7px;font-size:.78rem}

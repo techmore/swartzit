@@ -7,48 +7,42 @@ const repoFile = relative =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
 const server = repoFile('../../../../crates/server/src/main.rs');
+const adminServer = repoFile('../../../../crates/server/src/admin.rs');
 const pageServer = repoFile('../routes/+page.server.js');
 const page = repoFile('../routes/+page.svelte');
+const adminPage = repoFile('../routes/admin/+page.svelte');
 
-test('the feed can be asked for only R and X-rated posts', () => {
-  // A positive filter, not an exclusion: it asks for the mature posts.
+test('the rated feed selects exactly R, X, or both ratings', () => {
+  // Exact positive selection prevents the default X-hidden preference from
+  // accidentally making R+X empty when X posts exist.
+  assert.match(server, /ratings: Option<String>/);
+  assert.match(server, /matches!\(ratings, "r" \| "x" \| "rx"\)/);
+  assert.match(server, /\$7 = 'r'.*\$7 = 'x'.*\$7 = 'rx'/);
+  assert.match(server, /\$8 = 'r'.*\$8 = 'x'.*\$8 = 'rx'/);
+  assert.match(server, /let hide_x = ratings\.is_none\(\) && !mature_only && query\.hide_x\(\)/);
+  // Older mature-only links remain a positive R+X request.
   assert.match(server, /mature_only: Option<bool>/);
   assert.match(server, /fn mature_only\(&self\) -> bool/);
-  // Applied to both the public feed and the following feed, so switching feeds
-  // does not quietly drop the filter.
-  const applied = server.match(/content_rating IN \('r', 'x'\)/g) ?? [];
-  assert.equal(applied.length, 2, 'both the public and following feeds must filter');
-  // It is a conjunction with the existing hides, so `mature_only` plus
-  // `hide_r` narrows to X alone rather than conflicting.
-  assert.match(server, /NOT \$6 OR p\.content_rating IN \('r', 'x'\)/);
-  assert.match(server, /NOT \$7 OR p\.content_rating IN \('r', 'x'\)/);
 });
 
-test('the shared feed cache keys on the mature filter', () => {
-  // The public feed is cached and served to every reader. A key that omitted
-  // the mature flag would hand the general feed to a reader who asked for the
-  // mature one, or the reverse.
-  assert.match(server, /"posts:\{}:\{}:\{}:\{\}"/);
-  assert.match(server, /hide_x,\s*mature_only,\s*\)/);
+test('the shared feed cache keys on the exact rating selection', () => {
+  assert.match(server, /"posts:\{}:\{}:\{}:\{}:\{}"/);
+  assert.match(server, /hide_x,\s*mature_only,\s*ratings\.unwrap_or\("all"\)/);
 });
 
-test('the mature filter is opt-in and defaults to off', () => {
-  // It must never be on by default: a general reader should not be shown
-  // mature content by a missing or malformed parameter.
+test('rated content remains opt-in and exact selection is visible in the UI', () => {
   assert.match(server, /self\.mature_only\.unwrap_or\(false\)/);
-  // The page only forwards it when explicitly requested.
-  assert.match(pageServer, /\['true', '1'\]\.includes\(url\.searchParams\.get\('mature'\)\)/);
-  assert.match(pageServer, /if \(matureOnly\) params\.set\('mature_only', 'true'\)/);
+  assert.match(pageServer, /requestedFeed === 'rated'/);
+  assert.match(pageServer, /params\.set\('ratings', ratings\)/);
+  assert.match(page, /feedHref\('rated'\)/);
+  assert.match(page, /option value="rx">R and X/);
+  assert.match(page, /option value="r">R only/);
+  assert.match(page, /option value="x">X only/);
 });
 
-test('every link and form keeps the mature view', () => {
-  // Dropping the flag on navigation would silently return the reader to the
-  // general feed without saying so.
-  const carriers = page.match(/data\.matureOnly/g) ?? [];
-  assert.ok(carriers.length >= 7, `expected the flag to be carried widely, saw ${carriers.length}`);
-  // The reader can see which view they are in and get back out of it.
-  assert.match(page, /Mature only/);
-  assert.match(page, /name="mature" value="true" checked=\{data\.matureOnly\}/);
+test('rated selection is preserved during pagination and sorting', () => {
+  assert.match(page, /params\.set\('ratings', data\.ratings \|\| 'rx'\)/);
+  assert.match(page, /name="ratings" value=\{data\.ratings\}/);
 });
 
 test('an admin can correct a rating from the post page', () => {
@@ -58,15 +52,19 @@ test('an admin can correct a rating from the post page', () => {
   assert.match(control, /\/api\/me/);
   assert.match(control, /is_admin === true/);
   assert.match(control, /\{#if isAdmin\}/);
-  // It posts to the audited admin endpoint.
   assert.match(control, /\/api\/admin\/posts\/\$\{postId\}\/content-rating/);
-  // All three ratings an admin may set.
   for (const value of ['general', 'r', 'x']) {
     assert.match(control, new RegExp(`value: '${value}'`));
   }
-  // The badge updates from the server's answer, not the local guess.
   assert.match(control, /dispatch\('update', \{ content_rating: result\.content_rating \}\)/);
-  // The control belongs on the post being corrected, not the home feed.
   const postPage = repoFile('../routes/post/[id]/+page.svelte');
   assert.match(postPage, /<ContentRatingControl /);
+});
+
+test('admins can see rating provenance and change a rating from the content list', () => {
+  assert.match(adminServer, /p\.content_rating,p\.content_rating_source,p\.content_rating_updated_at/);
+  assert.match(adminPage, /Current rating \/ source/);
+  assert.match(adminPage, /contentRatingSourceLabel\(item\.content_rating_source\)/);
+  assert.match(adminPage, /api\(`posts\/\$\{item\.id\}\/content-rating`, 'POST'/);
+  assert.match(adminPage, /Rating confirmed as/);
 });
