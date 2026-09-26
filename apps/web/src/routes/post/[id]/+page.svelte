@@ -11,6 +11,7 @@
   import DrawThingsFeedback from '$lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
   import VoteButtons from '$lib/VoteButtons.svelte';
+  import ContentRatingControl from '$lib/ContentRatingControl.svelte';
   import { mediaShareUrl } from '$lib/media-share.js';
   let commentOrder = 'oldest';
   export let data;
@@ -80,6 +81,7 @@
     <a class="community-export" href="/api/export?community={data.post.community}" download="swartzit-community-export.json">Export data ↓</a>
   </div>
   <article class="post">
+    <ContentRatingControl postId={data.post.id} rating={data.post.content_rating} on:update={(event) => data = { ...data, post: { ...data.post, content_rating: event.detail.content_rating } }} />
     {#if data.post.content_rating === 'r' || data.post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={data.post.content_rating === 'r'} class:content-rating-x={data.post.content_rating === 'x'} class="content-rating">{data.post.content_rating.toUpperCase()}</span><span>{data.post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}</span></div>{/if}
     {#if article}<div class="article-kicker"><span>ARTICLE</span><span>{article.series_title || 'Generated series'}</span><span>Day {article.unit_order || articleIndex + 1}{article.unit_count ? ` of ${article.unit_count}` : ''}</span></div>{/if}
     {#if data.post.source?.provider === 'x' || data.post.source?.provider === 'reddit' || data.post.source?.provider === 'youtube'}<div class="meta post-author"><AuthorAvatar handle={data.post.source.source_author} /> <span><strong>From {data.post.source.provider === 'x' ? 'X' : data.post.source.provider === 'reddit' ? 'Reddit' : 'YouTube'}</strong> · {data.post.source.source_author}</span></div>

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.46-20260926T09
+
+- Admins can now correct a post's content rating from the post page. The
+  endpoint shipped in 0.1.43 with no way to reach it from the site; this adds
+  the control. It renders nothing at all for a signed-out reader or a non-admin,
+  takes an optional reason into the audit log, and updates the rating badge
+  from the server's response rather than the local guess.
+- Adds a mature-only feed: "Only R and X-rated" in the Content filter asks for
+  the R and X posts instead of removing anything from the general feed. It
+  composes with the existing filters, so combining it with "Hide R-rated" gives
+  the X-only feed.
+- The mature filter is opt-in and defaults off, and the shared public feed cache
+  keys on it so a reader asking for the mature feed is never served the general
+  one from cache.
+- The mature view is carried across sorting, pagination, community links, and
+  the following feed, so navigating does not silently drop the filter.
+
 ## 0.1.45-20260926T08
 
 - Applies rustfmt to the rating-correction and viewer-vote changes so

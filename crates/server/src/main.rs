@@ -171,6 +171,10 @@ struct FeedQuery {
     page: Option<i64>,
     hide_r: Option<bool>,
     hide_x: Option<bool>,
+    /// Show only R- and X-rated posts, for readers who want the mature feed
+    /// specifically rather than by exclusion. Composes with `hide_r`/`hide_x`,
+    /// so `mature_only` with `hide_r` narrows the feed to X alone.
+    mature_only: Option<bool>,
 }
 const FEED_PAGE_SIZE: i64 = 12;
 #[derive(Deserialize, Default)]
@@ -364,6 +368,10 @@ impl FeedQuery {
         // Keep explicit opt-in (`hide_x=false`) available while making every
         // feed/API request safe by default.
         self.hide_x.unwrap_or(true)
+    }
+
+    fn mature_only(&self) -> bool {
+        self.mature_only.unwrap_or(false)
     }
 }
 const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.content_rating, p.content_rating_source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
@@ -1872,16 +1880,21 @@ async fn posts(
     let order = imports::order(query.sort.as_deref())?;
     let hide_r = query.hide_r();
     let hide_x = query.hide_x();
+    let mature_only = query.mature_only();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND (NOT $4 OR p.content_rating <> 'r') AND (NOT $5 OR p.content_rating <> 'x') ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND (NOT $4 OR p.content_rating <> 'r') AND (NOT $5 OR p.content_rating <> 'x') AND (NOT $6 OR p.content_rating IN ('r', 'x')) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
         FEED_PAGE_SIZE + 1
     );
+    // The cache is shared by every reader, so the key has to carry the mature
+    // filter too. Leaving it out would serve the general feed from a cache
+    // entry built for the mature one.
     let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
         Some(format!(
-            "posts:{}:{}:{}",
+            "posts:{}:{}:{}:{}",
             query.sort.as_deref().unwrap_or("newest"),
             hide_r,
             hide_x,
+            mature_only,
         ))
     } else {
         None
@@ -1902,6 +1915,7 @@ async fn posts(
             .bind(offset)
             .bind(hide_r)
             .bind(hide_x)
+            .bind(mature_only)
             .fetch_all(&db),
     )
     .await?;
@@ -1924,8 +1938,9 @@ async fn home_feed(
     let offset = query.validate()?;
     let hide_r = query.hide_r();
     let hide_x = query.hide_x();
+    let mature_only = query.mature_only();
     let sql = format!(
-        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
+        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') AND (NOT $7 OR p.content_rating IN ('r', 'x')) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
         FEED_PAGE_SIZE + 1
     );
     let mut posts: Vec<Post> = operations::timed_query(
@@ -1937,6 +1952,7 @@ async fn home_feed(
             .bind(offset)
             .bind(hide_r)
             .bind(hide_x)
+            .bind(mature_only)
             .fetch_all(&db),
     )
     .await?;

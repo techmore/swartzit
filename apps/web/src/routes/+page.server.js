@@ -9,8 +9,12 @@ export async function load({ fetch, url }) {
   // `hide_x=false` form as an explicit opt-in for bookmarked/API-style links.
   const showX = ['true', '1'].includes(url.searchParams.get('show_x')) || ['false', '0'].includes(url.searchParams.get('hide_x'));
   const hideX = !showX;
+  // Mature-only is a positive filter, unlike hide_r/hide_x: it asks for the
+  // R and X posts rather than removing anything from the general feed.
+  const matureOnly = ['true', '1'].includes(url.searchParams.get('mature'));
   if (hideR) params.set('hide_r', 'true');
   params.set('hide_x', String(hideX));
+  if (matureOnly) params.set('mature_only', 'true');
   // Keep the homepage chronological while the recommendation feed is paused.
   // Normalize old links that still request `recommended` so they do not bring
   // the paused ranking back into the primary user path.
@@ -23,5 +27,5 @@ export async function load({ fetch, url }) {
   ]);
   if (!postsResponse.ok || !communitiesResponse.ok) error(503, 'Discussions are temporarily unavailable. Please try again.');
   const result = await postsResponse.json();
-  return { posts: result.posts, hasMore: result.has_more, communities: await communitiesResponse.json(), sort: params.get('sort'), q: params.get('q') ?? '', community: params.get('community') ?? '', page: Number(params.get('page') ?? 1), feed: feedMode, hideR, hideX };
+  return { posts: result.posts, hasMore: result.has_more, communities: await communitiesResponse.json(), sort: params.get('sort'), q: params.get('q') ?? '', community: params.get('community') ?? '', page: Number(params.get('page') ?? 1), feed: feedMode, hideR, hideX, matureOnly };
 }

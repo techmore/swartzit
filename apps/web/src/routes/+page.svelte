@@ -16,11 +16,11 @@
   let searchOpen = Boolean(data.q);
   let composeOpen = false;
   let searchInput;
-  function applyContentFilters(params) { if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params; }
+  function applyContentFilters(params) { if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); if (data.matureOnly) params.set('mature', 'true'); return params; }
   function pageLink(page) { return '/?' + applyContentFilters(new URLSearchParams({feed:data.feed,community:data.community,q:data.q,sort:data.sort,page:String(page)})); }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params) : '?' + params); }
-  function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
-  function communityHref(slug = '') { const params = new URLSearchParams(); if (slug) params.set('community', slug); if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params.toString() ? '/?' + params : '/'; }
+  function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); if (data.matureOnly) params.set('mature', 'true'); return '/?' + params; }
+  function communityHref(slug = '') { const params = new URLSearchParams(); if (slug) params.set('community', slug); if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); if (data.matureOnly) params.set('mature', 'true'); return params.toString() ? '/?' + params : '/'; }
   const initialCommunity = data.communities.find(item => item.slug === data.community)?.slug || data.communities[0]?.slug || '';
   let token = '', title = '', body = '', contentRating = 'general', community = initialCommunity, formError = '', formMessage = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedLoading = false, feedError = '', followingRequestKey = '';
@@ -45,7 +45,7 @@
   }
   async function loadFollowing() {
     if (!token) return;
-    const key = `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}`;
+    const key = `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.matureOnly}`;
     if (followingRequestKey === key) return;
     followingRequestKey = key; feedLoading = true; feedError = '';
     const params = new URLSearchParams({sort:data.sort,page:String(data.page)});
@@ -53,6 +53,7 @@
     if (data.community) params.set('community',data.community);
     if (data.hideR) params.set('hide_r', 'true');
     params.set('hide_x', data.hideX ? 'true' : 'false');
+    if (data.matureOnly) params.set('mature_only', 'true');
     try {
       const response = await fetch('/api/home?' + params,{headers:{authorization:'Bearer ' + token}});
       const result = await response.json();
@@ -61,7 +62,7 @@
     } catch (error) { feedError = error.message || 'Could not reach Swartzit.'; }
     finally { feedLoading = false; }
   }
-  $: if (data.feed === 'following' && token && followingRequestKey !== `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}`) loadFollowing();
+  $: if (data.feed === 'following' && token && followingRequestKey !== `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.matureOnly}`) loadFollowing();
   $: if (data.feed === 'following') {
     if (token) loadFollowing();
     else { feedPosts = []; feedHasMore = false; feedError = 'Sign in to see posts from communities you follow.'; }
@@ -106,8 +107,8 @@
       <div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : 'Timeline'}</h1></div>
       <div class="feed-head-actions">
         {#if token}<button class="start-discussion-button" type="button" aria-label="Start a discussion" aria-expanded={composeOpen} aria-controls="compose-panel" onclick={() => composeOpen = true}><Icon name="plus" size={17} />Start discussion</button>{:else}<a class="post-cta" href="/login">Sign in to post</a>{/if}
-        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
-        <details class="feed-options content-filters"><summary><span>Content</span>{#if data.hideR}<span class="filter-count">R filtered</span>{:else if data.hideX}<span class="filter-count">X hidden</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Include X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR}<a class="clear-content-filters" href={clearRHref()}>Clear R filter</a>{/if}</form></details>
+        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}{#if data.matureOnly}<input type="hidden" name="mature" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
+        <details class="feed-options content-filters"><summary><span>Content</span>{#if data.matureOnly}<span class="filter-count">Mature only</span>{:else if data.hideR}<span class="filter-count">R filtered</span>{:else if data.hideX}<span class="filter-count">X hidden</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="mature" value="true" checked={data.matureOnly} /><span>Only R and X-rated</span></label><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Include X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR}<a class="clear-content-filters" href={clearRHref()}>Clear R filter</a>{/if}</form></details>
       </div>
     </div>
     {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from communities you follow.</p>{:else if feedLoading}<p role="status">Loading Following…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.feed === 'following' ? 'Follow a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
