@@ -2374,6 +2374,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/api/admin/media/verify", post_method(admin::media_verify))
         .route(
+            "/api/admin/posts/{id}/content-rating",
+            post_method(admin::set_post_content_rating),
+        )
+        .route(
             "/api/admin/media/cache/clear",
             post_method(admin::media_clear_cache),
         )
@@ -2524,6 +2528,39 @@ mod tests {
         assert_eq!(validate_content_rating(Some(" R ")).unwrap(), "r");
         assert_eq!(validate_content_rating(Some("x")).unwrap(), "x");
         assert!(validate_content_rating(Some("nsfw")).is_err());
+    }
+    #[test]
+    fn an_admin_rating_correction_is_gated_and_keeps_provenance() {
+        // The correction endpoint is the only way to change a rating after the
+        // fact, so it must be admin-only: any signed-in author must not be able
+        // to reach it.
+        let source = include_str!("admin.rs");
+        let handler = source
+            .split("pub async fn set_post_content_rating")
+            .nth(1)
+            .expect("set_post_content_rating handler is present");
+        assert!(
+            handler.contains("require_admin(&headers, &db).await?"),
+            "the handler must check admin before touching a post"
+        );
+        // It records who changed it and that a human did, rather than leaving
+        // the post looking uploader- or classifier-rated after a correction.
+        assert!(handler.contains("content_rating_source = 'moderator'"));
+        assert!(handler.contains("admin.content_rating_corrected"));
+        // The rating is what the feed's hide filters read, so a correction has to
+        // bump the update time; the original value is logged, not discarded.
+        assert!(handler.contains("content_rating_updated_at = now()"));
+        assert!(handler.contains("\"from\": previous"));
+        // It must not quietly publish or unpublish a post as a side effect.
+        assert!(!handler.contains("moderation_status"));
+        // And it reuses the uploader's validator, so an admin cannot set a
+        // value the column's CHECK constraint would reject.
+        assert!(handler.contains("validate_content_rating("));
+    }
+    #[test]
+    fn the_rating_correction_route_is_registered() {
+        assert!(include_str!("main.rs")
+            .contains("\"/api/admin/posts/{id}/content-rating\""));
     }
     #[test]
     fn draw_things_feedback_accepts_optional_dimensions() {

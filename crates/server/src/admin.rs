@@ -3694,3 +3694,69 @@ mod tests {
         assert!(validate_days_of_week(&serde_json::json!([0, 7])).is_err());
     }
 }
+
+#[derive(Deserialize)]
+pub struct SetContentRating {
+    /// One of `general`, `r`, or `x`. Validated by the same rules as an
+    /// uploader-supplied rating so an admin cannot set a value the database
+    /// would reject.
+    content_rating: String,
+    /// Optional free text kept in the audit log, so a correction can be
+    /// explained after the fact.
+    reason: Option<String>,
+}
+
+/// Correct a post's content rating after the fact.
+///
+/// Content arrives rated by the uploader or by the automatic classifier, and
+/// both get it wrong often enough that a mistaken upload needs undoing without
+/// waiting for the person who made it. The rating is the field the feed's
+/// `hide_r` and `hide_x` filters read, so a correction here is what actually
+/// stops a post being served to readers who asked not to see it.
+///
+/// The rating is recorded as `moderator` rather than overwriting the original
+/// provenance, so it stays visible that a human changed it and when.
+pub async fn set_post_content_rating(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(post_id): Path<i64>,
+    Json(input): Json<SetContentRating>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let rating = validate_content_rating(Some(input.content_rating.as_str()))?;
+
+    let previous: Option<String> = sqlx::query_scalar("SELECT content_rating FROM posts WHERE id = $1")
+        .bind(post_id)
+        .fetch_optional(&db)
+        .await?;
+    let previous = previous.ok_or(ApiError::Missing)?;
+
+    let updated: (String, String) = sqlx::query_as(
+        "UPDATE posts SET content_rating = $1, content_rating_source = 'moderator', content_rating_updated_at = now() WHERE id = $2 RETURNING content_rating, content_rating_source",
+    )
+    .bind(&rating)
+    .bind(post_id)
+    .fetch_optional(&db)
+    .await?
+    .ok_or(ApiError::Missing)?;
+
+    log_event(
+        &db,
+        "info",
+        "admin.content_rating_corrected",
+        serde_json::json!({
+            "actor_id": actor,
+            "post_id": post_id,
+            "from": previous,
+            "to": rating,
+            "reason": input.reason,
+        }),
+    )
+    .await;
+
+    Ok(Json(serde_json::json!({
+        "post_id": post_id,
+        "content_rating": updated.0,
+        "content_rating_source": updated.1,
+    })))
+}

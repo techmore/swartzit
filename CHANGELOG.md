@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.43-20260926T06
+
+- Admins can correct a post's content rating after the fact. Content arrives
+  rated by the uploader or the automatic classifier, and both get it wrong
+  often enough that a mistaken upload needs undoing without waiting for the
+  person who made it. `POST /api/admin/posts/{id}/content-rating` takes
+  `general`, `r`, or `x` and an optional reason.
+- The rating is what the feed's `hide_r` and `hide_x` filters read, so a
+  correction is what actually stops a post being served to readers who asked
+  not to see it.
+- A correction is recorded as `moderator` provenance with an audit log entry
+  naming the actor, the previous value, and the new one, so it stays visible
+  that a human changed it, when, and why. It never alters publication status.
+
 ## 0.1.42-20260926T05
 
 - Vote buttons are now a true toggle. Clicking the direction you already hold
