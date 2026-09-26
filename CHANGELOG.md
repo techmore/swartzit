@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.42-20260926T05
+
+- Vote buttons are now a true toggle. Clicking the direction you already hold
+  removes that vote, and clicking the other direction moves it, so the two are
+  mutually exclusive from the reader's side as well as the database's. The
+  separate "Clear vote" control is gone.
+- The buttons show which vote is held, via colour and `aria-pressed`, and
+  update the score optimistically. A rejected request now rolls the button and
+  the score back instead of leaving the page claiming a vote that was not
+  recorded.
+- Post responses carry the viewer's own vote as `your_vote`. The public feed is
+  cached without viewer state, so it is stamped on per request after the cache
+  lookup and never stored in the shared cache.
+- The post page and the post list share one vote component, removing a second
+  divergent copy of the controls.
+
 ## 0.1.41-20260926T00
 
 - Runs the production deploy on a self-hosted runner on the host instead of a

@@ -10,7 +10,7 @@
 
 <div class="post-actions" aria-label="Discussion actions">
   <a class="comment-action" href={'/post/' + post.public_id}>{post.comment_count} comments</a>
-  <VoteButtons id={post.id} score={post.score} />
+  <VoteButtons id={post.id} score={post.score} yourVote={post.your_vote} />
   <ShareButton id={post.public_id} title={post.title} url={shareUrl} media={Boolean(shareUrl)} />
   <BookmarkButton id={post.id} />
 </div>

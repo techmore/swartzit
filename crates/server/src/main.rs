@@ -96,6 +96,14 @@ struct Post {
     community_name: String,
     comment_count: i64,
     score: i64,
+    /// The signed-in viewer's own vote: 1, -1, or None.
+    ///
+    /// Deliberately not selected by POST_SELECT. The public feed is cached
+    /// without viewer state, so this is filled in per request after the cache
+    /// lookup. Without it the UI cannot show which vote is active, and the
+    /// buttons can neither highlight nor toggle themselves off.
+    #[sqlx(default)]
+    your_vote: Option<i16>,
 }
 #[derive(Serialize, FromRow)]
 struct ArticleSeriesItem {
@@ -1781,8 +1789,86 @@ async fn community(
 ) -> Result<Json<Community>, ApiError> {
     Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count FROM communities c WHERE c.slug = $1").bind(slug).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
 }
+/// Stamp the viewer's own vote onto a post payload.
+///
+/// This runs after any cache lookup so the shared public cache never stores
+/// per-viewer state. `payload` is either `{"posts": [...]}`, a bare post array,
+/// or a single post object. Anonymous and suspended viewers are left untouched
+/// rather than treated as an error, because a feed must still render.
+async fn attach_your_votes(
+    db: &PgPool,
+    headers: &HeaderMap,
+    payload: &mut serde_json::Value,
+) {
+    let Ok(author_id) = active_author(headers, db).await else {
+        return;
+    };
+    let mut seen: Vec<i64> = Vec::new();
+    let mut collect = |post: &serde_json::Value| {
+        if let Some(id) = post.get("id").and_then(serde_json::Value::as_i64)
+            && !seen.contains(&id)
+        {
+            seen.push(id);
+        }
+    };
+    match payload {
+        serde_json::Value::Array(posts) => posts.iter().for_each(collect),
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Array(posts)) = map.get("posts") {
+                posts.iter().for_each(collect);
+            } else if let Some(post) = map.get("post") {
+                collect(post);
+            }
+        }
+        _ => return,
+    }
+    if seen.is_empty() {
+        return;
+    }
+    let Ok(rows) = sqlx::query_as::<_, (i64, i16)>(
+        // The array element type is stated explicitly: `post_votes.post_id` is
+        // bigint, and leaving it to inference makes the statement's type depend
+        // on the planner rather than on the schema.
+        "SELECT post_id, value FROM post_votes WHERE author_id = $1 AND post_id = ANY($2::bigint[])",
+    )
+    .bind(author_id)
+    .bind(&seen)
+    .fetch_all(db)
+    .await
+    else {
+        return;
+    };
+    let mut votes: std::collections::HashMap<i64, i16> = rows.into_iter().collect();
+    // Only posts the viewer has actually voted on need a key. A missing
+    // `your_vote` reads as "no vote" on the client, which is the correct
+    // default and keeps the response smaller than the full post list.
+    let mut stamp = |post: &mut serde_json::Value| {
+        let Some(id) = post.get("id").and_then(serde_json::Value::as_i64) else {
+            return;
+        };
+        let Some(vote) = votes.remove(&id) else {
+            return;
+        };
+        if let Some(target) = post.as_object_mut() {
+            target.insert("your_vote".to_string(), vote.into());
+        }
+    };
+    match payload {
+        serde_json::Value::Array(posts) => posts.iter_mut().for_each(stamp),
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Array(posts)) = map.get_mut("posts") {
+                posts.iter_mut().for_each(stamp);
+            } else if let Some(post) = map.get_mut("post") {
+                stamp(post);
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn posts(
     State(db): State<PgPool>,
+    headers: HeaderMap,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let offset = query.validate()?;
@@ -1805,8 +1891,11 @@ async fn posts(
         None
     };
     if let Some(key) = &cache_key
-        && let Some(value) = operations::public_cache_get(key)
+        && let Some(mut value) = operations::public_cache_get(key)
     {
+        // The cache holds viewer-neutral posts only; the viewer's own vote is
+        // stamped on after the lookup so it is never shared between readers.
+        attach_your_votes(&db, &headers, &mut value).await;
         return Ok(Json(value));
     }
     let mut posts: Vec<Post> = operations::timed_query(
@@ -1822,10 +1911,11 @@ async fn posts(
     .await?;
     let has_more = posts.len() > FEED_PAGE_SIZE as usize;
     posts.truncate(FEED_PAGE_SIZE as usize);
-    let value = serde_json::json!({"posts": posts, "has_more": has_more});
+    let mut value = serde_json::json!({"posts": posts, "has_more": has_more});
     if let Some(key) = cache_key {
         operations::public_cache_put(key, value.clone());
     }
+    attach_your_votes(&db, &headers, &mut value).await;
     Ok(Json(value))
 }
 async fn home_feed(
@@ -1856,12 +1946,13 @@ async fn home_feed(
     .await?;
     let has_more = posts.len() > FEED_PAGE_SIZE as usize;
     posts.truncate(FEED_PAGE_SIZE as usize);
-    Ok(Json(
-        serde_json::json!({"posts": posts, "has_more": has_more}),
-    ))
+    let mut value = serde_json::json!({"posts": posts, "has_more": has_more});
+    attach_your_votes(&db, &headers, &mut value).await;
+    Ok(Json(value))
 }
 async fn post(
     State(db): State<PgPool>,
+    headers: HeaderMap,
     Path(raw_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let post: Post = if let Ok(id) = raw_id.parse::<i64>() {
@@ -1906,9 +1997,9 @@ async fn post(
         .fetch_all(&db)
         .await?;
     }
-    Ok(Json(
-        serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media, "draw_feedback": draw_feedback, "article_series": article_series}),
-    ))
+    let mut value = serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media, "draw_feedback": draw_feedback, "article_series": article_series});
+    attach_your_votes(&db, &headers, &mut value).await;
+    Ok(Json(value))
 }
 async fn export(
     State(db): State<PgPool>,
