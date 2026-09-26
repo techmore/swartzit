@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.41-20260926T00
+
+- Runs the production deploy on a self-hosted runner on the host instead of a
+  GitHub-hosted runner over SSH. The public address is CGNAT and only ports 80
+  and 443 are forwarded, so an external runner cannot reach port 22 and the
+  SSH design could never have connected.
+- The deploy step is now a single local `sudo -n` invocation of the installer
+  that already lives in the deployment directory, which removes the deploy
+  private key, the pinned known_hosts, the deploy secrets, and any inbound
+  port. The release being deployed can no longer rewrite the code that installs
+  it.
+- The deploy account is unprivileged and reaches root through a single
+  sudoers grant naming one script path and the receipt file.
+- The deploy waits for `release.yml` to publish the assets before installing,
+  because both workflows trigger on the same tag push.
+
 ## 0.1.40-20260925T20
 
 - The unattended entry point no longer reports "Production is now on <tag>" after

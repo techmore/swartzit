@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to deploy, for example v0.1.36-20260925T19'
+        description: 'Release tag to deploy, for example v0.1.41-20260926T00'
         required: true
         type: string
 
@@ -24,68 +24,71 @@ concurrency:
 
 jobs:
   deploy:
-    # Keep the workflow present and reviewable before production secrets are
-    # configured. Set the repository variable to true to opt the live host in.
+    # Keep the workflow present and reviewable before the deploy is enabled.
+    # Set the repository variable to true to opt the live host in.
     if: ${{ vars.SWARTZIT_DEPLOY_ENABLED == 'true' }}
-    runs-on: ubuntu-latest
+    # This host is not reachable from a GitHub-hosted runner: the public address
+    # is CGNAT and only 80/443 are forwarded, so an SSH-based deploy from GitHub
+    # can never connect. The runner therefore lives on the host itself and the
+    # deploy is a single local command with no keys, no known_hosts, and no
+    # inbound port.
+    runs-on: [self-hosted, swartzit, production]
     environment: production
     timeout-minutes: 45
     steps:
-      - name: Validate deployment configuration
+      - name: Resolve the release tag
+        id: tag
         env:
-          DEPLOY_HOST: ${{ secrets.SWARTZIT_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.SWARTZIT_DEPLOY_USER }}
-          DEPLOY_KEY: ${{ secrets.SWARTZIT_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.SWARTZIT_DEPLOY_KNOWN_HOSTS }}
+          REQUESTED: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          test -n "$DEPLOY_HOST" || { echo 'Missing SWARTZIT_DEPLOY_HOST' >&2; exit 1; }
-          test -n "$DEPLOY_USER" || { echo 'Missing SWARTZIT_DEPLOY_USER' >&2; exit 1; }
-          test -n "$DEPLOY_KEY" || { echo 'Missing SWARTZIT_DEPLOY_SSH_KEY' >&2; exit 1; }
-          test -n "$DEPLOY_KNOWN_HOSTS" || { echo 'Missing SWARTZIT_DEPLOY_KNOWN_HOSTS' >&2; exit 1; }
-
-      - name: Install deployment SSH identity
-        env:
-          DEPLOY_KEY: ${{ secrets.SWARTZIT_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.SWARTZIT_DEPLOY_KNOWN_HOSTS }}
-        run: |
-          install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/id_ed25519"
-          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
-
-      - name: Update production from this release
-        env:
-          DEPLOY_HOST: ${{ secrets.SWARTZIT_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.SWARTZIT_DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.SWARTZIT_DEPLOY_PORT }}
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          case "$RELEASE_TAG" in
+          set -euo pipefail
+          case "$REQUESTED" in
             v[0-9]*) ;;
             *)
-              echo "Refusing to deploy unexpected tag: $RELEASE_TAG" >&2
+              echo "Refusing to deploy unexpected tag: $REQUESTED" >&2
               exit 1
               ;;
           esac
-          # The remote updater verifies the published release checksums, backs
-          # up PostgreSQL, rehearses the candidate release against a restored
-          # copy, and rolls back if the health gate fails.
-          ssh -p "${DEPLOY_PORT:-22}" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            "sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --tag $RELEASE_TAG --yes"
+          echo "tag=$REQUESTED" >> "$GITHUB_OUTPUT"
 
-      - name: Collect production update receipt
-        if: ${{ failure() }}
+      - name: Wait for the release assets to be published
+        # release.yml runs concurrently with this workflow, so the assets may not
+        # exist yet. Fail loudly rather than letting the updater report a
+        # confusing "missing asset" error.
         env:
-          DEPLOY_HOST: ${{ secrets.SWARTZIT_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.SWARTZIT_DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.SWARTZIT_DEPLOY_PORT }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          ssh -p "${DEPLOY_PORT:-22}" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            'sudo -n cat /var/lib/swartzit/state/update-receipt.json' \
-            2>/dev/null || echo 'No production update receipt was available.'
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          for attempt in $(seq 1 40); do
+            if curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$repo/releases/tags/$TAG" \
+              | grep -q '"name": *"swartzit-server-linux-amd64"'; then
+              echo "Release $TAG is published."
+              exit 0
+            fi
+            echo "Waiting for the $TAG release assets ($attempt/40)..."
+            sleep 15
+          done
+          echo "Release $TAG was not published within 10 minutes." >&2
+          exit 1
+
+      - name: Install the release on this host
+        # The deploy account may run exactly this one script as root. The script
+        # is the copy installed under /var/lib/swartzit, not the one in this
+        # checkout, so the code being deployed cannot rewrite its own installer.
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --tag "$TAG" --yes
+
+      - name: Collect the deployment receipt
+        if: always()
+        run: |
+          set -euo pipefail
+          sudo -n /bin/cat /var/lib/swartzit/state/update-receipt.json \
+            || echo 'No deployment receipt was available.'

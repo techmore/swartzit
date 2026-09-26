@@ -111,10 +111,30 @@ test('production deployment is opt-in, tag-triggered, and serialized', () => {
   const workflow = read('.github/workflows/deploy-production.yml');
   assert.match(workflow, /vars\.SWARTZIT_DEPLOY_ENABLED == 'true'/);
   assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(workflow, /SWARTZIT_DEPLOY_KNOWN_HOSTS/);
   // A merge to main must not change a live host; only a published tag deploys.
   assert.match(workflow, /tags:\s*\n\s*- 'v\*'/);
   assert.doesNotMatch(workflow, /branches: \[main\]/);
   // The deploy names the tag it is installing.
-  assert.match(workflow, /swartzit-linux-update\.sh --tag \$RELEASE_TAG --yes/);
+  assert.match(workflow, /swartzit-linux-update\.sh --tag "\$TAG" --yes/);
+});
+
+test('the deploy runs on a self-hosted runner with no remote access', () => {
+  // The public address is CGNAT and only 80/443 are forwarded, so a
+  // GitHub-hosted runner can never SSH in. The runner therefore lives on the
+  // host, which removes the deploy key, known_hosts, and any inbound port.
+  const workflow = read('.github/workflows/deploy-production.yml');
+  assert.match(workflow, /runs-on: \[self-hosted, swartzit, production\]/);
+  assert.match(workflow, /environment: production/);
+  assert.doesNotMatch(workflow, /SWARTZIT_DEPLOY_HOST/);
+  assert.doesNotMatch(workflow, /SWARTZIT_DEPLOY_SSH_KEY/);
+  assert.doesNotMatch(workflow, /SWARTZIT_DEPLOY_KNOWN_HOSTS/);
+  assert.doesNotMatch(workflow, /ssh -p/);
+  // The installer is the copy already on the host, so a release cannot rewrite
+  // the code that installs it.
+  assert.match(workflow, /sudo -n \/var\/lib\/swartzit\/scripts\/swartzit-linux-update\.sh/);
+  // release.yml runs concurrently, so the deploy waits for the assets.
+  assert.match(workflow, /Wait for the release assets to be published/);
+  assert.match(workflow, /releases\/tags\/\$TAG/);
+  // A failure still surfaces the receipt.
+  assert.match(workflow, /if: always\(\)/);
 });
