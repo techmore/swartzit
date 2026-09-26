@@ -138,7 +138,41 @@ pub async fn content(
     require_admin(&headers, &db).await?;
     let sql = match f.kind.as_deref().unwrap_or("posts") {
         "posts" => {
-            "SELECT row_to_json(t) FROM (SELECT p.id,p.view_count,p.engaged_view_count,p.deep_view_count,p.content_rating,p.content_rating_source,p.content_rating_updated_at,p.title,p.body,p.created_at,a.handle AS author,c.slug AS community,(SELECT count(*) FROM comments WHERE post_id=p.id) AS comments FROM posts p JOIN authors a ON a.id=p.author_id JOIN communities c ON c.id=p.community_id WHERE strpos(lower(p.title || ' ' || p.body),lower($1))>0 AND ($2::bigint IS NULL OR p.id<$2) ORDER BY p.id DESC LIMIT 50) t"
+            r#"SELECT row_to_json(t) FROM (
+                SELECT p.id,p.view_count,p.engaged_view_count,p.deep_view_count,
+                    p.content_rating,p.content_rating_source,p.content_rating_updated_at,
+                    p.title,p.body,p.created_at,a.handle AS author,c.slug AS community,
+                    (SELECT count(*) FROM comments WHERE post_id=p.id) AS comments,
+                    COALESCE((SELECT e.media FROM external_posts e WHERE e.post_id=p.id), '[]'::jsonb) AS source_media,
+                    COALESCE((
+                        SELECT jsonb_agg(jsonb_build_object(
+                            'kind',m.media_type,
+                            'src',CASE
+                                WHEN m.media_type='image' AND m.variants ? 'thumbnail'
+                                    THEN '/media/' || m.id::text || '/thumbnail'
+                                WHEN m.media_type='video'
+                                    THEN '/media/' || m.id::text || '/original'
+                                ELSE '/media/' || m.id::text
+                            END,
+                            'original_src','/media/' || m.id::text || '/original',
+                            'poster',CASE
+                                WHEN m.media_type='video' AND m.variants ? 'thumbnail'
+                                    THEN '/media/' || m.id::text || '/thumbnail'
+                                ELSE NULL
+                            END
+                        ) ORDER BY pm.position,m.id)
+                        FROM post_media pm
+                        JOIN media_assets m ON m.id=pm.media_id
+                        WHERE pm.post_id=p.id AND m.media_type IN ('image','video')
+                    ), '[]'::jsonb) AS uploaded_media
+                FROM posts p
+                JOIN authors a ON a.id=p.author_id
+                JOIN communities c ON c.id=p.community_id
+                WHERE strpos(lower(p.title || ' ' || p.body),lower($1))>0
+                    AND ($2::bigint IS NULL OR p.id<$2)
+                ORDER BY p.id DESC
+                LIMIT 50
+            ) t"#
         }
         "comments" => {
             "SELECT row_to_json(t) FROM (SELECT c.id,c.post_id,c.body,c.created_at,a.handle AS author FROM comments c JOIN authors a ON a.id=c.author_id WHERE strpos(lower(c.body),lower($1))>0 AND ($2::bigint IS NULL OR c.id<$2) ORDER BY c.id DESC LIMIT 50) t"
