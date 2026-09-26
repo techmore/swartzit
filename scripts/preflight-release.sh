@@ -9,6 +9,12 @@
 #
 # The rehearsal uses a disposable role with a random password so the production
 # credential is never reused, never logged, and never appears in `ps`.
+#
+# The rehearsal server is launched with fd 9 closed. This script runs inside the
+# release updater, which holds its lock on fd 9; a child that inherits that
+# descriptor keeps the lock held for as long as the child lives, so any leak of
+# this server would block every later deploy. Closing the descriptor here means a
+# leak can only cost a process, never the release path.
 
 set -euo pipefail
 
@@ -121,20 +127,30 @@ for attempt in 1 2 3; do
     SWARTZIT_CHECK_URL="$TEST_URL" \
     SWARTZIT_STATE_DIR="$STAGE_DIR/state" \
     SWARTZIT_DATA_DIR="$STAGE_DIR/state" \
-    "$STAGED_BINARY" > "$LOG" 2>&1 &
+    "$STAGED_BINARY" 9>&- > "$LOG" 2>&1 &
   TEST_PID=$!
   set +e
   wait_for_health "$TEST_URL"
   RESULT=$?
   set -e
-  TEST_PID=''
   case "$RESULT" in
     0)
+      # Leave TEST_PID set so cleanup() stops the rehearsal server. Clearing it
+      # here orphaned the server: it outlived the script, was reparented to
+      # init, and kept holding this deployment's inherited descriptors --
+      # including the release lock, which wedged every later deploy with
+      # "Another Swartzit release update is already running".
       echo 'Release preflight passed: migrations applied and /health served on the restored database.'
       exit 0
       ;;
     2)
       if grep -q 'Address already in use' "$LOG" && [[ -z "${SWARTZIT_PREFLIGHT_PORT:-}" ]]; then
+        # A loop iteration does not run cleanup(), so stop the server here.
+        if [[ -n "${TEST_PID:-}" ]] && kill -0 "$TEST_PID" >/dev/null 2>&1; then
+          kill "$TEST_PID" >/dev/null 2>&1 || true
+          wait "$TEST_PID" 2>/dev/null || true
+        fi
+        TEST_PID=''
         echo 'Candidate server lost a port race; retrying on another port.'
         continue
       fi

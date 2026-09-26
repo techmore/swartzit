@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.47-20260926T10
+
+- Fixes a release-blocking bug in the migration preflight. The rehearsal
+  server was left running on the success path, because its pid was cleared
+  before the branch that exits, so `cleanup` had nothing to stop. It outlived
+  the deploy, was reparented to init, and kept the updater's release-lock
+  descriptor open, so every later deploy failed with "Another Swartzit release
+  update is already running". A lost port race leaked a server per retry too,
+  since `continue` skips the exit trap.
+- The rehearsal server is now stopped on every path, and is launched with the
+  lock descriptor closed so that a leak can never again cost the release path.
+- Regression tests cover the success path, the retry path, and the descriptor.
+
 ## 0.1.46-20260926T09
 
 - Admins can now correct a post's content rating from the post page. The
