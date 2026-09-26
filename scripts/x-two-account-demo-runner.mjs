@@ -9,7 +9,7 @@ export const DEMO_ACCOUNTS = ['beautyshowcase', 'Rawpkw'];
 export const DEMO_DEFAULTS = {hours: 168, limit: 8, perSource: 50};
 
 export function buildDemoOptions({hours = DEMO_DEFAULTS.hours, limit = DEMO_DEFAULTS.limit, perSource = DEMO_DEFAULTS.perSource} = {}) {
-  return {accounts: [...DEMO_ACCOUNTS], hours: Number(hours), limit: Number(limit), perSource: Number(perSource)};
+  return {accounts: [...DEMO_ACCOUNTS], hours: Number(hours), limit: Number(limit), candidateLimit: 100, perSource: Number(perSource)};
 }
 
 export function labelDemoPosts(posts) {
@@ -22,12 +22,13 @@ export function labelDemoPosts(posts) {
 }
 
 async function main() {
-  const posts = await collectCrossPosts(buildDemoOptions({
+  const options = buildDemoOptions({
     hours: process.env.X_RUNNER_HOURS || DEMO_DEFAULTS.hours,
     limit: process.env.X_RUNNER_LIMIT || DEMO_DEFAULTS.limit,
     perSource: process.env.X_RUNNER_PER_SOURCE || DEMO_DEFAULTS.perSource
-  }));
-  process.stdout.write(`${JSON.stringify({posts: labelDemoPosts(posts)})}\n`);
+  });
+  const posts = await collectCrossPosts(options);
+  process.stdout.write(`${JSON.stringify({posts: labelDemoPosts(posts), max_posts: options.limit})}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

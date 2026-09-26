@@ -239,8 +239,16 @@ supports:
 - explicit `--start-time` / `--end-time`, or a rolling `--hours` window;
 - explicit queries through repeated `--query` and optional inclusion of replies
   or retweets;
-- de-duplication, local time-window enforcement, engagement ordering, and a
-  maximum of eight posts per execution.
+- de-duplication within each collected batch, local time-window enforcement,
+  and engagement ordering;
+- a candidate pool of up to 100 ranked posts, so the worker can skip source URLs
+  already imported on this instance and continue down the list to fill the
+  requested one-to-eight posts per execution.
+
+The runner outputs `max_posts` separately from the candidate list. Before
+showing a dry-run preview or publishing, the worker checks the candidate source
+URLs against the instance and selects the first fresh results up to that limit.
+The publication endpoint still performs its own locked duplicate check.
 
 For the starter template, allow-list these worker environment names without
 storing their values in the database:
