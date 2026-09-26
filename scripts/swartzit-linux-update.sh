@@ -77,8 +77,13 @@ STATUS=$?
 set -e
 
 if (( STATUS == 0 )); then
-  write_receipt updated "$TAG applied and healthy"
-  echo "Production is now on $TAG."
+  if (( ${#EXTRA[@]} )); then
+    write_receipt checked "$TAG verified; nothing changed"
+    echo "Dry run for $TAG passed; nothing was changed."
+  else
+    write_receipt updated "$TAG applied and healthy"
+    echo "Production is now on $TAG."
+  fi
 else
   write_receipt failed "$TAG failed with status $STATUS"
   echo "Production update to $TAG failed with status $STATUS; see $ROOT/state for the recovery bundle." >&2

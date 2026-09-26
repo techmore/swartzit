@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.40-20260925T20
+
+- The unattended entry point no longer reports "Production is now on <tag>" after
+  a dry run. A verification pass records a distinct `checked` receipt and says
+  that nothing was changed, so a dry run cannot be mistaken for an install.
+
 ## 0.1.39-20260925T20
 
 - Makes every PostgreSQL client in the backup and rehearsal scripts
