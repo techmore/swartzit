@@ -263,6 +263,14 @@
     try { await api(path, method); notice = 'Change saved and recorded in the operational log.'; await refresh(); }
     catch (e) { notice = e.message; } finally { busy = false; }
   }
+  async function updatePostRating(id, rating) {
+    busy = true; notice = '';
+    try {
+      await api(`posts/${id}/content-rating`, 'POST', { content_rating: rating });
+      notice = rating === 'general' ? `Cleared the content rating on post #${id}.` : `Marked post #${id} ${rating.toUpperCase()}-rated.`;
+      await refresh();
+    } catch (e) { notice = e.message; } finally { busy = false; }
+  }
   async function createJob(event) {
     event.preventDefault(); busy = true; notice = '';
     try {
@@ -651,13 +659,14 @@
         {#if tab === 'Content'}<select aria-label="Content type" bind:value={kind} onchange={filter}><option value="posts">Posts</option><option value="comments">Comments</option><option value="communities">Communities</option></select>{/if}
         <button>Search</button>
       </form>
+      {#if tab === 'Content' && kind === 'posts'}<p class="muted rating-help">Set the highest content rating that applies. Moderator ratings override uploader or automatic labels. Choose General to clear a rating.</p>{/if}
       {#if tab === 'Logs'}<p class="muted">Newest first · persistent circular log · newest 1,000 retained · search covers retained events only. Expand a row for structured details.</p>{/if}
       <div class="panel table-wrap">
       {#if rows.length === 0}<div class="admin-empty"><h3>No matching {tab.toLowerCase()}</h3><p>Try a different search or return to the first page.</p></div>
       {:else if tab === 'Users'}
         <table><thead><tr><th>User</th><th>Role</th><th>Created</th><th>Posts / comments</th><th>Sessions</th><th>Action</th></tr></thead><tbody>{#each rows as user}<tr><td><strong>u/{user.handle}</strong><small>#{user.id} · {user.registered ? 'Registered' : 'Demo identity'}</small></td><td><span class="badge">{user.is_admin ? 'Admin' : 'Member'}</span></td><td>{date(user.created_at)}</td><td>{user.posts} / {user.comments}</td><td>{user.sessions}</td><td><button disabled={busy || !user.sessions} onclick={() => action('users/' + user.id + '/revoke-sessions', 'Sign u/' + user.handle + ' out of every device?')}>Revoke sessions</button></td></tr>{/each}</tbody></table>
       {:else if tab === 'Content'}
-        <table><thead><tr><th>Content</th><th>Author / community</th><th>Created</th><th>Open</th></tr></thead><tbody>{#each rows as item}<tr><td><strong>{item.title ?? item.name ?? 'Comment #' + item.id}</strong>{#if kind === 'posts'}<small>{item.view_count} views · {item.engaged_view_count} engaged (10s) · {item.deep_view_count} deeper reads (30s)</small>{/if}<details><summary>Inspect text</summary><p class="content-body">{item.body ?? item.description}</p></details></td><td>{item.author ? 'u/' + item.author : 'c/' + item.slug}<small>{item.community ? 'c/' + item.community : ''}</small></td><td>{date(item.created_at)}</td><td><a href={kind === 'communities' ? '/?community=' + item.slug : '/post/' + (item.post_id ?? item.id)}>View ↗</a></td></tr>{/each}</tbody></table>
+        <table><thead><tr><th>Content</th><th>Author / community</th><th>Created</th>{#if kind === 'posts'}<th>Rating</th>{/if}<th>Open</th></tr></thead><tbody>{#each rows as item}<tr><td><strong>{item.title ?? item.name ?? 'Comment #' + item.id}</strong>{#if kind === 'posts'}<small>{item.view_count} views · {item.engaged_view_count} engaged (10s) · {item.deep_view_count} deeper reads (30s)</small>{/if}<details><summary>Inspect text</summary><p class="content-body">{item.body ?? item.description}</p></details></td><td>{item.author ? 'u/' + item.author : 'c/' + item.slug}<small>{item.community ? 'c/' + item.community : ''}</small></td><td>{date(item.created_at)}</td>{#if kind === 'posts'}<td><span class={'badge rating-badge rating-' + (item.content_rating || 'general')}>{(item.content_rating || 'general').toUpperCase()}</span>{#if item.content_rating_source === 'moderator'}<small>Moderator label</small>{/if}<div class="rating-actions" role="group" aria-label={'Set content rating for post #' + item.id}><button type="button" disabled={busy || item.content_rating === 'r'} aria-label={'Mark post #' + item.id + ' R-rated'} aria-pressed={item.content_rating === 'r'} onclick={() => updatePostRating(item.id, 'r')}>R</button><button type="button" disabled={busy || item.content_rating === 'x'} aria-label={'Mark post #' + item.id + ' X-rated'} aria-pressed={item.content_rating === 'x'} onclick={() => updatePostRating(item.id, 'x')}>X</button><button type="button" disabled={busy || !item.content_rating || item.content_rating === 'general'} aria-label={'Clear rating for post #' + item.id} onclick={() => updatePostRating(item.id, 'general')}>General</button></div></td>{/if}<td><a href={kind === 'communities' ? '/?community=' + item.slug : '/post/' + (item.post_id ?? item.id)}>View ↗</a></td></tr>{/each}</tbody></table>
       {:else if tab === 'Reports'}
         <table><thead><tr><th>Report</th><th>Reporter</th><th>Status</th><th>Actions</th></tr></thead><tbody>{#each rows as item}<tr><td>#{item.id}<p class="content-body">{item.reason}</p><small>{date(item.created_at)}</small></td><td>u/{item.reporter}</td><td><span class="badge">{item.resolved_at ? 'Resolved' : 'Open'}</span></td><td><a href={'/post/' + item.discussion_id}>View discussion ↗</a>{#if !item.resolved_at}<button disabled={busy} onclick={() => action('reports/' + item.id + '/resolve', 'Mark report #' + item.id + ' as resolved? This does not remove the content.')}>Resolve</button>{/if}</td></tr>{/each}</tbody></table>
       {:else}
