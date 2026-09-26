@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.45-20260926T08
+
+- Applies rustfmt to the rating-correction and viewer-vote changes so
+  `cargo fmt --check` passes in CI. No behaviour change.
+
 ## 0.1.44-20260926T08
 
 - Fixes "e is not a function" beside every bookmark star. The coalescing

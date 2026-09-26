@@ -3725,10 +3725,11 @@ pub async fn set_post_content_rating(
     let actor = require_admin(&headers, &db).await?;
     let rating = validate_content_rating(Some(input.content_rating.as_str()))?;
 
-    let previous: Option<String> = sqlx::query_scalar("SELECT content_rating FROM posts WHERE id = $1")
-        .bind(post_id)
-        .fetch_optional(&db)
-        .await?;
+    let previous: Option<String> =
+        sqlx::query_scalar("SELECT content_rating FROM posts WHERE id = $1")
+            .bind(post_id)
+            .fetch_optional(&db)
+            .await?;
     let previous = previous.ok_or(ApiError::Missing)?;
 
     let updated: (String, String) = sqlx::query_as(

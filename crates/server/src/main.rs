@@ -1795,11 +1795,7 @@ async fn community(
 /// per-viewer state. `payload` is either `{"posts": [...]}`, a bare post array,
 /// or a single post object. Anonymous and suspended viewers are left untouched
 /// rather than treated as an error, because a feed must still render.
-async fn attach_your_votes(
-    db: &PgPool,
-    headers: &HeaderMap,
-    payload: &mut serde_json::Value,
-) {
+async fn attach_your_votes(db: &PgPool, headers: &HeaderMap, payload: &mut serde_json::Value) {
     let Ok(author_id) = active_author(headers, db).await else {
         return;
     };
@@ -2559,8 +2555,7 @@ mod tests {
     }
     #[test]
     fn the_rating_correction_route_is_registered() {
-        assert!(include_str!("main.rs")
-            .contains("\"/api/admin/posts/{id}/content-rating\""));
+        assert!(include_str!("main.rs").contains("\"/api/admin/posts/{id}/content-rating\""));
     }
     #[test]
     fn draw_things_feedback_accepts_optional_dimensions() {
