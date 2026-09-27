@@ -36,7 +36,7 @@ async function main(){
     if(!process.env.SWARTZIT_TEST_SKIP_MEDIA)for(let i=0;i<items.length;i++)if(items[i].provider==='x')items[i]=await enrichX(items[i]);
   }else{
     const exclude=statePath+'.exclude.json';await writeFile(exclude,JSON.stringify(state.published),{mode:0o600});
-    const child=spawnSync(process.execPath,['scripts/prepare-import.mjs','--manifest',option('--manifest')??'/Users/seandolbec/clawd/media/alexandra-daddario/manifest.json','--limit',String(limit),'--exclude',exclude],{cwd:root,encoding:'utf8',timeout:180000,maxBuffer:8*1024*1024});
+    const child=spawnSync(process.execPath,['scripts/prepare-import.mjs','--manifest',option('--manifest')??process.env.DDARIO_MANIFEST??'/Users/seandolbec/clawd/media/alexandra-daddario/manifest.json','--limit',String(limit),'--exclude',exclude],{cwd:root,encoding:'utf8',timeout:180000,maxBuffer:8*1024*1024});
     if(child.status!==0)throw Error('Photo preparation failed: '+(child.error?.message??child.stderr).slice(0,500));
     items=JSON.parse(child.stdout);
   }

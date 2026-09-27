@@ -8,7 +8,6 @@ import {mkdir, readFile, rename, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {createRequire} from 'node:module';
-import {pathToFileURL} from 'node:url';
 import {parseXStatusUrl, resolveXPost} from '../apps/web/src/lib/x-source.mjs';
 import {canonicalStatusUrl, loadSeen, recommendedOptions, recommendedStatePath, saveSeen} from './x-recommended-session-runner.mjs';
 
@@ -64,7 +63,7 @@ export async function launchPlaywrightContext({
       `Playwright is not installed for the Swartzit worker; run npm ci and npx playwright install --with-deps chromium (${error.message})`
     );
   }
-  const {chromium} = await import(resolved.startsWith('file:') ? resolved : pathToFileURL(resolved).href);
+  const {chromium} = require(resolved);
   await mkdir(expandHome(userDataDir), {recursive: true});
   return chromium.launchPersistentContext(expandHome(userDataDir), {
     headless,

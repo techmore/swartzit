@@ -52,14 +52,19 @@ async function call(path,method='GET',body){const r=await fetch(api+path,{method
 async function callBinary(path, contentType, body) { const r = await fetch(api + path, {method:'POST',headers:{'content-type':contentType,authorization:'Bearer '+token},body,signal:AbortSignal.timeout(30000)}); return responseValue(path,r); }
 const token=(await (async()=>{const r=await fetch(api+'/api/sessions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({handle,password})}); if(!r.ok) throw Error('scheduler login failed'); return (await r.json()).token;})());
 const skipCrawlers=process.env.SWARTZIT_WORKER_SKIP_CRAWLERS === '1';
-let jobs=skipCrawlers ? [] : await call('/api/admin/crawler-jobs'); let processed=0;
+const requestedCrawlerJobIds=new Set(String(process.env.SWARTZIT_WORKER_CRAWLER_JOB_IDS||'').split(/[\s,]+/).map(Number).filter(id=>Number.isSafeInteger(id)&&id>0));
+let jobs=skipCrawlers ? [] : await call('/api/admin/crawler-jobs');
+if(requestedCrawlerJobIds.size)jobs=jobs.filter(job=>requestedCrawlerJobIds.has(Number(job.id)));
+let processed=0;
 for(const job of jobs.filter(j=>j.enabled)){
   let claim; try{claim=await call(`/api/admin/crawler-jobs/${job.id}/claim`,'POST')}catch{continue;}
   processed++;
   let result={status:'skipped',imported_count:0,error:null,detail:{provider:job.provider}};
   try{
     if(job.provider==='commons'){
-      const r=await exec(process.execPath,[scheduledImportsScript,'--job','ddario','--limit',String(job.max_items),'--due-hours',String(job.interval_seconds/3600),'--state',statePath('sync-ddario.json')],{cwd:workerRoot,env:workerEnv});
+      const args=[scheduledImportsScript,'--job','ddario','--limit',String(job.max_items),'--due-hours',String(job.interval_seconds/3600),'--state',statePath('sync-ddario.json')];
+      if(process.env.DDARIO_MANIFEST)args.push('--manifest',process.env.DDARIO_MANIFEST);
+      const r=await exec(process.execPath,args,{cwd:workerRoot,env:workerEnv});
       if(r.code!==0) throw Error(r.err.slice(-1000)||'Commons publisher failed');
       const receipt=JSON.parse(r.out.trim().split('\n').at(-1));
       result={status:receipt.status==='success'?'success':'skipped',imported_count:(receipt.created??0)+(receipt.updated??0),error:receipt.error??null,detail:receipt};
@@ -138,7 +143,7 @@ async function existingRunnerSourceUrls(posts) {
 }
 async function publishRunnerPosts(posts, claim, dryRun, maxPosts = posts.length) {
   const previews = [], published = [], warnings = [], skippedExisting = [];
-  if (!Number.isInteger(maxPosts) || maxPosts < 1 || maxPosts > 8) throw Error('Runner post limit must be an integer from 1 to 8');
+  if (!Number.isInteger(maxPosts) || maxPosts < 1 || maxPosts > 15) throw Error('Runner post limit must be an integer from 1 to 15');
   const payloads = [];
   const delayedMedia = [];
   for (let index = 0; index < posts.length; index += 1) {
@@ -530,7 +535,7 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
     try {
       const dryRun = claim.dry_run === true;
       const outputPath = statePath(`runner-output-${claim.id}-${Date.now()}.json`);
-      const inheritedKeys = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'NODE_PATH'];
+      const inheritedKeys = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'NODE_PATH', 'X_SOURCE_MODE', 'X_PLAYWRIGHT_USER_DATA_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'X_PLAYWRIGHT_HEADLESS', 'X_PLAYWRIGHT_EXECUTABLE_PATH', 'SWARTZIT_PLAYWRIGHT_MODULE'];
       const runnerEnv = {
         ...Object.fromEntries(inheritedKeys.filter(key => process.env[key]).map(key => [key, process.env[key]])),
         SWARTZIT_WORKER_ROOT: workerRoot,
@@ -631,8 +636,8 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
         const posts = envelope ? envelope.posts : [parsed];
         if (!posts.length && claim.kind !== 'cross_post') throw Error('Runner output must contain between 1 and 8 posts');
         if (posts.length > (claim.kind === 'cross_post' ? 100 : 8)) throw Error(`Runner output must contain at most ${claim.kind === 'cross_post' ? 100 : 8} posts`);
-        const maxPosts = claim.kind === 'cross_post' ? envelope?.max_posts ?? 8 : Math.min(posts.length, 8);
-        if (claim.kind === 'cross_post' && (!Number.isInteger(maxPosts) || maxPosts < 1 || maxPosts > 8)) throw Error('Cross-post max_posts must be an integer from 1 to 8');
+        const maxPosts = claim.kind === 'cross_post' ? envelope?.max_posts ?? 15 : Math.min(posts.length, 8);
+        if (claim.kind === 'cross_post' && (!Number.isInteger(maxPosts) || maxPosts < 1 || maxPosts > 15)) throw Error('Cross-post max_posts must be an integer from 1 to 15');
         const outcome = posts.length ? await publishRunnerPosts(posts, claim, dryRun, maxPosts) : {previews: [], published: [], warnings: [], skippedExisting: []};
         previews.push(...outcome.previews); published.push(...outcome.published); warnings.push(...outcome.warnings);
         skippedExisting.push(...outcome.skippedExisting);
