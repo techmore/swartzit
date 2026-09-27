@@ -6,7 +6,7 @@
 import {collectCrossPosts} from './x-cross-post-runner.mjs';
 
 export const DEMO_ACCOUNTS = ['beautyshowcase', 'Rawpkw'];
-export const DEMO_DEFAULTS = {hours: 168, limit: 8, perSource: 50};
+export const DEMO_DEFAULTS = {hours: 168, limit: 15, perSource: 50};
 
 export function buildDemoOptions({hours = DEMO_DEFAULTS.hours, limit = DEMO_DEFAULTS.limit, perSource = DEMO_DEFAULTS.perSource} = {}) {
   return {accounts: [...DEMO_ACCOUNTS], hours: Number(hours), limit: Number(limit), perSource: Number(perSource)};
@@ -22,13 +22,12 @@ export function labelDemoPosts(posts) {
 }
 
 async function main() {
-  const options = buildDemoOptions({
+  const posts = await collectCrossPosts(buildDemoOptions({
     hours: process.env.X_RUNNER_HOURS || DEMO_DEFAULTS.hours,
     limit: process.env.X_RUNNER_LIMIT || DEMO_DEFAULTS.limit,
     perSource: process.env.X_RUNNER_PER_SOURCE || DEMO_DEFAULTS.perSource
-  });
-  const posts = await collectCrossPosts({...options, candidateLimit: 100});
-  process.stdout.write(`${JSON.stringify({posts: labelDemoPosts(posts), max_posts: options.limit})}\n`);
+  }));
+  process.stdout.write(`${JSON.stringify({posts: labelDemoPosts(posts)})}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

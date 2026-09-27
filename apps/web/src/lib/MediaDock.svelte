@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
 
   let active = null;
   let expanded = false;
@@ -7,7 +8,7 @@
 
   onMount(() => {
     const onPlay = (event) => {
-      active = event.detail;
+      active = { ...event.detail, loop: event.detail.loop === true };
       expanded = false;
     };
     const onVisibility = (event) => {
@@ -19,15 +20,22 @@
     const onEnded = (event) => {
       if (active?.element === event.detail?.element) active = { ...active, playing: false };
     };
+    const onLoopChange = (event) => {
+      if (active?.media?.src !== event.detail?.src) return;
+      active = { ...active, loop: event.detail.enabled === true };
+      if (dockVideo) dockVideo.loop = active.loop;
+    };
     window.addEventListener('swartzit-media-play', onPlay);
     window.addEventListener('swartzit-media-visibility', onVisibility);
     window.addEventListener('swartzit-media-pause', onPause);
     window.addEventListener('swartzit-media-ended', onEnded);
+    window.addEventListener('swartzit-media-loop-change', onLoopChange);
     return () => {
       window.removeEventListener('swartzit-media-play', onPlay);
       window.removeEventListener('swartzit-media-visibility', onVisibility);
       window.removeEventListener('swartzit-media-pause', onPause);
       window.removeEventListener('swartzit-media-ended', onEnded);
+      window.removeEventListener('swartzit-media-loop-change', onLoopChange);
     };
   });
 
@@ -54,6 +62,14 @@
     expanded = false;
   }
 
+  function setLoop(enabled) {
+    if (!active) return;
+    active = { ...active, loop: enabled };
+    if (dockVideo) dockVideo.loop = enabled;
+    if (active.element) active.element.loop = enabled;
+    window.dispatchEvent(new CustomEvent('swartzit-media-loop-change', { detail: { src: active.media.src, enabled } }));
+  }
+
   function returnToTimeline() {
     const element = active?.element;
     closeDock();
@@ -69,13 +85,14 @@
   <aside class:expanded class="media-dock" aria-label="Now playing">
     <div class="dock-player">
       <!-- svelte-ignore a11y_media_has_caption -->
-      <video bind:this={dockVideo} src={active.media.src} poster={active.media.poster || undefined} playsinline controls preload="metadata" onplay={() => active = { ...active, playing: true }} onpause={() => active = { ...active, playing: false }} onended={() => active = { ...active, playing: false }}></video>
+      <video bind:this={dockVideo} src={active.media.src} poster={active.media.poster || undefined} loop={active.loop === true} playsinline controls preload="metadata" onplay={() => active = { ...active, playing: true }} onpause={() => active = { ...active, playing: false }} onended={() => active = { ...active, playing: false }}></video>
     </div>
     <div class="dock-info">
       <strong>{active.media.alt || 'Video in progress'}</strong>
       <small>{active.source?.source_author || 'Swartzit media'}</small>
     </div>
     <div class="dock-actions">
+      <VideoLoopToggle compact enabled={active.loop === true} on:change={(event) => setLoop(event.detail.enabled)} />
       <button type="button" onclick={togglePlayback} aria-label={active.playing ? 'Pause media' : 'Play media'}>{active.playing ? '❚❚' : '▶'}</button>
       <button type="button" onclick={() => expanded = !expanded} aria-label={expanded ? 'Shrink player' : 'Expand player'}>{expanded ? '↙' : '↗'}</button>
       <button type="button" onclick={fullscreen} aria-label="Open full screen">⛶</button>

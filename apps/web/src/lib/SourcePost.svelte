@@ -1,5 +1,7 @@
 <script>
+  import { onMount } from 'svelte';
   import PostActions from '$lib/PostActions.svelte';
+  import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
   import { youtubeEmbedUrl } from '$lib/youtube-source.mjs';
   export let source;
   export let text = '';
@@ -7,6 +9,7 @@
   export let embedded = false;
   const count = n => n == null ? '—' : new Intl.NumberFormat().format(n);
   let failed = {};
+  let videoLoops = {};
   let activeMedia = 0;
   const attachment = m => typeof m === 'string' ? {kind:'image',src:m} : m;
   const isLocalMedia = src => /^\/media\/\d+(?:\/[^?]+)?(?:\?|$)/i.test(String(src ?? ''));
@@ -49,8 +52,21 @@
   }
   function announcePlay(event, media) {
     const rect = event.currentTarget.getBoundingClientRect();
-    window.dispatchEvent(new CustomEvent('swartzit-media-play', { detail: { element: event.currentTarget, media, source, inlineVisible: rect.bottom > 0 && rect.top < innerHeight } }));
+    window.dispatchEvent(new CustomEvent('swartzit-media-play', { detail: { element: event.currentTarget, media, source, loop: event.currentTarget.loop, inlineVisible: rect.bottom > 0 && rect.top < innerHeight } }));
   }
+  function setVideoLoop(src, enabled) {
+    videoLoops = { ...videoLoops, [src]: enabled };
+    window.dispatchEvent(new CustomEvent('swartzit-media-loop-change', { detail: { src, enabled } }));
+  }
+  function syncVideoLoop(event) {
+    const { src, enabled } = event.detail ?? {};
+    if (!src || !source.media?.some(item => (typeof item === 'string' ? item : item?.src) === src)) return;
+    videoLoops = { ...videoLoops, [src]: enabled === true };
+  }
+  onMount(() => {
+    window.addEventListener('swartzit-media-loop-change', syncVideoLoop);
+    return () => window.removeEventListener('swartzit-media-loop-change', syncVideoLoop);
+  });
   function announcePause(event) {
     window.dispatchEvent(new CustomEvent('swartzit-media-pause', { detail: { element: event.currentTarget } }));
   }
@@ -123,9 +139,10 @@
           {:else if media.kind === 'video'}
             <!-- Source videos have no caption tracks available. -->
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video use:observeMedia={media} muted controls playsinline preload="metadata" src={media.src} poster={media.poster || undefined} aria-label={media.alt || 'Video shared by '+source.source_author} onplay={(event) => announcePlay(event, media)} onpause={announcePause} onended={announceEnded} onerror={() => failed={...failed,[media.src]:true}}></video>
+            <video use:observeMedia={media} muted controls playsinline preload="metadata" loop={videoLoops[media.src] === true} src={media.src} poster={media.poster || undefined} aria-label={media.alt || 'Video shared by '+source.source_author} onplay={(event) => announcePlay(event, media)} onpause={announcePause} onended={announceEnded} onerror={() => failed={...failed,[media.src]:true}}></video>
+            <div class="video-tools"><VideoLoopToggle enabled={videoLoops[media.src] === true} on:change={(event) => setVideoLoop(media.src, event.detail.enabled)} /><a href={media.src} target="_blank" rel="noopener noreferrer">Open video ↗</a></div>
           {:else}<a href={media.src} target="_blank" rel="noopener noreferrer" aria-label="Open image in a new tab"><img src={media.src} alt={media.alt || 'Image shared by '+source.source_author} loading={isLocalMedia(media.src) ? 'eager' : 'lazy'} decoding="async" referrerpolicy="no-referrer" onerror={() => failed={...failed,[media.src]:true}} /></a>{/if}
-          {#if media.kind === 'video' || media.alt}<figcaption>{media.alt || ''}{#if media.kind === 'video'} <a href={media.src} target="_blank" rel="noopener noreferrer">Open video ↗</a>{/if}</figcaption>{/if}
+          {#if media.kind !== 'video' && media.alt}<figcaption>{media.alt}</figcaption>{/if}
         </figure>
       {/each}
       </div>
@@ -167,6 +184,7 @@
   figure{margin:0;min-width:0} figcaption{margin-top:6px;color:var(--muted,#66766c)}
   .source-images img,.source-images video{width:100%;max-height:420px;object-fit:contain;background:var(--subtle,#dde3da);display:block}
   .source-images video{height:clamp(220px,30vw,420px);aspect-ratio:16/9}
+  .video-tools{display:flex;align-items:center;gap:10px;margin-top:7px}.video-tools a{font-size:.76rem;font-weight:600}
   .youtube-embed{position:relative;width:100%;margin:8px 0;overflow:hidden;background:#111;aspect-ratio:16/9;border-radius:8px}
   .youtube-embed iframe{display:block;width:100%;height:100%;border:0}
   .count-1{grid-template-columns:1fr}

@@ -1,4 +1,9 @@
 import { appendQuotedText } from './x-media.mjs';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { resolveXPost } from '../apps/web/src/lib/x-source.mjs';
+
+const require = createRequire(import.meta.url);
 const now=()=>new Date().toISOString();
 const titleOf=t=>t.split(/\r?\n/,1)[0].trim().slice(0,300)||'Imported post';
 async function getJson(url,headers={}){const r=await fetch(url,{headers:{accept:'application/json',...headers},signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error(`${url}: HTTP ${r.status}`);return r.json();}
@@ -42,7 +47,83 @@ export function applyXWindow(params, job) {
   return {start_time: normalizedStart, end_time: normalizedEnd};
 }
 
+async function collectXFromPlaywright(job) {
+  const source = String(job.source || '').trim();
+  if (/^search:/i.test(source)) throw Error('Playwright X fallback supports account profiles, not search queries');
+  const handle = source.replace(/^@/, '').replace(/^https?:\/\/(?:www\.)?x\.com\//i, '').split(/[/?#]/)[0];
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) throw Error('X browser source must be an account handle or profile URL');
+  const profileDir = process.env.X_PLAYWRIGHT_USER_DATA_DIR || join(process.env.SWARTZIT_WORKER_STATE_DIR || process.cwd(), 'x-playwright-profile');
+  let resolved;
+  try { resolved = require.resolve(process.env.SWARTZIT_PLAYWRIGHT_MODULE || 'playwright'); }
+  catch (error) { throw Error(`Playwright is unavailable for the X browser fallback: ${error.message}`); }
+  const { chromium } = require(resolved);
+  const headless = !['0', 'false', 'off', 'no'].includes(String(process.env.X_PLAYWRIGHT_HEADLESS ?? 'true').trim().toLowerCase());
+  const context = await chromium.launchPersistentContext(profileDir, {
+    headless,
+    ...(process.env.X_PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.X_PLAYWRIGHT_EXECUTABLE_PATH } : {}),
+    viewport: { width: 1280, height: 900 },
+    locale: 'en-US'
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto(`https://x.com/${handle}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try {
+      await page.waitForSelector('article[data-testid="tweet"]', { state: 'visible', timeout: 20000 });
+    } catch {
+      const body = await page.locator('body').innerText().catch(() => '');
+      if (/sign\s*in|log\s*in/i.test(body)) throw Error('The dedicated X Playwright profile is not signed in');
+      throw Error(`X did not load the public profile @${handle}`);
+    }
+    const start = job.start_time ?? job.startTime;
+    const end = job.end_time ?? job.endTime;
+    const startMs = start ? Date.parse(start) : Date.now() - Number(job.hours || 24) * 3600000;
+    const endMs = end ? Date.parse(end) : Date.now();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) throw Error('X browser source window is invalid');
+    const exclusions = new Set((Array.isArray(job.exclude) ? job.exclude : String(job.exclude || '').split(',')).map(value => String(value).trim().toLowerCase()).filter(Boolean));
+    const limit = Math.min(15, Math.max(1, Number(job.max_items) || 15));
+    const candidates = new Map();
+    let reachedStart = false;
+    for (let scroll = 0; scroll < 14 && candidates.size < limit && !reachedStart; scroll += 1) {
+      const rows = await page.evaluate(() => [...document.querySelectorAll('article[data-testid="tweet"]')].map(article => {
+        const time = article.querySelector('time[datetime]');
+        const href = time?.closest('a')?.href || '';
+        const context = article.querySelector('[data-testid="socialContext"]')?.innerText || '';
+        const textNode = article.querySelector('[data-testid="tweetText"]');
+        const beforeText = textNode ? (article.innerText || '').split(textNode.innerText || '')[0] : article.innerText || '';
+        const status = href.match(/\/status\/(\d+)/);
+        return { id: status?.[1] || null, href, published_at: time?.getAttribute('datetime') || null, pinned: /\bpinned\b/i.test(context), reposted: /\breposted\b/i.test(context), replying: /\breplying to\b/i.test(beforeText) };
+      }));
+      for (const row of rows) {
+        const timestamp = Date.parse(row.published_at || '');
+        if (!row.id || !Number.isFinite(timestamp) || row.pinned) continue;
+        if (timestamp < startMs) { reachedStart = true; continue; }
+        if (timestamp > endMs || (exclusions.has('replies') && row.replying) || (exclusions.has('retweets') && row.reposted)) continue;
+        candidates.set(row.id, `https://x.com/${handle}/status/${row.id}`);
+      }
+      if (candidates.size >= limit || reachedStart || scroll === 13) break;
+      await page.evaluate(() => window.scrollBy(0, Math.max(650, Math.floor(window.innerHeight * 0.8))));
+      await page.waitForTimeout(650);
+    }
+    const posts = [];
+    const ordered = [...candidates.values()].slice(0, limit);
+    for (const sourceUrl of ordered) {
+      const post = await resolveXPost(sourceUrl);
+      const timestamp = Date.parse(post.published_at || '');
+      if (!Number.isFinite(timestamp) || timestamp < startMs || timestamp > endMs) continue;
+      posts.push({
+        ...post,
+        community: job.community,
+        attribution: `Imported from ${post.source_author}; source: ${post.source_url}`
+      });
+    }
+    return posts;
+  } finally {
+    await context.close();
+  }
+}
+
 export async function collectX(job) {
+  if (process.env.X_SOURCE_MODE === 'playwright') return collectXFromPlaywright(job);
   const token=process.env.X_BEARER_TOKEN;
   if (!token) throw Error('X_BEARER_TOKEN is not configured');
   const h={authorization:`Bearer ${token}`};
@@ -51,6 +132,7 @@ export async function collectX(job) {
   const captured=now();
   const query=job.source.trim().replace(/^search:\s*/i,'');
   let tweets, users, media;
+  try {
   if (/^search:/i.test(job.source)) {
     if (!query || query.length > 512) throw Error('X search source must contain a query of at most 512 characters');
     const params=new URLSearchParams({query, max_results:String(Math.max(10,Math.min(job.max_items,100))), 'tweet.fields':fields, expansions:'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id', 'user.fields':'protected,profile_image_url,name,username,description,public_metrics,verified', 'media.fields':mediaFields});
@@ -88,4 +170,8 @@ export async function collectX(job) {
     const body=appendQuotedText(t.text||'',quoted?.text,quotedProfile.username);
     return {community:job.community,provider:'x',source_url:`https://x.com/${username}/status/${t.id}`,source_author:`@${username}`,title:titleOf(t.text||''),body,published_at:t.created_at||null,observed_at:captured,source_views:Number.isSafeInteger(metrics.impression_count)?metrics.impression_count:null,source_likes:Number.isSafeInteger(metrics.like_count)?metrics.like_count:null,source_reposts:Number.isSafeInteger(metrics.retweet_count)?metrics.retweet_count:null,source_replies:Number.isSafeInteger(metrics.reply_count)?metrics.reply_count:null,media:attachments,profile_image_url:profile.profile_image_url||null,profile_url:`https://x.com/${username}`,profile_display_name:profile.name||null,profile_bio:profile.description||null,profile_followers:Number.isSafeInteger(profileMetrics.followers_count)?profileMetrics.followers_count:null,profile_following:Number.isSafeInteger(profileMetrics.following_count)?profileMetrics.following_count:null,profile_verified:profile.verified===true,attribution:`Imported from @${username}; source: https://x.com/${username}/status/${t.id}`};
   }).filter(Boolean);
+  } catch (error) {
+    if (/HTTP 402\b/.test(error.message) && process.env.X_PLAYWRIGHT_USER_DATA_DIR) return collectXFromPlaywright(job);
+    throw error;
+  }
 }
