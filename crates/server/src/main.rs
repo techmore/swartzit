@@ -2224,6 +2224,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(admin::toggle_content_runner),
         )
         .route(
+            "/api/admin/content-runners/{id}/enabled",
+            post_method(admin::set_content_runner_enabled),
+        )
+        .route(
             "/api/admin/content-runners/{id}/run-now",
             post_method(admin::run_content_runner_now),
         )

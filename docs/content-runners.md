@@ -24,6 +24,25 @@ queue it immediately, archive it, replay a prior run, run a no-publish dry run,
 and inspect the latest structured run history. Archived runners remain
 available in run history but cannot be scheduled again.
 
+Runner scheduling can also be controlled through the admin API:
+
+```http
+POST /api/admin/content-runners/{id}/enabled
+Authorization: Bearer <admin session>
+Content-Type: application/json
+
+{"enabled": false}
+```
+
+Set `enabled` to `true` to schedule the runner (the next run becomes due now),
+or `false` to pause future scheduling. Repeating the same request is safe and
+does not toggle the runner or reset its next-run time. Archived runners return
+an error. Disabling a schedule does not terminate a run already claimed by the
+worker; use the run-level pause or cancel control when an active execution
+should also stop. The older `/api/admin/content-runners/{id}/toggle` route is
+retained for compatibility, but new clients should set the desired state
+explicitly.
+
 The Content Runners page includes disabled starter templates: a single-post
 smoke test, a prompt-shaped draft, a bounded two-post batch, an X topic-window
 adapter, an X Recommended-timeline collector, and two Draw Things recipes. **Use template**

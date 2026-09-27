@@ -57,6 +57,11 @@ pub struct UpdateContentRunner {
 }
 
 #[derive(Deserialize)]
+pub struct SetContentRunnerEnabled {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
 pub struct ContentRunnerSourceStatus {
     provider: String,
     source_urls: Vec<String>,
@@ -1614,6 +1619,61 @@ pub async fn toggle_content_runner(
     .await;
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Set a runner's scheduled state explicitly. Repeating the same request is
+/// safe: it will not toggle the runner back or move its next run time.
+pub async fn set_content_runner_enabled(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(input): Json<SetContentRunnerEnabled>,
+) -> Result<StatusCode, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let mut tx = db.begin().await?;
+    let current: Option<(bool, String)> =
+        sqlx::query_as("SELECT enabled,state FROM content_runners WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((currently_enabled, state)) = current else {
+        return Err(ApiError::Missing);
+    };
+    if state == "archived" {
+        return Err(ApiError::Invalid("Archived runners cannot be enabled"));
+    }
+
+    let changed = currently_enabled != input.enabled
+        || (input.enabled && !matches!(state.as_str(), "enabled" | "retrying"))
+        || (!input.enabled && matches!(state.as_str(), "enabled" | "retrying"));
+    if input.enabled && changed {
+        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',current_attempt=0,paused_reason=NULL,next_run_at=now(),updated_by=$2,updated_at=now() WHERE id=$1")
+            .bind(id)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+    } else if !input.enabled && changed {
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',paused_reason='Paused by administrator',updated_by=$2,updated_at=now() WHERE id=$1")
+            .bind(id)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    log_event(
+        &db,
+        "info",
+        "admin.content_runner_enabled_set",
+        serde_json::json!({
+            "actor_id": actor,
+            "runner_id": id,
+            "enabled": input.enabled,
+            "changed": changed,
+        }),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn run_content_runner_now(
     State(db): State<PgPool>,
     headers: HeaderMap,
