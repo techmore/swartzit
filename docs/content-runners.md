@@ -35,13 +35,13 @@ Content-Type: application/json
 ```
 
 Set `enabled` to `true` to schedule the runner (the next run becomes due now),
-or `false` to pause future scheduling. Repeating the same request is safe and
-does not toggle the runner or reset its next-run time. Archived runners return
-an error. Disabling a schedule does not terminate a run already claimed by the
-worker; use the run-level pause or cancel control when an active execution
-should also stop. The older `/api/admin/content-runners/{id}/toggle` route is
-retained for compatibility, but new clients should set the desired state
-explicitly.
+or `false` to pause future scheduling and clear any queued dry-run request.
+Repeating the same request is safe and does not toggle the runner or reset its
+next-run time. Archived runners return an error. Disabling a schedule does not
+terminate a run already claimed by the worker; use the run-level pause or
+cancel control when an active execution should also stop. The older
+`/api/admin/content-runners/{id}/toggle` route is retained for compatibility,
+but new clients should set the desired state explicitly.
 
 The Content Runners page includes disabled starter templates: a single-post
 smoke test, a prompt-shaped draft, a bounded two-post batch, an X topic-window

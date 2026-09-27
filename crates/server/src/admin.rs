@@ -1630,12 +1630,13 @@ pub async fn set_content_runner_enabled(
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
     let mut tx = db.begin().await?;
-    let current: Option<(bool, String)> =
-        sqlx::query_as("SELECT enabled,state FROM content_runners WHERE id=$1 FOR UPDATE")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
-    let Some((currently_enabled, state)) = current else {
+    let current: Option<(bool, String, bool)> = sqlx::query_as(
+        "SELECT enabled,state,test_requested FROM content_runners WHERE id=$1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((currently_enabled, state, test_requested)) = current else {
         return Err(ApiError::Missing);
     };
     if state == "archived" {
@@ -1644,7 +1645,8 @@ pub async fn set_content_runner_enabled(
 
     let changed = currently_enabled != input.enabled
         || (input.enabled && !matches!(state.as_str(), "enabled" | "retrying"))
-        || (!input.enabled && matches!(state.as_str(), "enabled" | "retrying"));
+        || (!input.enabled && matches!(state.as_str(), "enabled" | "retrying"))
+        || (!input.enabled && test_requested);
     if input.enabled && changed {
         sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',current_attempt=0,paused_reason=NULL,next_run_at=now(),updated_by=$2,updated_at=now() WHERE id=$1")
             .bind(id)
@@ -1652,7 +1654,7 @@ pub async fn set_content_runner_enabled(
             .execute(&mut *tx)
             .await?;
     } else if !input.enabled && changed {
-        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',paused_reason='Paused by administrator',updated_by=$2,updated_at=now() WHERE id=$1")
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',test_requested=FALSE,paused_reason='Paused by administrator',updated_by=$2,updated_at=now() WHERE id=$1")
             .bind(id)
             .bind(actor)
             .execute(&mut *tx)
