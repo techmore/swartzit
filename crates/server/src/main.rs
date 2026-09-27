@@ -2266,6 +2266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/admin/settings",
             get(admin::settings).post(admin::update_settings),
         )
+        .route("/api/adsense/config", get(admin::adsense_config))
         .route("/api/admin/storage", get(admin::storage))
         .route("/api/admin/moderation", get(admin::moderation))
         .route(

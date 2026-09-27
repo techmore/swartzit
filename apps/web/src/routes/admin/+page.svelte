@@ -15,6 +15,7 @@
   let runnerEditorOpen = false, runnerFilter = 'all', runnerSearch = '', runnerFormError = '', runnerEditorMode = 'new';
   let runnerEditorElement, runnerNameInput;
   let ratingSelections = {};
+  let adsensePublisherId = '';
   let generation = 0, authState = 'signed_out', authError = '';
   const number = value => new Intl.NumberFormat().format(value ?? 0);
   const date = value => value ? new Date(value).toLocaleString() : '—';
@@ -248,7 +249,7 @@
         tab === 'Moderation' ? api('moderation-history') : Promise.resolve([])
       ]);
       if (version !== generation) return;
-      overview = stats; storage = storageData; rows = items; trend = daily; jobs = scheduled; runs = history; runners = runnerData; runnerRuns = runnerLogData; moderationHistory = tab === 'Moderation' ? moderationHistoryData : []; security = tab === 'Security' ? securityData : null; uptime = tab === 'Settings' ? uptimeData : null; settings = ['Settings', 'Server', 'Content Runners', 'Moderation'].includes(tab) ? settingsData : null; error = ''; refreshed = new Date();
+      overview = stats; storage = storageData; rows = items; trend = daily; jobs = scheduled; runs = history; runners = runnerData; runnerRuns = runnerLogData; moderationHistory = tab === 'Moderation' ? moderationHistoryData : []; security = tab === 'Security' ? securityData : null; uptime = tab === 'Settings' ? uptimeData : null; settings = ['Settings', 'Server', 'Content Runners', 'Moderation'].includes(tab) ? settingsData : null; adsensePublisherId = settings?.adsense?.publisher_id ?? ''; error = ''; refreshed = new Date();
     } catch (e) { if (version === generation) { error = e.message; overview = null; storage = null; rows = []; trend = []; jobs = []; runs = []; runners = []; runnerRuns = []; moderationHistory = []; uptime = null; settings = null; } }
     finally { if (version === generation) loading = false; }
   }
@@ -312,6 +313,8 @@
   }
   async function toggleRunners(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { content_runners_enabled: enabled }); notice = enabled ? 'Content runners enabled.' : 'Content runners disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   async function toggleModeration(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { moderation_enabled: enabled }); notice = enabled ? 'Publication moderation enabled for posts and comments.' : 'Publication moderation disabled. Posts and comments publish immediately; profile changes always publish immediately.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
+  async function toggleAdsense(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { adsense_enabled: enabled }); notice = enabled ? 'Google AdSense enabled for public pages.' : 'Google AdSense disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
+  async function saveAdsensePublisherId() { busy = true; notice = ''; try { await api('settings', 'POST', { adsense_publisher_id: adsensePublisherId }); notice = adsensePublisherId.trim() ? 'AdSense publisher ID saved.' : 'AdSense publisher ID cleared; ads are disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   async function updateMediaSettings(body, message = 'Media storage settings saved.') { busy = true; notice = ''; try { await api('settings', 'POST', body); notice = message; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   function mediaSecondaryValues() { return settings?.media?.secondaries ?? (settings?.media?.secondary && settings.media.secondary !== 'disabled' ? [settings.media.secondary] : []); }
   function toggleMediaSecondary(provider, enabled) { const current = mediaSecondaryValues(); const next = enabled ? [...new Set([...current, provider])] : current.filter(value => value !== provider); return updateMediaSettings({ media_secondaries: next }); }
@@ -558,6 +561,19 @@
       <section class="panel table-wrap"><h3>Recent access</h3>{#if security?.access?.length}<table><thead><tr><th>Time</th><th>Address hash</th><th>Request</th><th>Status</th></tr></thead><tbody>{#each security.access as item}<tr><td>{date(item.created_at)}</td><td><code>{item.ip_hash.slice(0,12)}…</code></td><td><code>{item.method} {item.route}</code></td><td><span class={'badge ' + accessTone(item.status)}>{item.status}</span></td></tr>{/each}</tbody></table>{:else}<p class="muted">No detailed access history yet.</p>{/if}</section>
     {:else if tab === 'Settings'}
       <div class="admin-columns">
+        <section class="panel">
+          <h3>Google AdSense</h3>
+          <p class="muted">Save your publisher ID, then control whether the AdSense tag loads on public pages. Auto ads placements and page exclusions must also be configured in your AdSense account.</p>
+          <div class="admin-toolbar">
+            <label>Publisher ID
+              <input bind:value={adsensePublisherId} placeholder="ca-pub-1234567890123456" autocomplete="off" spellcheck="false" />
+            </label>
+            <button onclick={saveAdsensePublisherId} disabled={busy}>Save publisher ID</button>
+          </div>
+          <p><label><input type="checkbox" checked={settings?.modules?.adsense?.enabled === true} onchange={(event) => toggleAdsense(event.currentTarget.checked)} disabled={busy || !settings?.adsense?.configured} /> Load AdSense code on public pages</label></p>
+          {#if !settings?.adsense?.configured}<p class="muted">Enter the publisher ID from AdSense before enabling ads. The ID is public; it is not an account password or API secret.</p>{/if}
+          <p class="muted">Swartzit has user community posts, imported X posts, and X-rated posts. Google prohibits ads beside sexually explicit or infringing/scraped content; check rights and set page exclusions for ineligible sections before enabling Auto ads. Configure the consent message for regions that require it. Google must approve the site before it serves ads, and publishers remain responsible for every page with ad code.</p>
+        </section>
         <section class="panel">
           <h3>Publication moderation</h3>
           <p><label><input type="checkbox" checked={settings?.modules?.moderation?.enabled !== false} onchange={(event) => toggleModeration(event.currentTarget.checked)} disabled={busy} /> Hold new posts and comments for review</label></p>
