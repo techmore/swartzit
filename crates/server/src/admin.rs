@@ -2034,7 +2034,7 @@ pub async fn complete_content_runner(
     let mut tx = db.begin().await?;
     type C = (i64, i32, i32, i32, i32, i32, String, bool);
     let run:Option<C>=sqlx::query_as("SELECT r.runner_id,r.attempt,c.max_attempts,c.retry_backoff_seconds,c.failure_threshold,c.consecutive_failures,c.state,r.dry_run FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=$1 AND r.status='running' FOR UPDATE").bind(run_id).fetch_optional(&mut *tx).await?;
-    let Some((runner_id, attempt, max_attempts, backoff, threshold, consecutive, _state, dry_run)) =
+    let Some((runner_id, attempt, max_attempts, backoff, threshold, consecutive, state, dry_run)) =
         run
     else {
         return Err(ApiError::Missing);
@@ -2068,6 +2068,20 @@ pub async fn complete_content_runner(
             .bind(runner_id)
             .bind(&input.status)
             .bind(reason)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    // An administrator can pause the schedule while a run is in progress.
+    // Keep that decision when the already-claimed run reports its result;
+    // otherwise success or retry handling below would silently re-enable it.
+    if state == "paused" {
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',current_attempt=0,consecutive_failures=CASE WHEN $2='success' THEN 0 ELSE consecutive_failures END,last_success_at=CASE WHEN $2='success' THEN now() ELSE last_success_at END,last_status=$2,last_error=$3,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'")
+            .bind(runner_id)
+            .bind(&input.status)
+            .bind(&input.error)
             .bind(actor)
             .execute(&mut *tx)
             .await?;
