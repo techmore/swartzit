@@ -3,6 +3,7 @@
   import SessionNav from '$lib/SessionNav.svelte';
   import ImportPanel from '$lib/ImportPanel.svelte';
   import Brand from '$lib/Brand.svelte';
+  import AdminMediaPreview from '$lib/AdminMediaPreview.svelte';
   import { isFailedRunnerRun, nextRunnerCopyName, runnerFailureHint } from '$lib/content-runner-editor.mjs';
   const tabs = ['Overview', 'Users', 'Content', 'Reports', 'Moderation', 'Security', 'Settings', 'Server', 'Analytics', 'Logs', 'Imports', 'Crawler Jobs', 'Content Runners'];
   let tab = 'Overview', overview = null, storage = null, rows = [], trend = [], jobs = [], runs = [], runners = [], runnerRuns = [], moderationHistory = [], uptime = null, settings = null, loading = true, error = '', notice = '';
@@ -13,9 +14,12 @@
   let search = '', level = '', kind = 'posts', cursors = [], before = null, paused = false, refreshed = null, busy = false, security = null, blockIp = '', blockReason = '', blockExpiry = '';
   let runnerEditorOpen = false, runnerFilter = 'all', runnerSearch = '', runnerFormError = '', runnerEditorMode = 'new';
   let runnerEditorElement, runnerNameInput;
+  let ratingSelections = {};
   let generation = 0, authState = 'signed_out', authError = '';
   const number = value => new Intl.NumberFormat().format(value ?? 0);
   const date = value => value ? new Date(value).toLocaleString() : '—';
+  const contentRatingLabel = value => ({ general: 'General', r: 'R', x: 'X' })[value] ?? 'General';
+  const contentRatingSourceLabel = value => ({ legacy: 'Imported / existing', uploader: 'Set by uploader', automatic: 'Auto-tagged', moderator: 'Changed by admin' })[value] ?? 'Source not recorded';
   const replicaCount = (replicas, role, state) => (replicas ?? []).filter(item => item.role === role && item.state === state).reduce((total, item) => total + Number(item.replica_count || 0), 0);
   const replicaBytes = (replicas, role, state) => (replicas ?? []).filter(item => item.role === role && item.state === state).reduce((total, item) => total + Number(item.bytes || 0), 0);
   const backupStateTone = value => value === 'critical' ? 'error' : value === 'warning' ? 'warn' : value === 'healthy' ? 'positive' : '';
@@ -154,7 +158,7 @@
   function closeRunnerEditor() { resetRunnerForm(); runnerFormError = ''; runnerEditorOpen = false; }
   function templateCommandLabel(template) { return template.kind === 'draw_things' ? `${template.command.executable} generate --model ${template.command.model} --prompt "…"` : template.kind === 'content_package' ? `${template.command.pack} · ${template.command.argv.join(' ')}` : template.command.join(' '); }
   function commandOptions(command, name) { const values = []; for (let index = 0; index < command.length; index += 1) if (command[index] === name && command[index + 1] !== undefined) values.push(command[index + 1]); return values; }
-  function localDateTime(value) { if (!value) return ''; const dateValue = new Date(value); return Number.isNaN(dateValue.getTime()) ? '' : new Date(dateValue.getTime() + dateValue.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+  function localDateTime(value) { if (!value) return ''; const dateValue = new Date(value); return Number.isNaN(dateValue.getTime()) ? '' : new Date(dateValue.getTime() - dateValue.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   function crossPostCommand() { if (crossMode === 'recommended') return ['node', 'scripts/x-recommended-session-runner.mjs']; if (crossMode === 'playwright') return ['node', 'scripts/x-playwright-recommended-runner.mjs']; const command = ['node', 'scripts/x-cross-post-runner.mjs']; if (crossAccounts.trim()) command.push('--accounts', crossAccounts.trim()); if (crossTopics.trim()) command.push('--topics', crossTopics.trim()); if (crossQueries.trim()) command.push('--query', crossQueries.trim()); if (crossStartTime) command.push('--start-time', new Date(crossStartTime).toISOString()); else command.push('--hours', String(Number(crossHours))); if (crossEndTime) command.push('--end-time', new Date(crossEndTime).toISOString()); command.push('--limit', String(Number(crossLimit)), '--per-source', String(Number(crossPerSource))); if (crossIncludeReplies) command.push('--include-replies'); if (crossIncludeRetweets) command.push('--include-retweets'); return command; }
   function loadCrossPostCommand(command) { const values = Array.isArray(command) ? command : []; crossMode = values.includes('scripts/x-playwright-recommended-runner.mjs') ? 'playwright' : values.includes('scripts/x-recommended-session-runner.mjs') ? 'recommended' : 'api'; if (crossMode !== 'api') return; crossAccounts = commandOptions(values, '--accounts')[0] || ''; crossTopics = commandOptions(values, '--topics')[0] || ''; crossQueries = commandOptions(values, '--query').join('\n'); crossHours = Number(commandOptions(values, '--hours')[0] || 24); crossLimit = Number(commandOptions(values, '--limit')[0] || 8); crossPerSource = Number(commandOptions(values, '--per-source')[0] || 50); crossStartTime = localDateTime(commandOptions(values, '--start-time')[0]); crossEndTime = localDateTime(commandOptions(values, '--end-time')[0]); crossIncludeReplies = values.includes('--include-replies'); crossIncludeRetweets = values.includes('--include-retweets'); }
   function normalizedLoras(value) { return (Array.isArray(value) ? value : []).map(item => ({ file: String(item?.file ?? ''), version: String(item?.version ?? 'flux1'), weight: item?.weight == null ? '' : Number(item.weight) })); }
@@ -262,6 +266,21 @@
     busy = true; notice = '';
     try { await api(path, method, body); notice = 'Change saved and recorded in the operational log.'; await refresh(); }
     catch (e) { notice = e.message; } finally { busy = false; }
+  }
+  async function updateContentRating(item) {
+    const nextRating = ratingSelections[item.id] ?? item.content_rating ?? 'general';
+    const currentRating = item.content_rating ?? 'general';
+    if (nextRating === currentRating) return;
+    const title = item.title || `Post #${item.id}`;
+    if (!window.confirm(`Change “${title}” from ${contentRatingLabel(currentRating)} to ${contentRatingLabel(nextRating)}? This changes which rated feeds include it.`)) return;
+    busy = true; notice = '';
+    try {
+      const result = await api(`posts/${item.id}/content-rating`, 'POST', { content_rating: nextRating });
+      rows = rows.map(row => row.id === item.id ? { ...row, content_rating: result.content_rating, content_rating_source: result.content_rating_source, content_rating_updated_at: result.content_rating_updated_at } : row);
+      ratingSelections = { ...ratingSelections, [item.id]: result.content_rating };
+      notice = `Rating confirmed as ${contentRatingLabel(result.content_rating)} for “${title}”. Admin change recorded.`;
+    } catch (e) { notice = e.message; }
+    finally { busy = false; }
   }
   async function createJob(event) {
     event.preventDefault(); busy = true; notice = '';
@@ -651,13 +670,18 @@
         {#if tab === 'Content'}<select aria-label="Content type" bind:value={kind} onchange={filter}><option value="posts">Posts</option><option value="comments">Comments</option><option value="communities">Communities</option></select>{/if}
         <button>Search</button>
       </form>
+      {#if tab === 'Content' && kind === 'posts'}<p class="muted rating-help">Set the highest content rating that applies. Moderator ratings override uploader or automatic labels. Choose General to clear a rating.</p>{/if}
       {#if tab === 'Logs'}<p class="muted">Newest first · persistent circular log · newest 1,000 retained · search covers retained events only. Expand a row for structured details.</p>{/if}
       <div class="panel table-wrap">
       {#if rows.length === 0}<div class="admin-empty"><h3>No matching {tab.toLowerCase()}</h3><p>Try a different search or return to the first page.</p></div>
       {:else if tab === 'Users'}
         <table><thead><tr><th>User</th><th>Role</th><th>Created</th><th>Posts / comments</th><th>Sessions</th><th>Action</th></tr></thead><tbody>{#each rows as user}<tr><td><strong>u/{user.handle}</strong><small>#{user.id} · {user.registered ? 'Registered' : 'Demo identity'}</small></td><td><span class="badge">{user.is_admin ? 'Admin' : 'Member'}</span></td><td>{date(user.created_at)}</td><td>{user.posts} / {user.comments}</td><td>{user.sessions}</td><td><button disabled={busy || !user.sessions} onclick={() => action('users/' + user.id + '/revoke-sessions', 'Sign u/' + user.handle + ' out of every device?')}>Revoke sessions</button></td></tr>{/each}</tbody></table>
       {:else if tab === 'Content'}
-        <table><thead><tr><th>Content</th><th>Author / community</th><th>Created</th><th>Open</th></tr></thead><tbody>{#each rows as item}<tr><td><strong>{item.title ?? item.name ?? 'Comment #' + item.id}</strong>{#if kind === 'posts'}<small>{item.view_count} views · {item.engaged_view_count} engaged (10s) · {item.deep_view_count} deeper reads (30s)</small>{/if}<details><summary>Inspect text</summary><p class="content-body">{item.body ?? item.description}</p></details></td><td>{item.author ? 'u/' + item.author : 'c/' + item.slug}<small>{item.community ? 'c/' + item.community : ''}</small></td><td>{date(item.created_at)}</td><td><a href={kind === 'communities' ? '/?community=' + item.slug : '/post/' + (item.post_id ?? item.id)}>View ↗</a></td></tr>{/each}</tbody></table>
+        {#if kind === 'posts'}
+          <table class="rated-content-table"><thead><tr><th>Post</th><th>Author / community</th><th>Current rating / source</th><th>Change rating</th><th>Created</th><th>Open</th></tr></thead><tbody>{#each rows as item}<tr><td><strong>{item.title ?? 'Post #' + item.id}</strong><AdminMediaPreview sourceMedia={item.source_media} uploadedMedia={item.uploaded_media} /><small>{item.view_count} views · {item.engaged_view_count} engaged (10s) · {item.deep_view_count} deeper reads (30s)</small><details><summary>Inspect text</summary><p class="content-body">{item.body}</p></details></td><td>u/{item.author}<small>c/{item.community}</small></td><td><span class={'badge content-rating-badge rating-' + (item.content_rating ?? 'general')}>{contentRatingLabel(item.content_rating)}</span><small>{contentRatingSourceLabel(item.content_rating_source)}</small>{#if item.content_rating_updated_at}<small>Updated {date(item.content_rating_updated_at)}</small>{/if}</td><td class="rating-editor"><label class="visually-hidden" for={'post-rating-' + item.id}>Choose rating for {item.title ?? 'post ' + item.id}</label><select id={'post-rating-' + item.id} aria-label={'Choose rating for ' + (item.title ?? 'post ' + item.id)} value={ratingSelections[item.id] ?? item.content_rating ?? 'general'} onchange={event => ratingSelections = { ...ratingSelections, [item.id]: event.currentTarget.value }}><option value="general">General</option><option value="r">R</option><option value="x">X</option></select><button disabled={busy || (ratingSelections[item.id] ?? item.content_rating ?? 'general') === (item.content_rating ?? 'general')} onclick={() => updateContentRating(item)}>Save rating</button></td><td>{date(item.created_at)}</td><td><a href={'/post/' + item.id}>View ↗</a></td></tr>{/each}</tbody></table>
+        {:else}
+          <table><thead><tr><th>Content</th><th>Author / community</th><th>Created</th><th>Open</th></tr></thead><tbody>{#each rows as item}<tr><td><strong>{item.title ?? item.name ?? 'Comment #' + item.id}</strong><details><summary>Inspect text</summary><p class="content-body">{item.body ?? item.description}</p></details></td><td>{item.author ? 'u/' + item.author : 'c/' + item.slug}<small>{item.community ? 'c/' + item.community : ''}</small></td><td>{date(item.created_at)}</td><td><a href={kind === 'communities' ? '/?community=' + item.slug : '/post/' + (item.post_id ?? item.id)}>View ↗</a></td></tr>{/each}</tbody></table>
+        {/if}
       {:else if tab === 'Reports'}
         <table><thead><tr><th>Report</th><th>Reporter</th><th>Status</th><th>Actions</th></tr></thead><tbody>{#each rows as item}<tr><td>#{item.id}<p class="content-body">{item.reason}</p><small>{date(item.created_at)}</small></td><td>u/{item.reporter}</td><td><span class="badge">{item.resolved_at ? 'Resolved' : 'Open'}</span></td><td><a href={'/post/' + item.discussion_id}>View discussion ↗</a>{#if !item.resolved_at}<button disabled={busy} onclick={() => action('reports/' + item.id + '/resolve', 'Mark report #' + item.id + ' as resolved? This does not remove the content.')}>Resolve</button>{/if}</td></tr>{/each}</tbody></table>
       {:else}

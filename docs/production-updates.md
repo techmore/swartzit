@@ -53,72 +53,77 @@ git commit -m "Describe the tested change"
 git push -u origin codex/your-change
 ```
 
-Merge to `main` only after CI and the disposable restore check pass. The
-production workflow deploys the `main` checkout, so a merge is the explicit
-promotion event.
+Merge to `main` only after CI and the disposable restore check pass. Merging
+does **not** change a live host. Promotion is a separate, explicit step: cut a
+release tag, and the deploy workflow installs that published release.
 
-## 3. Opt the Ubuntu host into push-to-production updates
+```sh
+git tag -a v0.1.36-20260925T19 -m "Swartzit 0.1.36-20260925T19"
+git push origin v0.1.36-20260925T19
+```
+
+`release.yml` builds and publishes the checksummed assets for the tag, and
+`deploy-production.yml` then installs them on the host. A tag can also be
+deployed by hand with `workflow_dispatch` and the `tag` input.
+
+## 3. Opt the Ubuntu host into production deploys
 
 The repository includes a guarded GitHub Actions workflow at
 `.github/workflows/deploy-production.yml`. It does nothing until the repository
-variable `SWARTZIT_DEPLOY_ENABLED=true` is set. Configure these production
-secrets in the `production` environment:
+variable `SWARTZIT_DEPLOY_ENABLED=true` is set.
 
-| Secret | Purpose |
-| --- | --- |
-| `SWARTZIT_DEPLOY_HOST` | SSH host or WireGuard-reachable address |
-| `SWARTZIT_DEPLOY_USER` | Restricted deploy user |
-| `SWARTZIT_DEPLOY_SSH_KEY` | Deploy-only private key |
-| `SWARTZIT_DEPLOY_KNOWN_HOSTS` | Pinned SSH host-key lines |
-| `SWARTZIT_DEPLOY_PORT` | Optional SSH port; defaults to 22 |
+### Why the runner lives on the host
 
-The deploy user needs a narrowly scoped `sudoers` rule for the updater:
+The original design deployed over SSH from a GitHub-hosted runner. That cannot
+work here: the public address is CGNAT and only ports 80 and 443 are forwarded,
+so an external runner cannot reach port 22 at all. Verified against four
+external probes, all of which time out.
+
+The deploy therefore runs on a self-hosted runner **on the production host
+itself**, and the deploy step is a single local command:
+
+```yaml
+- run: sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --tag "$TAG" --yes
+```
+
+That removes the deploy private key, the pinned `known_hosts`, the deploy
+secrets, and any inbound port. There is nothing to reach and no credential to
+rotate.
+
+### Runner setup
+
+The runner runs as an unprivileged `swartzit-deploy` account. It reaches root
+through exactly one sudoers grant:
 
 ```text
-deploy ALL=(root) NOPASSWD: /var/lib/swartzit/scripts/swartzit-linux-update.sh --yes, /bin/cat /var/lib/swartzit/state/update-receipt.json
-```
-
-Install the updater units without enabling automatic polling:
-
-```sh
-sudo install -m 0755 scripts/swartzit-linux-update.sh /var/lib/swartzit/scripts/
-sudo install -m 0644 deploy/systemd/swartzit-update.service /etc/systemd/system/
-sudo install -m 0644 deploy/systemd/swartzit-update.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-```
-
-The updater performs this sequence:
-
-1. Refuses a dirty production checkout.
-2. Dumps PostgreSQL in custom format using the native `pg_dump` client.
-3. Writes row counts, SHA256 sums, and a rolling archive under the configured
-   state backup directory.
-4. Validates the checksum and `pg_restore --list` before stopping anything.
-5. Stops the API, web, and worker timer, fetches `main`, builds the Rust and
-   SvelteKit releases, and installs the systemd unit files.
-6. Restarts services using the existing environment files, so the current
-   WireGuard/web bind is preserved.
-7. Requires API, web, and optional public URL health checks to pass.
-8. On a build/start/health failure, switches the code checkout back to the
-   previous commit and retries the health gate. It never restores the database
-   automatically; the verified pre-update backup is recorded in
-   `/var/lib/swartzit/state/update-receipt.json` for an operator-controlled
-   data rollback.
-
-For hosts that should poll GitHub without Actions, create
-`/etc/swartzit/update.env` and enable the timer explicitly:
-
-```sh
-SWARTZIT_UPDATE_REF=main
-SWARTZIT_UPDATE_PUBLIC_URL=https://stoverparc.org
-# Optional, operator-owned JSON failure receiver:
-# SWARTZIT_UPDATE_ERROR_URL=https://ops.example/update-events
+swartzit-deploy ALL=(root) NOPASSWD: /var/lib/swartzit/scripts/swartzit-linux-update.sh, /bin/cat /var/lib/swartzit/state/update-receipt.json
 ```
 
 ```sh
-sudo chmod 600 /etc/swartzit/update.env
-sudo systemctl enable --now swartzit-update.timer
+sudo useradd --system --create-home --home-dir /home/swartzit-deploy \
+  --shell /bin/bash swartzit-deploy
+sudo install -d -o swartzit-deploy -g swartzit-deploy /opt/actions-runner
+# Unpack actions-runner-linux-x64-<version>.tar.gz into /opt/actions-runner,
+# then as that account:
+sudo -u swartzit-deploy -H ./config.sh --unattended \
+  --name ser8-swartzit-deploy --labels swartzit,production \
+  --url https://github.com/techmore/swartzit --token "$REGISTRATION_TOKEN" \
+  --work _work --disableupdate
+sudo -u swartzit-deploy -H ./svc.sh install swartzit-deploy
+sudo -u swartzit-deploy -H ./svc.sh start
 ```
 
-The timer runs during the maintenance window with a randomized delay. Use
-either the timer or GitHub Actions as the production authority, not both.
+`--disableupdate` stops a release from pushing a new runner binary. Update the
+runner deliberately, out of band.
+
+The runner executes workflow code on the production host. Require a reviewer on
+the `production` environment so no tag deploys unattended, and leave
+`SWARTZIT_DEPLOY_ENABLED` unset until a manual run has succeeded.
+
+The deploy step deliberately runs the installer copy that already lives at
+`/var/lib/swartzit/scripts`, not the copy in the workflow checkout, so a release
+cannot rewrite the code that installs it.
+
+Because `release.yml` and this workflow both trigger on the tag push, the deploy
+waits for the release assets to appear before installing anything.
+

@@ -1,13 +1,162 @@
 # Changelog
 
-## 0.1.31-20260925T17
+## 0.1.47-20260926T10
 
-- Adds a guarded Mac/VM-to-Ubuntu production update workflow with native
-  PostgreSQL pre-update backups, checksum/dump validation, bind-preserving
-  systemd restarts, automatic code rollback on failed health checks, and
-  operator-opt-in error notifications.
-- Adds an opt-in GitHub push-to-production workflow and a maintenance timer;
-  neither can update a host until the operator enables it explicitly.
+- Fixes a release-blocking bug in the migration preflight. The rehearsal
+  server was left running on the success path, because its pid was cleared
+  before the branch that exits, so `cleanup` had nothing to stop. It outlived
+  the deploy, was reparented to init, and kept the updater's release-lock
+  descriptor open, so every later deploy failed with "Another Swartzit release
+  update is already running". A lost port race leaked a server per retry too,
+  since `continue` skips the exit trap.
+- The rehearsal server is now stopped on every path, and is launched with the
+  lock descriptor closed so that a leak can never again cost the release path.
+- Regression tests cover the success path, the retry path, and the descriptor.
+
+## 0.1.46-20260926T09
+
+- Admins can now correct a post's content rating from the post page. The
+  endpoint shipped in 0.1.43 with no way to reach it from the site; this adds
+  the control. It renders nothing at all for a signed-out reader or a non-admin,
+  takes an optional reason into the audit log, and updates the rating badge
+  from the server's response rather than the local guess.
+- Adds a mature-only feed: "Only R and X-rated" in the Content filter asks for
+  the R and X posts instead of removing anything from the general feed. It
+  composes with the existing filters, so combining it with "Hide R-rated" gives
+  the X-only feed.
+- The mature filter is opt-in and defaults off, and the shared public feed cache
+  keys on it so a reader asking for the mature feed is never served the general
+  one from cache.
+- The mature view is carried across sorting, pagination, community links, and
+  the following feed, so navigating does not silently drop the filter.
+
+## 0.1.45-20260926T08
+
+- Applies rustfmt to the rating-correction and viewer-vote changes so
+  `cargo fmt --check` passes in CI. No behaviour change.
+
+## 0.1.44-20260926T08
+
+- Fixes "e is not a function" beside every bookmark star. The coalescing
+  bookmark-status batcher resolved its waiters by iterating the entries and
+  calling each one, but an entry is a `{resolve, reject}` pair, so calling it
+  threw a `TypeError` that rejected every bookmark on the page. In a production
+  build the minified name is what surfaced, which is why the error read "e" and
+  not "resolve". Present since 0.1.14.
+
+## 0.1.43-20260926T06
+
+- Admins can correct a post's content rating after the fact. Content arrives
+  rated by the uploader or the automatic classifier, and both get it wrong
+  often enough that a mistaken upload needs undoing without waiting for the
+  person who made it. `POST /api/admin/posts/{id}/content-rating` takes
+  `general`, `r`, or `x` and an optional reason.
+- The rating is what the feed's `hide_r` and `hide_x` filters read, so a
+  correction is what actually stops a post being served to readers who asked
+  not to see it.
+- A correction is recorded as `moderator` provenance with an audit log entry
+  naming the actor, the previous value, and the new one, so it stays visible
+  that a human changed it, when, and why. It never alters publication status.
+
+## 0.1.42-20260926T05
+
+- Vote buttons are now a true toggle. Clicking the direction you already hold
+  removes that vote, and clicking the other direction moves it, so the two are
+  mutually exclusive from the reader's side as well as the database's. The
+  separate "Clear vote" control is gone.
+- The buttons show which vote is held, via colour and `aria-pressed`, and
+  update the score optimistically. A rejected request now rolls the button and
+  the score back instead of leaving the page claiming a vote that was not
+  recorded.
+- Post responses carry the viewer's own vote as `your_vote`. The public feed is
+  cached without viewer state, so it is stamped on per request after the cache
+  lookup and never stored in the shared cache.
+- The post page and the post list share one vote component, removing a second
+  divergent copy of the controls.
+
+## 0.1.41-20260926T00
+
+- Runs the production deploy on a self-hosted runner on the host instead of a
+  GitHub-hosted runner over SSH. The public address is CGNAT and only ports 80
+  and 443 are forwarded, so an external runner cannot reach port 22 and the
+  SSH design could never have connected.
+- The deploy step is now a single local `sudo -n` invocation of the installer
+  that already lives in the deployment directory, which removes the deploy
+  private key, the pinned known_hosts, the deploy secrets, and any inbound
+  port. The release being deployed can no longer rewrite the code that installs
+  it.
+- The deploy account is unprivileged and reaches root through a single
+  sudoers grant naming one script path and the receipt file.
+- The deploy waits for `release.yml` to publish the assets before installing,
+  because both workflows trigger on the same tag push.
+
+## 0.1.40-20260925T20
+
+- The unattended entry point no longer reports "Production is now on <tag>" after
+  a dry run. A verification pass records a distinct `checked` receipt and says
+  that nothing was changed, so a dry run cannot be mistaken for an install.
+
+## 0.1.39-20260925T20
+
+- Makes every PostgreSQL client in the backup and rehearsal scripts
+  non-interactive with `--no-password` and a connect timeout. An unattended
+  upgrade that blocked on a `Password for user postgres:` prompt held its
+  release lock and presented as a hang rather than a failure, which is far
+  harder to diagnose and recover from.
+
+## 0.1.38-20260925T19
+
+- Fixes the migration rehearsal connecting for administrative work over TCP,
+  where the postgres account has no password. Administrative work now uses the
+  local socket and peer authentication; only the disposable rehearsal role, which
+  carries a generated password, connects over TCP.
+- Resolves the administrative identity to the account local authentication maps
+  to, and falls back to loopback when the configured socket directory does not
+  exist, so a Homebrew rehearsal no longer fails on a missing socket.
+
+## 0.1.37-20260925T19
+
+- Fixes an undefined `BUNDLE` reference in the release updater that aborted a
+  production upgrade partway through, before any service was stopped.
+- Adds a test that fails when the release updater reads a variable it never
+  assigns, so a `set -u` abort cannot ship again.
+
+## 0.1.36-20260925T19
+
+- Merges the guarded production update workflow: an opt-in push-to-production
+  deploy gated on a repository variable and the `production` environment, a
+  lock-guarded Linux updater, and operator-configurable error notifications.
+- Keeps the release-based upgrade path as the mechanism that actually changes a
+  host: the deploy workflow installs SHA-256-verified release assets rather than
+  building from source on production, so the production host needs no Rust or
+  Node toolchain and every deploy is a reproducible artifact.
+- Gates every upgrade on a migration rehearsal: the backup is restored into a
+  throwaway database owned by a disposable role and the candidate server is
+  started against that copy, so an incompatible migration fails before any live
+  service is touched.
+- Gates every upgrade on a real restore rehearsal that restores the archive and
+  compares per-table row counts, comparing content tables strictly and
+  reporting operational tables that are expected to move.
+- Fixes the checkout-cleanliness gate to ignore untracked files, so operational
+  state in the deployment directory no longer blocks an upgrade.
+
+## 0.1.31-20260925T16
+
+- Adds a tagged GitHub release workflow that publishes the Linux server binary,
+  the SvelteKit web build, the release version, and a `SHA256SUMS` manifest after
+  running the same gates as CI.
+- Adds a safe Ubuntu release updater that verifies release checksums, takes a
+  native PostgreSQL backup, rehearses the candidate release against a restored
+  copy of the production data, swaps the binary and web build atomically, checks
+  API and web health, and rolls back on failure.
+- Adds native PostgreSQL backup and restore-rehearsal scripts for the Ubuntu
+  deployment, with per-table row-count manifests and a media archive, usable as a
+  full local rehearsal on the Mac.
+- Adds a migration preflight that restores the backup into a throwaway database
+  owned by a disposable role and refuses a release whose migrations cannot apply
+  to the current data.
+- Adds a daily `swartzit-upgrade-check` systemd timer that stays check-only
+  unless a release tag is pinned and unattended updates are explicitly enabled.
 
 ## 0.1.30-20260924T14
 

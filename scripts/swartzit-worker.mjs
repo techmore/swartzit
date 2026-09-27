@@ -136,16 +136,20 @@ async function existingRunnerSourceUrls(posts) {
   }
   return existing;
 }
-async function publishRunnerPosts(posts, claim, dryRun) {
+async function publishRunnerPosts(posts, claim, dryRun, maxPosts = posts.length) {
   const previews = [], published = [], warnings = [], skippedExisting = [];
+  if (!Number.isInteger(maxPosts) || maxPosts < 1 || maxPosts > 8) throw Error('Runner post limit must be an integer from 1 to 8');
   const payloads = [];
+  const delayedMedia = [];
   for (let index = 0; index < posts.length; index += 1) {
     const raw = posts[index];
     if (!raw || typeof raw !== 'object') throw Error(`Runner post ${index + 1} is not an object`);
-    const media = await materializeRunnerMedia(raw.media, dryRun);
+    const hasSourceUrl = Boolean(raw.source_url);
+    const media = hasSourceUrl ? (raw.media ?? []) : await materializeRunnerMedia(raw.media, dryRun);
     const payload = {...raw, author: claim.author, community: claim.community, media};
     if (!payload.source_url) payload.source_url = runnerSourceUrl(media, claim, index);
     payloads.push(payload);
+    delayedMedia.push(hasSourceUrl);
   }
   const existing = await existingRunnerSourceUrls(payloads);
   for (let index = 0; index < payloads.length; index += 1) {
@@ -154,10 +158,11 @@ async function publishRunnerPosts(posts, claim, dryRun) {
       skippedExisting.push({index: index + 1, source_url: payload.source_url});
       continue;
     }
-    if (dryRun) { previews.push(payload); continue; }
+    if (previews.length + published.length >= maxPosts) break;
     try {
-      const response = await call('/api/admin/content-runners/publish', 'POST', payload);
-      published.push(response);
+      if (delayedMedia[index]) payload.media = await materializeRunnerMedia(posts[index].media, dryRun);
+      if (dryRun) previews.push(payload);
+      else published.push(await call('/api/admin/content-runners/publish', 'POST', payload));
     } catch (error) {
       warnings.push(`Post ${index + 1}: ${error.message}`);
     }
@@ -622,10 +627,13 @@ if ((await call('/api/admin/settings')).modules?.content_runners?.enabled) {
         if (r.timedOut) throw Error(`Runner exceeded its ${claim.timeout_seconds}s timeout`);
         if (r.code !== 0) throw Error(r.err.slice(-1500) || `Runner exited with ${r.code}`);
         const parsed = JSON.parse(r.out.trim().split('\n').at(-1));
-        const posts = Array.isArray(parsed.posts) ? parsed.posts : [parsed];
+        const envelope = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.posts) ? parsed : null;
+        const posts = envelope ? envelope.posts : [parsed];
         if (!posts.length && claim.kind !== 'cross_post') throw Error('Runner output must contain between 1 and 8 posts');
-        if (posts.length > 8) throw Error('Runner output must contain at most 8 posts');
-        const outcome = posts.length ? await publishRunnerPosts(posts, claim, dryRun) : {previews: [], published: [], warnings: [], skippedExisting: []};
+        if (posts.length > (claim.kind === 'cross_post' ? 100 : 8)) throw Error(`Runner output must contain at most ${claim.kind === 'cross_post' ? 100 : 8} posts`);
+        const maxPosts = claim.kind === 'cross_post' ? envelope?.max_posts ?? 8 : Math.min(posts.length, 8);
+        if (claim.kind === 'cross_post' && (!Number.isInteger(maxPosts) || maxPosts < 1 || maxPosts > 8)) throw Error('Cross-post max_posts must be an integer from 1 to 8');
+        const outcome = posts.length ? await publishRunnerPosts(posts, claim, dryRun, maxPosts) : {previews: [], published: [], warnings: [], skippedExisting: []};
         previews.push(...outcome.previews); published.push(...outcome.published); warnings.push(...outcome.warnings);
         skippedExisting.push(...outcome.skippedExisting);
       }

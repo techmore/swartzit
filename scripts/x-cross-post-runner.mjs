@@ -104,10 +104,12 @@ function postEngagement(post) {
   return (post.source_likes ?? 0) + (post.source_reposts ?? 0) * 2 + (post.source_replies ?? 0);
 }
 
-export async function collectCrossPosts({accounts = [], topics = [], queries = [], limit = 8, perSource = 50, hours = 24, startTime, endTime, includeReplies = false, includeRetweets = false} = {}, {collector = collectX, now = new Date()} = {}) {
+export async function collectCrossPosts({accounts = [], topics = [], queries = [], limit = 8, candidateLimit = limit, perSource = 50, hours = 24, startTime, endTime, includeReplies = false, includeRetweets = false} = {}, {collector = collectX, now = new Date()} = {}) {
   const maxPosts = Number(limit);
+  const maxCandidates = Number(candidateLimit);
   const maxPerSource = Number(perSource);
   if (!Number.isInteger(maxPosts) || maxPosts < 1 || maxPosts > 8) throw Error('X runner limit must be an integer from 1 to 8');
+  if (!Number.isInteger(maxCandidates) || maxCandidates < maxPosts || maxCandidates > 100) throw Error('X runner candidate limit must be between the post limit and 100');
   if (!Number.isInteger(maxPerSource) || maxPerSource < 5 || maxPerSource > 100) throw Error('X runner per-source limit must be an integer from 5 to 100');
   const window = normalizeXWindow({startTime, endTime, hours, now});
   const jobs = buildXJobs({accounts, topics, queries, includeReplies, includeRetweets});
@@ -134,7 +136,7 @@ export async function collectCrossPosts({accounts = [], topics = [], queries = [
   }
   return [...unique.values()]
     .sort((a, b) => postEngagement(b) - postEngagement(a) || Date.parse(b.published_at) - Date.parse(a.published_at))
-    .slice(0, maxPosts)
+    .slice(0, maxCandidates)
     .map(({_runner_source, ...post}) => post);
 }
 
@@ -161,8 +163,8 @@ async function main() {
   const hours = Number(firstOption(args, '--hours', process.env.X_RUNNER_HOURS || 24));
   const limit = Number(firstOption(args, '--limit', 8));
   const perSource = Number(firstOption(args, '--per-source', 50));
-  const posts = await collectCrossPosts({accounts, topics, queries, limit, perSource, hours, startTime, endTime, includeReplies, includeRetweets});
-  process.stdout.write(`${JSON.stringify({posts})}\n`);
+  const posts = await collectCrossPosts({accounts, topics, queries, limit, candidateLimit: 100, perSource, hours, startTime, endTime, includeReplies, includeRetweets});
+  process.stdout.write(`${JSON.stringify({posts, max_posts: limit})}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

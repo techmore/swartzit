@@ -1,5 +1,7 @@
 # Swartzit
 
+Production release safety, database backups, restore rehearsals, and the Linux auto-update workflow are documented in [`docs/release-operations.md`](docs/release-operations.md).
+
 Swartzit is a self-hosted discussion commons: a public, readable timeline with
 communities, pseudonymous accounts, local voting and comments, source-aware
 imports, media metadata, bookmarks, reading history, and a small admin surface.

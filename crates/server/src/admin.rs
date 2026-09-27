@@ -143,7 +143,41 @@ pub async fn content(
     require_admin(&headers, &db).await?;
     let sql = match f.kind.as_deref().unwrap_or("posts") {
         "posts" => {
-            "SELECT row_to_json(t) FROM (SELECT p.id,p.view_count,p.engaged_view_count,p.deep_view_count,p.title,p.body,p.created_at,a.handle AS author,c.slug AS community,(SELECT count(*) FROM comments WHERE post_id=p.id) AS comments FROM posts p JOIN authors a ON a.id=p.author_id JOIN communities c ON c.id=p.community_id WHERE strpos(lower(p.title || ' ' || p.body),lower($1))>0 AND ($2::bigint IS NULL OR p.id<$2) ORDER BY p.id DESC LIMIT 50) t"
+            r#"SELECT row_to_json(t) FROM (
+                SELECT p.id,p.view_count,p.engaged_view_count,p.deep_view_count,
+                    p.content_rating,p.content_rating_source,p.content_rating_updated_at,
+                    p.title,p.body,p.created_at,a.handle AS author,c.slug AS community,
+                    (SELECT count(*) FROM comments WHERE post_id=p.id) AS comments,
+                    COALESCE((SELECT e.media FROM external_posts e WHERE e.post_id=p.id), '[]'::jsonb) AS source_media,
+                    COALESCE((
+                        SELECT jsonb_agg(jsonb_build_object(
+                            'kind',m.media_type,
+                            'src',CASE
+                                WHEN m.media_type='image' AND m.variants ? 'thumbnail'
+                                    THEN '/media/' || m.id::text || '/thumbnail'
+                                WHEN m.media_type='video'
+                                    THEN '/media/' || m.id::text || '/original'
+                                ELSE '/media/' || m.id::text
+                            END,
+                            'original_src','/media/' || m.id::text || '/original',
+                            'poster',CASE
+                                WHEN m.media_type='video' AND m.variants ? 'thumbnail'
+                                    THEN '/media/' || m.id::text || '/thumbnail'
+                                ELSE NULL
+                            END
+                        ) ORDER BY pm.position,m.id)
+                        FROM post_media pm
+                        JOIN media_assets m ON m.id=pm.media_id
+                        WHERE pm.post_id=p.id AND m.media_type IN ('image','video')
+                    ), '[]'::jsonb) AS uploaded_media
+                FROM posts p
+                JOIN authors a ON a.id=p.author_id
+                JOIN communities c ON c.id=p.community_id
+                WHERE strpos(lower(p.title || ' ' || p.body),lower($1))>0
+                    AND ($2::bigint IS NULL OR p.id<$2)
+                ORDER BY p.id DESC
+                LIMIT 50
+            ) t"#
         }
         "comments" => {
             "SELECT row_to_json(t) FROM (SELECT c.id,c.post_id,c.body,c.created_at,a.handle AS author FROM comments c JOIN authors a ON a.id=c.author_id WHERE strpos(lower(c.body),lower($1))>0 AND ($2::bigint IS NULL OR c.id<$2) ORDER BY c.id DESC LIMIT 50) t"
@@ -3769,4 +3803,74 @@ mod tests {
         assert!(validate_days_of_week(&serde_json::json!([1, 1])).is_err());
         assert!(validate_days_of_week(&serde_json::json!([0, 7])).is_err());
     }
+}
+
+#[derive(Deserialize)]
+pub struct SetContentRating {
+    /// One of `general`, `r`, or `x`. Validated by the same rules as an
+    /// uploader-supplied rating so an admin cannot set a value the database
+    /// would reject.
+    content_rating: String,
+    /// Optional free text kept in the audit log, so a correction can be
+    /// explained after the fact.
+    reason: Option<String>,
+}
+
+/// Correct a post's content rating after the fact.
+///
+/// Content arrives rated by the uploader or by the automatic classifier, and
+/// both get it wrong often enough that a mistaken upload needs undoing without
+/// waiting for the person who made it. The rating is the field the feed's
+/// `hide_r` and `hide_x` filters read, so a correction here is what actually
+/// stops a post being served to readers who asked not to see it.
+///
+/// The rating is recorded as `moderator` rather than overwriting the original
+/// provenance, so it stays visible that a human changed it and when.
+pub async fn set_post_content_rating(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(post_id): Path<i64>,
+    Json(input): Json<SetContentRating>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let rating = validate_content_rating(Some(input.content_rating.as_str()))?;
+
+    let previous: Option<String> =
+        sqlx::query_scalar("SELECT content_rating FROM posts WHERE id = $1")
+            .bind(post_id)
+            .fetch_optional(&db)
+            .await?;
+    let previous = previous.ok_or(ApiError::Missing)?;
+
+    let updated: (String, String, DateTime<Utc>) = sqlx::query_as(
+        "UPDATE posts SET content_rating = $1, content_rating_source = 'moderator', content_rating_confidence = NULL, content_rating_updated_at = now() WHERE id = $2 RETURNING content_rating, content_rating_source, content_rating_updated_at",
+    )
+    .bind(&rating)
+    .bind(post_id)
+    .fetch_optional(&db)
+    .await?
+    .ok_or(ApiError::Missing)?;
+
+    operations::clear_public_cache();
+
+    log_event(
+        &db,
+        "info",
+        "admin.content_rating_corrected",
+        serde_json::json!({
+            "actor_id": actor,
+            "post_id": post_id,
+            "from": previous,
+            "to": rating,
+            "reason": input.reason,
+        }),
+    )
+    .await;
+
+    Ok(Json(serde_json::json!({
+        "post_id": post_id,
+        "content_rating": updated.0,
+        "content_rating_source": updated.1,
+        "content_rating_updated_at": updated.2,
+    })))
 }

@@ -96,6 +96,14 @@ struct Post {
     community_name: String,
     comment_count: i64,
     score: i64,
+    /// The signed-in viewer's own vote: 1, -1, or None.
+    ///
+    /// Deliberately not selected by POST_SELECT. The public feed is cached
+    /// without viewer state, so this is filled in per request after the cache
+    /// lookup. Without it the UI cannot show which vote is active, and the
+    /// buttons can neither highlight nor toggle themselves off.
+    #[sqlx(default)]
+    your_vote: Option<i16>,
 }
 #[derive(Serialize, FromRow)]
 struct ArticleSeriesItem {
@@ -163,6 +171,13 @@ struct FeedQuery {
     page: Option<i64>,
     hide_r: Option<bool>,
     hide_x: Option<bool>,
+    /// Exact rating selection for a dedicated rated feed: `r`, `x`, or `rx`.
+    /// When present, this takes precedence over the exclusion toggles below.
+    ratings: Option<String>,
+    /// Show only R- and X-rated posts, for readers who want the mature feed
+    /// specifically rather than by exclusion. This legacy option includes
+    /// both ratings regardless of the default X-hidden setting.
+    mature_only: Option<bool>,
 }
 const FEED_PAGE_SIZE: i64 = 12;
 #[derive(Deserialize, Default)]
@@ -341,6 +356,13 @@ impl FeedQuery {
         if self.q.as_ref().is_some_and(|q| q.len() > 200) {
             return Err(ApiError::Invalid("Search must be at most 200 bytes"));
         }
+        if self
+            .ratings
+            .as_deref()
+            .is_some_and(|ratings| !matches!(ratings, "r" | "x" | "rx"))
+        {
+            return Err(ApiError::Invalid("Ratings must be r, x, or rx"));
+        }
         let page = self.page.unwrap_or(1);
         if !(1..=10000).contains(&page) {
             return Err(ApiError::Invalid("Page must be between 1 and 10000"));
@@ -356,6 +378,10 @@ impl FeedQuery {
         // Keep explicit opt-in (`hide_x=false`) available while making every
         // feed/API request safe by default.
         self.hide_x.unwrap_or(true)
+    }
+
+    fn mature_only(&self) -> bool {
+        self.mature_only.unwrap_or(false)
     }
 }
 const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.content_rating, p.content_rating_source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
@@ -1781,32 +1807,117 @@ async fn community(
 ) -> Result<Json<Community>, ApiError> {
     Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count FROM communities c WHERE c.slug = $1").bind(slug).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
 }
+/// Stamp the viewer's own vote onto a post payload.
+///
+/// This runs after any cache lookup so the shared public cache never stores
+/// per-viewer state. `payload` is either `{"posts": [...]}`, a bare post array,
+/// or a single post object. Anonymous and suspended viewers are left untouched
+/// rather than treated as an error, because a feed must still render.
+async fn attach_your_votes(db: &PgPool, headers: &HeaderMap, payload: &mut serde_json::Value) {
+    let Ok(author_id) = active_author(headers, db).await else {
+        return;
+    };
+    let mut seen: Vec<i64> = Vec::new();
+    let mut collect = |post: &serde_json::Value| {
+        if let Some(id) = post.get("id").and_then(serde_json::Value::as_i64)
+            && !seen.contains(&id)
+        {
+            seen.push(id);
+        }
+    };
+    match payload {
+        serde_json::Value::Array(posts) => posts.iter().for_each(collect),
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Array(posts)) = map.get("posts") {
+                posts.iter().for_each(collect);
+            } else if let Some(post) = map.get("post") {
+                collect(post);
+            }
+        }
+        _ => return,
+    }
+    if seen.is_empty() {
+        return;
+    }
+    let Ok(rows) = sqlx::query_as::<_, (i64, i16)>(
+        // The array element type is stated explicitly: `post_votes.post_id` is
+        // bigint, and leaving it to inference makes the statement's type depend
+        // on the planner rather than on the schema.
+        "SELECT post_id, value FROM post_votes WHERE author_id = $1 AND post_id = ANY($2::bigint[])",
+    )
+    .bind(author_id)
+    .bind(&seen)
+    .fetch_all(db)
+    .await
+    else {
+        return;
+    };
+    let mut votes: std::collections::HashMap<i64, i16> = rows.into_iter().collect();
+    // Only posts the viewer has actually voted on need a key. A missing
+    // `your_vote` reads as "no vote" on the client, which is the correct
+    // default and keeps the response smaller than the full post list.
+    let mut stamp = |post: &mut serde_json::Value| {
+        let Some(id) = post.get("id").and_then(serde_json::Value::as_i64) else {
+            return;
+        };
+        let Some(vote) = votes.remove(&id) else {
+            return;
+        };
+        if let Some(target) = post.as_object_mut() {
+            target.insert("your_vote".to_string(), vote.into());
+        }
+    };
+    match payload {
+        serde_json::Value::Array(posts) => posts.iter_mut().for_each(stamp),
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Array(posts)) = map.get_mut("posts") {
+                posts.iter_mut().for_each(stamp);
+            } else if let Some(post) = map.get_mut("post") {
+                stamp(post);
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn posts(
     State(db): State<PgPool>,
+    headers: HeaderMap,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let offset = query.validate()?;
     let q = query.q.as_deref().unwrap_or("").trim();
     let order = imports::order(query.sort.as_deref())?;
-    let hide_r = query.hide_r();
-    let hide_x = query.hide_x();
+    let ratings = query.ratings.as_deref();
+    let mature_only = query.mature_only() && ratings.is_none();
+    // Positive rated-feed selections must not inherit the default X-hidden
+    // preference or an exclusion from the mixed timeline.
+    let hide_r = ratings.is_none() && !mature_only && query.hide_r();
+    let hide_x = ratings.is_none() && !mature_only && query.hide_x();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND (NOT $4 OR p.content_rating <> 'r') AND (NOT $5 OR p.content_rating <> 'x') ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND (NOT $4 OR p.content_rating <> 'r') AND (NOT $5 OR p.content_rating <> 'x') AND (NOT $6 OR p.content_rating IN ('r', 'x')) AND ($7::text IS NULL OR ($7 = 'r' AND p.content_rating = 'r') OR ($7 = 'x' AND p.content_rating = 'x') OR ($7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
         FEED_PAGE_SIZE + 1
     );
+    // The cache is shared by every reader, so the key includes the exact rated
+    // selection as well as the mixed-feed exclusions.
     let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
         Some(format!(
-            "posts:{}:{}:{}",
+            "posts:{}:{}:{}:{}:{}",
             query.sort.as_deref().unwrap_or("newest"),
             hide_r,
             hide_x,
+            mature_only,
+            ratings.unwrap_or("all"),
         ))
     } else {
         None
     };
     if let Some(key) = &cache_key
-        && let Some(value) = operations::public_cache_get(key)
+        && let Some(mut value) = operations::public_cache_get(key)
     {
+        // The cache holds viewer-neutral posts only; the viewer's own vote is
+        // stamped on after the lookup so it is never shared between readers.
+        attach_your_votes(&db, &headers, &mut value).await;
         return Ok(Json(value));
     }
     let mut posts: Vec<Post> = operations::timed_query(
@@ -1817,15 +1928,18 @@ async fn posts(
             .bind(offset)
             .bind(hide_r)
             .bind(hide_x)
+            .bind(mature_only)
+            .bind(ratings)
             .fetch_all(&db),
     )
     .await?;
     let has_more = posts.len() > FEED_PAGE_SIZE as usize;
     posts.truncate(FEED_PAGE_SIZE as usize);
-    let value = serde_json::json!({"posts": posts, "has_more": has_more});
+    let mut value = serde_json::json!({"posts": posts, "has_more": has_more});
     if let Some(key) = cache_key {
         operations::public_cache_put(key, value.clone());
     }
+    attach_your_votes(&db, &headers, &mut value).await;
     Ok(Json(value))
 }
 async fn home_feed(
@@ -1836,10 +1950,12 @@ async fn home_feed(
     let author_id = authenticated_author(&headers, &db).await?;
     let order = imports::order(query.sort.as_deref())?;
     let offset = query.validate()?;
-    let hide_r = query.hide_r();
-    let hide_x = query.hide_x();
+    let ratings = query.ratings.as_deref();
+    let mature_only = query.mature_only() && ratings.is_none();
+    let hide_r = ratings.is_none() && !mature_only && query.hide_r();
+    let hide_x = ratings.is_none() && !mature_only && query.hide_x();
     let sql = format!(
-        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
+        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') AND (NOT $7 OR p.content_rating IN ('r', 'x')) AND ($8::text IS NULL OR ($8 = 'r' AND p.content_rating = 'r') OR ($8 = 'x' AND p.content_rating = 'x') OR ($8 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
         FEED_PAGE_SIZE + 1
     );
     let mut posts: Vec<Post> = operations::timed_query(
@@ -1851,17 +1967,20 @@ async fn home_feed(
             .bind(offset)
             .bind(hide_r)
             .bind(hide_x)
+            .bind(mature_only)
+            .bind(ratings)
             .fetch_all(&db),
     )
     .await?;
     let has_more = posts.len() > FEED_PAGE_SIZE as usize;
     posts.truncate(FEED_PAGE_SIZE as usize);
-    Ok(Json(
-        serde_json::json!({"posts": posts, "has_more": has_more}),
-    ))
+    let mut value = serde_json::json!({"posts": posts, "has_more": has_more});
+    attach_your_votes(&db, &headers, &mut value).await;
+    Ok(Json(value))
 }
 async fn post(
     State(db): State<PgPool>,
+    headers: HeaderMap,
     Path(raw_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let post: Post = if let Ok(id) = raw_id.parse::<i64>() {
@@ -1906,9 +2025,9 @@ async fn post(
         .fetch_all(&db)
         .await?;
     }
-    Ok(Json(
-        serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media, "draw_feedback": draw_feedback, "article_series": article_series}),
-    ))
+    let mut value = serde_json::json!({"post": post, "comments": comments, "comments_truncated": comments_truncated, "media": media, "draw_feedback": draw_feedback, "article_series": article_series});
+    attach_your_votes(&db, &headers, &mut value).await;
+    Ok(Json(value))
 }
 async fn export(
     State(db): State<PgPool>,
@@ -2287,6 +2406,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/api/admin/media/verify", post_method(admin::media_verify))
         .route(
+            "/api/admin/posts/{id}/content-rating",
+            post_method(admin::set_post_content_rating),
+        )
+        .route(
             "/api/admin/media/cache/clear",
             post_method(admin::media_clear_cache),
         )
@@ -2421,6 +2544,27 @@ mod tests {
         );
     }
     #[test]
+    fn validates_exact_rating_filters() {
+        for ratings in ["r", "x", "rx"] {
+            assert!(
+                FeedQuery {
+                    ratings: Some(ratings.to_string()),
+                    ..Default::default()
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        assert!(
+            FeedQuery {
+                ratings: Some("general".to_string()),
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+    }
+    #[test]
     fn bounds_search_input() {
         assert!(
             FeedQuery {
@@ -2437,6 +2581,38 @@ mod tests {
         assert_eq!(validate_content_rating(Some(" R ")).unwrap(), "r");
         assert_eq!(validate_content_rating(Some("x")).unwrap(), "x");
         assert!(validate_content_rating(Some("nsfw")).is_err());
+    }
+    #[test]
+    fn an_admin_rating_correction_is_gated_and_keeps_provenance() {
+        // The correction endpoint is the only way to change a rating after the
+        // fact, so it must be admin-only: any signed-in author must not be able
+        // to reach it.
+        let source = include_str!("admin.rs");
+        let handler = source
+            .split("pub async fn set_post_content_rating")
+            .nth(1)
+            .expect("set_post_content_rating handler is present");
+        assert!(
+            handler.contains("require_admin(&headers, &db).await?"),
+            "the handler must check admin before touching a post"
+        );
+        // It records who changed it and that a human did, rather than leaving
+        // the post looking uploader- or classifier-rated after a correction.
+        assert!(handler.contains("content_rating_source = 'moderator'"));
+        assert!(handler.contains("admin.content_rating_corrected"));
+        // The rating is what the feed's hide filters read, so a correction has to
+        // bump the update time; the original value is logged, not discarded.
+        assert!(handler.contains("content_rating_updated_at = now()"));
+        assert!(handler.contains("\"from\": previous"));
+        // It must not quietly publish or unpublish a post as a side effect.
+        assert!(!handler.contains("moderation_status"));
+        // And it reuses the uploader's validator, so an admin cannot set a
+        // value the column's CHECK constraint would reject.
+        assert!(handler.contains("validate_content_rating("));
+    }
+    #[test]
+    fn the_rating_correction_route_is_registered() {
+        assert!(include_str!("main.rs").contains("\"/api/admin/posts/{id}/content-rating\""));
     }
     #[test]
     fn draw_things_feedback_accepts_optional_dimensions() {

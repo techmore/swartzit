@@ -369,13 +369,17 @@ case "${1:-status}" in
   backup) exec "$SCRIPT_HOME/db-backup.sh" ;;
   backup-install) shift; exec "$SCRIPT_HOME/install-mac-backup.sh" "$@" ;;
   restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify.sh" "$@" ;;
+  native-backup) shift; exec "$SCRIPT_HOME/db-backup-postgres.sh" "$@" ;;
+  native-restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify-postgres.sh" "$@" ;;
+  release-preflight) shift; exec "$SCRIPT_HOME/preflight-release.sh" "$@" ;;
   rollback) shift; exec "$SCRIPT_HOME/db-restore.sh" "$@" ;;
   update) shift; exec "$SCRIPT_HOME/swartzit-update.sh" "$@" ;;
+  release-update) shift; exec "$SCRIPT_HOME/swartzit-release-update.sh" "$@" ;;
   monitor) shift; exec "$SCRIPT_HOME/swartzit-monitor.sh" "$@" ;;
   monitor-install) shift; exec "$SCRIPT_HOME/install-mac-monitor.sh" "$@" ;;
   worker) shift; exec "$SCRIPT_HOME/run-worker.sh" "$@" ;;
   worker-install) shift; exec "$SCRIPT_HOME/install-worker.sh" "$@" ;;
   status-install) shift; exec "$SCRIPT_HOME/install-mac-status.sh" "$@" ;;
   orchard) shift; exec "$SCRIPT_HOME/swartzit-orchard.sh" "$@" ;;
-  *) echo 'Usage: swartzit {version|start|restart|stop|status|interfaces|caddy|caddy-install|status-install|backup|backup-install|restore-verify|rollback|update|monitor|monitor-install|worker|worker-install|orchard}' >&2; exit 2 ;;
+  *) echo 'Usage: swartzit {version|start|restart|stop|status|interfaces|caddy|caddy-install|status-install|backup|backup-install|restore-verify|native-backup|native-restore-verify|release-preflight|rollback|update|release-update|monitor|monitor-install|worker|worker-install|orchard}' >&2; exit 2 ;;
 esac

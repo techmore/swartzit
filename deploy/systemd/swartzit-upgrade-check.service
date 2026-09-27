@@ -1,0 +1,11 @@
+[Unit]
+Description=Swartzit safe release check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/lib/swartzit
+EnvironmentFile=-/etc/swartzit/upgrade.env
+ExecStart=/var/lib/swartzit/scripts/swartzit-upgrade-check.sh

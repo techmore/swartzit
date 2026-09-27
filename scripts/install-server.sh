@@ -69,8 +69,12 @@ install -m 0644 "$APP_DIR/deploy/systemd/swartzit.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-web.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-worker.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-worker.timer" /etc/systemd/system/
+install -m 0644 "$APP_DIR/deploy/systemd/swartzit-upgrade-check.service" /etc/systemd/system/
+install -m 0644 "$APP_DIR/deploy/systemd/swartzit-upgrade-check.timer" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-update.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-update.timer" /etc/systemd/system/
+install -m 0755 "$APP_DIR/scripts/preflight-release.sh" "$APP_DIR/scripts/db-restore-verify-postgres.sh" "$APP_DIR/scripts/postgres-native-lib.sh" "$APP_DIR/scripts/swartzit-release-update.sh" "$APP_DIR/scripts/swartzit-linux-update.sh" "$APP_DIR/scripts/swartzit-upgrade-check.sh" "$APP_DIR/scripts/"
+
 if [[ -n "$WIREGUARD_INTERFACE" ]]; then
   [[ "$WIREGUARD_INTERFACE" == wg0 ]] || { echo 'WIREGUARD_INTERFACE currently supports only wg0.' >&2; exit 1; }
   install -d -m 0755 /etc/systemd/system/swartzit-web.service.d
@@ -91,7 +95,7 @@ $CADDY_DOMAIN {
 EOF
   systemctl enable --now caddy
 fi
-systemctl enable --now swartzit swartzit-web swartzit-worker.timer
+systemctl enable --now swartzit swartzit-web swartzit-worker.timer swartzit-upgrade-check.timer
 if [[ "$SWARTZIT_AUTO_UPDATE" == 1 ]]; then
   cat > /etc/swartzit/update.env <<EOF
 SWARTZIT_UPDATE_REF=${SWARTZIT_UPDATE_REF:-main}
