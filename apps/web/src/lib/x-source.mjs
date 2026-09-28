@@ -54,6 +54,11 @@ function count(value) {
   return Number.isSafeInteger(number) && number >= 0 ? number : null;
 }
 
+function originalPost(tweet) {
+  const result = tweet.retweeted_status ?? tweet.retweeted_status_result?.result?.tweet ?? tweet.retweeted_status_result?.result;
+  return result && typeof result === 'object' ? result : tweet;
+}
+
 export async function resolveXPost(raw, fetcher = fetch) {
   const { id, source_url } = parseXStatusUrl(raw);
   const response = await fetcher(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=0`, {
@@ -64,29 +69,33 @@ export async function resolveXPost(raw, fetcher = fetch) {
   if (!response.ok) throw new Error('X could not load that post. Check that it is public and try again.');
   const tweet = await response.json();
   if (String(tweet.id_str ?? tweet.id ?? '') !== id) throw new Error('That X post is unavailable or private.');
-  const user = tweet.user ?? {};
+  // When the submitted URL belongs to a repost, the post that was reposted is
+  // the source people usually mean to follow. Keep the outer URL for attribution
+  // but use the original post's author, text, metrics, and media.
+  const sourceTweet = originalPost(tweet);
+  const user = sourceTweet.user ?? tweet.user ?? {};
   const handle = String(user.screen_name ?? user.username ?? '').replace(/^@/, '');
   if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) throw new Error('X did not provide a usable public author for this post.');
-  let body = String(tweet.text ?? tweet.full_text ?? '').trim();
-  const quoted = tweet.quoted_tweet;
+  let body = String(sourceTweet.text ?? sourceTweet.full_text ?? '').trim();
+  const quoted = sourceTweet.quoted_tweet;
   const quotedText = String(quoted?.text ?? quoted?.full_text ?? '').trim();
   const quotedHandle = String(quoted?.user?.screen_name ?? quoted?.user?.username ?? '').replace(/^@/, '');
   if (body && quotedText && quotedHandle && !body.includes(`Quoted post by @${quotedHandle}:`)) {
     body += `\n\nQuoted post by @${quotedHandle}: ${quotedText}`;
   }
-  const published = Date.parse(tweet.created_at ?? '');
+  const published = Date.parse(sourceTweet.created_at ?? tweet.created_at ?? '');
   const profileImage = trustedUrl(user.profile_image_url_https, 'pbs.twimg.com');
   const profileCount = user.followers_count;
   const followingCount = user.friends_count ?? user.following_count;
-  const views = tweet.views?.count;
+  const views = sourceTweet.views?.count;
   return {
     provider: 'x', source_url, source_author: `@${handle}`, title: `Post by @${handle}`,
     body: body.slice(0, 50000),
     published_at: Number.isFinite(published) ? new Date(published).toISOString() : null,
     observed_at: new Date().toISOString(),
-    source_views: count(views), source_likes: count(tweet.favorite_count),
-    source_reposts: count(tweet.retweet_count), source_replies: count(tweet.reply_count),
-    media: mediaFromTweet(tweet), attribution: '',
+    source_views: count(views), source_likes: count(sourceTweet.favorite_count),
+    source_reposts: count(sourceTweet.retweet_count), source_replies: count(sourceTweet.reply_count),
+    media: mediaFromTweet(sourceTweet), attribution: '',
     profile_image_url: profileImage?.includes('/profile_images/') ? profileImage : null,
     profile_url: `https://x.com/${handle}`,
     profile_display_name: String(user.name ?? '').slice(0, 200) || null,

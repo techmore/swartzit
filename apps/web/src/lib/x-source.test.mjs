@@ -34,3 +34,29 @@ test('resolves source text, quote context, author, and trusted media', async () 
   assert.deepEqual(record.media, [{ kind: 'image', src: 'https://pbs.twimg.com/media/photo.jpg', alt: 'A photo' }]);
   assert.equal(record.profile_image_url, 'https://pbs.twimg.com/profile_images/1/avatar.jpg');
 });
+
+test('attributes an X repost to the original author', async () => {
+  const record = await resolveXPost('https://x.com/reposter/status/987', async () => ({
+    ok: true,
+    json: async () => ({
+      id_str: '987',
+      text: 'Reposted',
+      created_at: '2026-09-28T12:00:00Z',
+      user: { screen_name: 'reposter', name: 'Reposter' },
+      retweeted_status: {
+        id_str: '123',
+        text: 'The original post',
+        created_at: '2026-09-27T12:00:00Z',
+        favorite_count: 5,
+        user: { screen_name: 'original_author', name: 'Original Author' }
+      }
+    })
+  }));
+
+  assert.equal(record.source_url, 'https://x.com/i/status/987');
+  assert.equal(record.source_author, '@original_author');
+  assert.equal(record.title, 'Post by @original_author');
+  assert.equal(record.body, 'The original post');
+  assert.equal(record.source_likes, 5);
+  assert.equal(record.published_at, '2026-09-27T12:00:00.000Z');
+});
