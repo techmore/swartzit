@@ -298,6 +298,15 @@ struct SubscriptionResponse {
     subscribed: bool,
 }
 #[derive(Deserialize)]
+struct XAuthorSubscriptionRequest {
+    handle: String,
+}
+#[derive(Serialize)]
+struct XAuthorSubscriptionResponse {
+    handle: String,
+    following: bool,
+}
+#[derive(Deserialize)]
 struct ReportRequest {
     reason: String,
     post_id: Option<i64>,
@@ -1295,6 +1304,73 @@ async fn subscriptions(
     .await?;
     Ok(Json(slugs))
 }
+fn normalize_x_author_handle(raw: &str) -> Result<String, ApiError> {
+    let trimmed = raw.trim();
+    let handle = trimmed.strip_prefix('@').unwrap_or(trimmed);
+    if handle.is_empty()
+        || handle.len() > 15
+        || !handle
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        return Err(ApiError::Invalid(
+            "Use an X handle with 1–15 letters, numbers, or underscores",
+        ));
+    }
+    Ok(handle.to_ascii_lowercase())
+}
+async fn x_author_subscriptions(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<String>>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let handles = operations::timed_query(
+        "x_author_subscriptions.list",
+        sqlx::query_scalar::<_, String>(
+            "SELECT handle FROM x_author_subscriptions WHERE author_id = $1 ORDER BY handle",
+        )
+        .bind(author_id)
+        .fetch_all(&db),
+    )
+    .await?;
+    Ok(Json(handles))
+}
+async fn follow_x_author(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<XAuthorSubscriptionRequest>,
+) -> Result<Json<XAuthorSubscriptionResponse>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let handle = normalize_x_author_handle(&input.handle)?;
+    sqlx::query(
+        "INSERT INTO x_author_subscriptions (author_id, handle) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(author_id)
+    .bind(&handle)
+    .execute(&db)
+    .await?;
+    Ok(Json(XAuthorSubscriptionResponse {
+        handle: format!("@{handle}"),
+        following: true,
+    }))
+}
+async fn unfollow_x_author(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<XAuthorSubscriptionRequest>,
+) -> Result<Json<XAuthorSubscriptionResponse>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let handle = normalize_x_author_handle(&input.handle)?;
+    sqlx::query("DELETE FROM x_author_subscriptions WHERE author_id = $1 AND handle = $2")
+        .bind(author_id)
+        .bind(&handle)
+        .execute(&db)
+        .await?;
+    Ok(Json(XAuthorSubscriptionResponse {
+        handle: format!("@{handle}"),
+        following: false,
+    }))
+}
 async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
     let value = headers
         .get("authorization")
@@ -1955,7 +2031,7 @@ async fn home_feed(
     let hide_r = ratings.is_none() && !mature_only && query.hide_r();
     let hide_x = ratings.is_none() && !mature_only && query.hide_x();
     let sql = format!(
-        "{POST_SELECT} JOIN community_subscriptions s ON s.community_id = p.community_id AND s.author_id = $1 WHERE p.moderation_status = 'approved' AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') AND (NOT $7 OR p.content_rating IN ('r', 'x')) AND ($8::text IS NULL OR ($8 = 'r' AND p.content_rating = 'r') OR ($8 = 'x' AND p.content_rating = 'x') OR ($8 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (EXISTS (SELECT 1 FROM community_subscriptions s WHERE s.community_id = p.community_id AND s.author_id = $1) OR EXISTS (SELECT 1 FROM external_posts e JOIN x_author_subscriptions xs ON xs.author_id = $1 AND xs.handle = lower(ltrim(btrim(e.source_author), '@')) WHERE e.post_id = p.id AND e.provider = 'x')) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') AND (NOT $7 OR p.content_rating IN ('r', 'x')) AND ($8::text IS NULL OR ($8 = 'r' AND p.content_rating = 'r') OR ($8 = 'x' AND p.content_rating = 'x') OR ($8 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
         FEED_PAGE_SIZE + 1
     );
     let mut posts: Vec<Post> = operations::timed_query(
@@ -2279,6 +2355,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/api/activity", get(activity))
         .route("/api/subscriptions", get(subscriptions))
+        .route(
+            "/api/x-author-subscriptions",
+            get(x_author_subscriptions)
+                .post(follow_x_author)
+                .delete(unfollow_x_author),
+        )
         .route("/api/admin/logs", get(admin::logs))
         .route("/api/admin/users", get(admin::users))
         .route(
@@ -2525,6 +2607,26 @@ mod tests {
             .unwrap(),
             FEED_PAGE_SIZE
         );
+    }
+    #[test]
+    fn normalizes_and_validates_x_author_handles() {
+        assert_eq!(
+            normalize_x_author_handle(" @Some_Person9 ").ok().as_deref(),
+            Some("some_person9")
+        );
+        assert_eq!(normalize_x_author_handle("a").ok().as_deref(), Some("a"));
+        for invalid in [
+            "",
+            "@",
+            "@two words",
+            "https://x.com/person",
+            "a0123456789012345",
+        ] {
+            assert!(
+                normalize_x_author_handle(invalid).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
     }
     #[test]
     fn hides_x_rated_content_by_default_but_allows_explicit_opt_in() {

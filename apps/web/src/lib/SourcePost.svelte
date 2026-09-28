@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import PostActions from '$lib/PostActions.svelte';
   import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
+  import XAuthorFollowButton from '$lib/XAuthorFollowButton.svelte';
   import { youtubeEmbedUrl } from '$lib/youtube-source.mjs';
   export let source;
   export let text = '';
@@ -131,7 +132,7 @@
     {:else}<span class="source-avatar source-avatar-fallback" aria-hidden="true">{(source.profile_display_name || source.source_author || '?').slice(0, 1).toUpperCase()}</span>
     {/if}
     <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<span class="source-handle">{source.source_author}</span>{#if displayDate}<time datetime={source.published_at || undefined} title={source.published_at ? new Date(source.published_at).toLocaleString() : undefined}>{source.provider === 'x' ? `· ${displayDate}` : displayDate}</time>{/if}</div>
-    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a></div></div>
+    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a>{#if source.provider === 'x'}<XAuthorFollowButton handle={source.source_author} />{/if}</div></div>
   {#if source.provider === 'x'}
     {#if parsed.text}<p class="source-text">{parsed.text}</p>{/if}
     {#if parsed.quotedText}<blockquote class="quoted-post"><strong>{parsed.quotedAuthor}</strong><p>{parsed.quotedText}</p></blockquote>{/if}

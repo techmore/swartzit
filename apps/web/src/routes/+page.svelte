@@ -5,6 +5,7 @@
   import { invalidateAll } from '$app/navigation';
   import SessionNav from '$lib/SessionNav.svelte';
   import PostActions from '$lib/PostActions.svelte';
+  import FollowingXAuthors from '$lib/FollowingXAuthors.svelte';
   import PostBody from '$lib/PostBody.svelte';
   import SourcePost from '$lib/SourcePost.svelte';
   import MediaDock from '$lib/MediaDock.svelte';
@@ -59,7 +60,7 @@
     try {
       const response = await fetch('/api/home?' + params,{headers:{authorization:'Bearer ' + token}});
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Could not load your following feed.');
+      if (!response.ok) throw new Error(result.error || 'Could not load your Following feed.');
       feedPosts = result.posts; feedHasMore = result.has_more;
     } catch (error) { feedError = error.message || 'Could not reach Swartzit.'; }
     finally { feedLoading = false; }
@@ -67,7 +68,7 @@
   $: if (data.feed === 'following' && token && followingRequestKey !== `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.ratings}`) loadFollowing();
   $: if (data.feed === 'following') {
     if (token) loadFollowing();
-    else { feedPosts = []; feedHasMore = false; feedError = 'Sign in to see posts from communities you follow.'; }
+    else { feedPosts = []; feedHasMore = false; feedError = 'Sign in to see posts from people and communities you follow.'; }
   } else { feedPosts = data.posts; feedHasMore = data.hasMore; feedError = ''; followingRequestKey = ''; }
   async function createPost() { formError = ''; formMessage = ''; const response = await fetch('/api/posts', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ community, title, body, content_rating: contentRating }) }); const result = await response.json(); if (!response.ok) { formError = result.error ?? 'Could not submit discussion'; return; } if (result.status === 'pending') { formMessage = result.message ?? 'Your discussion is waiting for moderator review.'; title = ''; body = ''; contentRating = 'general'; return; } window.location.assign(`/post/${result.public_id}`); }
 </script>
@@ -104,6 +105,7 @@
   </aside>
   <section class="feed">
     <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a><a class:active={data.feed === 'rated'} href={feedHref('rated')}>Rated</a></nav>
+    {#if data.feed === 'following'}<FollowingXAuthors />{/if}
     <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class="selected" href={communityHref()}>All discussions</a>{#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
     <div class="feed-head">
       <div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : data.feed === 'rated' ? 'Rated posts' : 'Timeline'}</h1></div>
@@ -117,7 +119,7 @@
         {/if}
       </div>
     </div>
-    {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from communities you follow.</p>{:else if feedLoading}<p role="status">Loading {data.feed === 'following' ? 'Following' : 'rated posts'}…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
+    {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from people and communities you follow.</p>{:else if feedLoading}<p role="status">Loading {data.feed === 'following' ? 'Following' : 'rated posts'}…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a person on X or a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
       {#each feedPosts as post (post.id)}
         <article class:source-article={Boolean(post.source)}>
           {#if post.content_rating === 'r' || post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={post.content_rating === 'r'} class:content-rating-x={post.content_rating === 'x'} class="content-rating" title={post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}>{post.content_rating.toUpperCase()}</span><span>{post.content_rating === 'r' ? 'R-rated' : 'X-rated'}</span></div>{/if}
