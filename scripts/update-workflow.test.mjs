@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 const root = new URL('../', import.meta.url);
@@ -147,4 +150,101 @@ test('an unattended deploy only installs the tag the operator pinned', () => {
   assert.match(workflow, /if: \$\{\{ github\.event_name == 'push' \}\}/);
   assert.match(workflow, /is not the approved deployment tag/);
   assert.match(workflow, /No approved deployment tag is pinned/);
+});
+
+test('the production X token travels over stdin and is applied after release install', () => {
+  const workflow = read('.github/workflows/deploy-production.yml');
+  const installer = workflow.indexOf('name: Install the release on this host');
+  const tokenSync = workflow.indexOf('name: Update the production worker X API token');
+  assert.ok(installer >= 0 && tokenSync > installer);
+  assert.match(workflow, /X_BEARER_TOKEN: \$\{\{ secrets\.X_BEARER_TOKEN \}\}/);
+  assert.match(workflow, /sync-x-token/);
+  assert.match(workflow, /steps\.install-release\.outcome == 'success'/);
+  assert.match(workflow, /printf '%s' "\$X_BEARER_TOKEN" \\\n\s*\| sudo -n \/var\/lib\/swartzit\/scripts\/swartzit-linux-update\.sh --sync-x-token-stdin/);
+  assert.doesNotMatch(workflow, /--(?:token|x-token) "\$X_BEARER_TOKEN"/);
+
+  const updater = read('scripts/swartzit-linux-update.sh');
+  assert.match(updater, /--sync-x-token-stdin/);
+  assert.match(updater, /exec python3 "\$TOKEN_UPDATER"/);
+});
+
+test('worker X token updater preserves settings, replaces duplicates, and locks permissions', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'swartzit-x-token-'));
+  const envFile = path.join(directory, 'worker.env');
+  const helper = new URL('../scripts/update-worker-x-token.py', import.meta.url);
+  const newToken = 'sample%2Fencoded%3Dtoken/with+safe.chars';
+  try {
+    fs.writeFileSync(envFile, [
+      'API_URL=http://127.0.0.1:18080',
+      'SCHEDULER_HANDLE=admin',
+      'SCHEDULER_PASSWORD=keep-this',
+      'X_BEARER_TOKEN=old-token',
+      'X_BEARER_TOKEN=duplicate-token',
+      '# preserve comments',
+      '',
+    ].join('\n'), { mode: 0o600 });
+
+    const result = spawnSync('python3', [helper.pathname, '--file', envFile], {
+      encoding: 'utf8',
+      input: newToken,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, new RegExp(newToken));
+    const contents = fs.readFileSync(envFile, 'utf8');
+    assert.match(contents, /^API_URL=http:\/\/127\.0\.0\.1:18080$/m);
+    assert.match(contents, /^SCHEDULER_HANDLE=admin$/m);
+    assert.match(contents, /^SCHEDULER_PASSWORD=keep-this$/m);
+    assert.deepEqual(contents.split('\n').filter((line) => line.startsWith('X_BEARER_TOKEN=')), [
+      `X_BEARER_TOKEN=${newToken}`,
+    ]);
+    assert.match(contents, /^# preserve comments$/m);
+    assert.equal(fs.statSync(envFile).mode & 0o777, 0o600);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('worker X token updater rejects multiline input without modifying the env file', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'swartzit-x-token-invalid-'));
+  const envFile = path.join(directory, 'worker.env');
+  const helper = new URL('../scripts/update-worker-x-token.py', import.meta.url);
+  const before = 'API_URL=http://example.invalid\nX_BEARER_TOKEN=old-value\n';
+  try {
+    fs.writeFileSync(envFile, before, { mode: 0o600 });
+    const result = spawnSync('python3', [helper.pathname, '--file', envFile], {
+      encoding: 'utf8',
+      input: 'first-line\nsecond-line',
+    });
+    assert.equal(result.status, 1);
+    assert.equal(fs.readFileSync(envFile, 'utf8'), before);
+    assert.doesNotMatch(result.stderr, /first-line|second-line/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('worker X token updater creates a mode-600 file only when asked', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'swartzit-x-token-create-'));
+  const envFile = path.join(directory, 'new-worker.env');
+  const helper = new URL('../scripts/update-worker-x-token.py', import.meta.url);
+  try {
+    const missing = spawnSync('python3', [helper.pathname, '--file', envFile], {
+      encoding: 'utf8',
+      input: 'valid-token',
+    });
+    assert.equal(missing.status, 1);
+    assert.equal(fs.existsSync(envFile), false);
+
+    const created = spawnSync('python3', [helper.pathname, '--file', envFile, '--create'], {
+      encoding: 'utf8',
+      input: 'valid-token',
+    });
+    assert.equal(created.status, 0, created.stderr);
+    assert.deepEqual(fs.readFileSync(envFile, 'utf8').trim().split('\n'), [
+      'X_BEARER_TOKEN=valid-token',
+    ]);
+    assert.equal(fs.statSync(envFile).mode & 0o777, 0o600);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

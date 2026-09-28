@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Entry point for an unattended production update.
 #
-# This is the command the deploy workflow runs over SSH with `sudo -n`, and the
+# This is the command the deploy workflow runs with `sudo -n`, and the
 # command the operator-facing documentation and the sudoers rule name. It
 # deliberately holds no update logic of its own: everything is delegated to
 # scripts/swartzit-release-update.sh, which installs checksummed release assets
@@ -26,6 +26,7 @@ fi
 TAG=""
 ASSUME_YES=0
 EXTRA=()
+SYNC_X_TOKEN=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
@@ -40,12 +41,26 @@ while [[ $# -gt 0 ]]; do
       EXTRA+=(--dry-run)
       shift
       ;;
+    --sync-x-token-stdin)
+      SYNC_X_TOKEN=1
+      shift
+      ;;
     *)
-      echo "Usage: $0 --tag vX.Y.Z [--yes] [--dry-run]" >&2
+      echo "Usage: $0 --tag vX.Y.Z [--yes] [--dry-run] | --sync-x-token-stdin" >&2
       exit 2
       ;;
   esac
 done
+
+if (( SYNC_X_TOKEN )); then
+  [[ -z "$TAG" && "$ASSUME_YES" -eq 0 && "${#EXTRA[@]}" -eq 0 ]] || {
+    echo 'Token sync mode cannot be combined with release update options.' >&2
+    exit 2
+  }
+  TOKEN_UPDATER="$SCRIPT_HOME/update-worker-x-token.py"
+  [[ -f "$TOKEN_UPDATER" ]] || { echo "Worker token updater is missing: $TOKEN_UPDATER" >&2; exit 1; }
+  exec python3 "$TOKEN_UPDATER"
+fi
 
 [[ -n "$TAG" ]] || { echo "Usage: $0 --tag vX.Y.Z [--yes] [--dry-run]" >&2; exit 2; }
 
