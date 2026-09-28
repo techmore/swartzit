@@ -17,6 +17,7 @@ on:
         options:
           - deploy
           - sync-x-token
+          - test-x-token
         default: deploy
       tag:
         description: 'Release tag (used only when operation is deploy)'
@@ -46,7 +47,7 @@ jobs:
     steps:
       - name: Resolve the release tag
         id: tag
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.operation != 'sync-x-token' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.operation == 'deploy' }}
         env:
           REQUESTED: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
@@ -86,7 +87,7 @@ jobs:
         # release.yml runs concurrently with this workflow, so the assets may not
         # exist yet. Fail loudly rather than letting the updater report a
         # confusing "missing asset" error.
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.operation != 'sync-x-token' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.operation == 'deploy' }}
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
@@ -113,7 +114,7 @@ jobs:
         # is the copy installed under /var/lib/swartzit, not the one in this
         # checkout, so the code being deployed cannot rewrite its own installer.
         id: install-release
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.operation != 'sync-x-token' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.operation == 'deploy' }}
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
@@ -136,6 +137,79 @@ jobs:
           fi
           printf '%s' "$X_BEARER_TOKEN" \
             | sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --sync-x-token-stdin
+
+      - name: Test X API access from SER8
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.operation == 'test-x-token' }}
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          configured = os.environ.get('X_BEARER_TOKEN', '')
+          if not configured:
+              print('No production X_BEARER_TOKEN secret is configured.')
+              raise SystemExit(1)
+
+          candidates = [('as-stored', configured)]
+          decoded = urllib.parse.unquote(configured)
+          if decoded != configured:
+              candidates.append(('percent-decoded', decoded))
+
+          for form, token in candidates:
+              headers = {'Authorization': 'Bearer ' + token, 'User-Agent': 'Swartzit-SER8-X-token-check'}
+              profile_url = 'https://api.x.com/2/users/by/username/DarioAmodei?user.fields=username'
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(profile_url, headers=headers), timeout=20) as response:
+                      profile = json.load(response).get('data', {})
+              except urllib.error.HTTPError as error:
+                  print(f'X profile lookup from SER8 ({form}) returned HTTP {error.code}.')
+                  continue
+              except Exception as error:
+                  print(f'X profile lookup from SER8 failed ({type(error).__name__}).')
+                  raise SystemExit(1)
+
+              user_id = profile.get('id')
+              if not user_id:
+                  print('X profile lookup returned no user id.')
+                  raise SystemExit(1)
+              query = urllib.parse.urlencode({
+                  'max_results': '100',
+                  'tweet.fields': 'attachments',
+                  'expansions': 'attachments.media_keys',
+                  'media.fields': 'type,url,preview_image_url,variants',
+              })
+              timeline_url = f'https://api.x.com/2/users/{user_id}/tweets?{query}'
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(timeline_url, headers=headers), timeout=25) as response:
+                      timeline = json.load(response)
+              except urllib.error.HTTPError as error:
+                  print(f'X timeline lookup from SER8 ({form}) returned HTTP {error.code}.')
+                  raise SystemExit(1)
+              except Exception as error:
+                  print(f'X timeline lookup from SER8 failed ({type(error).__name__}).')
+                  raise SystemExit(1)
+
+              counts = {'photo': 0, 'video': 0, 'animated_gif': 0}
+              for item in timeline.get('includes', {}).get('media', []):
+                  if item.get('type') in counts:
+                      counts[item['type']] += 1
+              print(
+                  f"SER8 X API check passed for @{profile.get('username', 'unknown')} ({form}): "
+                  f"{len(timeline.get('data', []))} recent posts, {counts['photo']} photos, "
+                  f"{counts['video']} videos, {counts['animated_gif']} animated GIFs."
+              )
+              raise SystemExit(0)
+
+          print('No tested bearer-token form authenticated to the X API from SER8.')
+          raise SystemExit(1)
+          PY
 
       - name: Collect the deployment receipt
         if: always()
