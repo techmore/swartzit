@@ -28,7 +28,7 @@ case "$REMOTE" in
   *) die 'use an SSH remote such as git@github.com:OWNER/REPOSITORY.git.' ;;
 esac
 
-for command_name in git pg_restore sha256sum awk date ssh; do
+for command_name in git pg_restore sha256sum awk date ssh flock; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command is missing: $command_name"
 done
 [[ -f "$ROOT/scripts/db-backup.sh" ]] || die 'scripts/db-backup.sh was not found.'
@@ -38,14 +38,15 @@ done
 export GIT_SSH_COMMAND="ssh -F /dev/null -i $SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
 
 mkdir -p "$STATE_DIR" "$BACKUP_ROOT"
-LOCK_DIR="$STATE_DIR/.github-backup.lock"
-mkdir "$LOCK_DIR" 2>/dev/null || die 'another GitHub database backup is already running.'
+umask 0077
+LOCK_FILE="$STATE_DIR/.github-backup.lockfile"
+exec {LOCK_FD}>"$LOCK_FILE" || die "could not open backup lock file: $LOCK_FILE"
+flock -n "$LOCK_FD" || die 'another GitHub database backup is already running.'
 WORK_DIR=""
 cleanup() {
   if [[ -n "$WORK_DIR" ]]; then
     rm -rf -- "$WORK_DIR"
   fi
-  rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
 WORK_DIR=$(mktemp -d "$STATE_DIR/git-work.XXXXXXXX")

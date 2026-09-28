@@ -109,6 +109,11 @@ set +a
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.service" /etc/systemd/system/swartzit-github-backup.service
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.timer" /etc/systemd/system/swartzit-github-backup.timer
 systemctl daemon-reload
-systemctl start swartzit-github-backup.service
+if ! systemctl start swartzit-github-backup.service; then
+  echo 'The first GitHub database backup failed; service diagnostics follow.' >&2
+  systemctl --no-pager --full status swartzit-github-backup.service >&2 || true
+  journalctl -u swartzit-github-backup.service -n 100 --no-pager >&2 || true
+  exit 1
+fi
 systemctl enable --now swartzit-github-backup.timer
 echo "Initial backup succeeded and the 14-day daily timer is enabled for $REMOTE."
