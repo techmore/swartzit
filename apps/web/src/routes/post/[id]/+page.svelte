@@ -9,6 +9,7 @@
   import PostBody from '$lib/PostBody.svelte';
   import DrawThingsFeedback from '$lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
+  import ShareButton from '$lib/ShareButton.svelte';
   import ContentRatingControl from '$lib/ContentRatingControl.svelte';
   import { parseCommentDraft } from '$lib/comment-source.mjs';
   let commentOrder = 'oldest';
@@ -30,6 +31,11 @@
   $: canonicalUrl = `https://stoverparc.org/post/${data.post.public_id}`;
   onMount(() => {
     token = localStorage.getItem('swartzit_session') || '';
+    const commentId = window.location.hash.match(/^#comment-(\d+)$/)?.[1];
+    if (commentId && data.comments.some(comment => String(comment.id) === commentId)) {
+      showAllComments = true;
+      requestAnimationFrame(() => document.getElementById(`comment-${commentId}`)?.scrollIntoView({ block: 'start' }));
+    }
     const timer = setInterval(() => { if (!document.hidden) invalidateAll(); }, 300000);
     return () => clearInterval(timer);
   });
@@ -131,7 +137,10 @@
             <div class="meta comment-author"><AuthorAvatar handle={item.author} size="small" /><span><a href={'/u/' + item.author}>u/{item.author}</a> · {new Date(item.created_at).toLocaleDateString()}</span></div>
             {#if item.body}<p>{item.body}</p>{/if}
             {#if item.source}<div class="comment-source"><SourcePost source={item.source} text={item.source.body} embedded={true} /></div>{/if}
-            {#if token}<a href="#reply" on:click={() => parent = item.id}>Reply</a>{/if}
+            <div class="comment-actions">
+              {#if token}<a href="#reply" on:click={() => parent = item.id}>Reply</a>{/if}
+              <ShareButton id={data.post.public_id} url={`/post/${data.post.public_id}#comment-${item.id}`} label="Share comment" compact={true} />
+            </div>
           </article>
           {@render thread(item.id, depth + 1)}
         </div>
@@ -210,6 +219,7 @@
   .comment-source-hint,.comment-source-error{margin:0;color:var(--muted,#77827d);font-size:.78rem}
   .comment-source-error{color:var(--danger,#9b3b36)}
   .comment-source{margin-top:10px}
+  .comment-actions{display:flex;align-items:center;gap:12px;margin-top:10px}.comment-actions>a{font-size:.78rem;color:var(--link,#215e47)}
   .join-prompt,.source-replies-note,.replying-to{font-size:.82rem;color:var(--muted,#77827d);margin:10px 0 18px}
   .join-prompt a,.source-replies-note a{color:var(--link,#215e47);font-weight:650}
   .replying-to{display:flex;align-items:center;gap:8px;margin:0 0 6px}
