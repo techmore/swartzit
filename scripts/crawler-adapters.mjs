@@ -47,6 +47,15 @@ export function applyXWindow(params, job) {
   return {start_time: normalizedStart, end_time: normalizedEnd};
 }
 
+export function normalizeXBearerToken(value) {
+  if (typeof value !== 'string' || !value) throw Error('X_BEARER_TOKEN is not configured');
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw Error('X_BEARER_TOKEN contains invalid percent encoding');
+  }
+}
+
 async function collectXFromPlaywright(job) {
   const source = String(job.source || '').trim();
   if (/^search:/i.test(source)) throw Error('Playwright X fallback supports account profiles, not search queries');
@@ -124,8 +133,7 @@ async function collectXFromPlaywright(job) {
 
 export async function collectX(job) {
   if (process.env.X_SOURCE_MODE === 'playwright') return collectXFromPlaywright(job);
-  const token=process.env.X_BEARER_TOKEN;
-  if (!token) throw Error('X_BEARER_TOKEN is not configured');
+  const token=normalizeXBearerToken(process.env.X_BEARER_TOKEN);
   const h={authorization:`Bearer ${token}`};
   const fields='created_at,public_metrics,attachments,text,author_id,referenced_tweets';
   const mediaFields='type,url,preview_image_url,alt_text,variants,media_key';

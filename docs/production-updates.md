@@ -86,9 +86,36 @@ itself**, and the deploy step is a single local command:
 - run: sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --tag "$TAG" --yes
 ```
 
-That removes the deploy private key, the pinned `known_hosts`, the deploy
-secrets, and any inbound port. There is nothing to reach and no credential to
-rotate.
+That removes the deploy private key, the pinned `known_hosts`, and any inbound
+port. Production application credentials can still be delivered through the
+GitHub `production` environment without putting them in command arguments.
+
+To configure X source collection, save the read-only X API bearer token as the
+`X_BEARER_TOKEN` secret in the repository's `production` environment. The
+deploy workflow applies it to `/etc/swartzit/worker.env` only after the release
+passes its API and web health checks. It preserves the other worker settings,
+sets the file mode to `0600`, and leaves the existing token alone if the secret
+is unset. The token is sent to the root updater over stdin.
+
+After the new updater is installed, token changes do not require another
+application release. Set the `production` environment secret, then run the
+workflow's `sync-x-token` operation:
+
+```sh
+gh workflow run deploy-production.yml --repo techmore/swartzit --ref main \
+  --field operation=sync-x-token
+```
+
+On a Mac worker, the same helper updates the existing mode-600 env file while
+preserving its scheduler settings:
+
+```sh
+printf '%s' "$X_BEARER_TOKEN" | python3 scripts/update-worker-x-token.py
+```
+
+Use `--create` only when setting up a new worker env file. A newly created file
+contains the X token only; add `API_URL`, `SCHEDULER_HANDLE`, and
+`SCHEDULER_PASSWORD` before running the worker.
 
 ### Runner setup
 
@@ -126,4 +153,3 @@ cannot rewrite the code that installs it.
 
 Because `release.yml` and this workflow both trigger on the tag push, the deploy
 waits for the release assets to appear before installing anything.
-
