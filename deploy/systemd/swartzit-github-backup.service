@@ -1,0 +1,21 @@
+[Unit]
+Description=Verify and push a rolling Swartzit PostgreSQL backup to GitHub
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=swartzit
+Group=swartzit
+WorkingDirectory=/var/lib/swartzit
+EnvironmentFile=/etc/swartzit/server.env
+EnvironmentFile=-/etc/swartzit/github-backup.env
+StateDirectory=swartzit-github-backup
+StateDirectoryMode=0750
+UMask=0077
+ExecStart=/var/lib/swartzit/scripts/db-backup-to-github.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/swartzit-github-backup
