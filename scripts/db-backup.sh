@@ -9,7 +9,12 @@ DB_NAME="${SWARTZIT_DB_NAME:-swartzit}"
 DATABASE_URL="${SWARTZIT_DATABASE_URL:-${DATABASE_URL:-}}"
 DB_MODE="${SWARTZIT_DB_BACKUP_MODE:-auto}"
 RETENTION="${SWARTZIT_BACKUP_RETENTION:-7}"
+INCLUDE_MEDIA="${SWARTZIT_DB_BACKUP_INCLUDE_MEDIA:-1}"
 [[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || { echo 'SWARTZIT_BACKUP_RETENTION must be a positive integer.' >&2; exit 2; }
+[[ "$INCLUDE_MEDIA" == 0 || "$INCLUDE_MEDIA" == 1 ]] || {
+  echo 'SWARTZIT_DB_BACKUP_INCLUDE_MEDIA must be 0 or 1.' >&2
+  exit 2
+}
 if [[ -n "${SWARTZIT_BACKUP_DIR:-}" ]]; then
   BACKUP_ROOT="$SWARTZIT_BACKUP_DIR"
 elif [[ -n "${SWARTZIT_STATE_DIR:-}" ]]; then
@@ -113,9 +118,11 @@ fi
 db_ready
 db_dump "$OUT_DIR/swartzit.dump"
 db_row_counts > "$OUT_DIR/row-counts.tsv"
-if [[ -d "$MEDIA_ROOT" ]]; then
+if [[ "$INCLUDE_MEDIA" == 1 && -d "$MEDIA_ROOT" ]]; then
   tar -C "$MEDIA_ROOT" -czf "$OUT_DIR/media.tgz" .
   MEDIA_STATUS="included"
+elif [[ "$INCLUDE_MEDIA" == 0 ]]; then
+  MEDIA_STATUS="excluded by configuration"
 else
   MEDIA_STATUS="not present"
 fi

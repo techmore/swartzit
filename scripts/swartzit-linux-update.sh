@@ -27,6 +27,8 @@ TAG=""
 ASSUME_YES=0
 EXTRA=()
 SYNC_X_TOKEN=0
+BACKUP_MODE=""
+BACKUP_REMOTE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
@@ -45,15 +47,29 @@ while [[ $# -gt 0 ]]; do
       SYNC_X_TOKEN=1
       shift
       ;;
+    --prepare-github-backup)
+      [[ -z "$BACKUP_MODE" ]] || { echo 'Choose only one GitHub backup setup mode.' >&2; exit 2; }
+      BACKUP_MODE=prepare
+      shift
+      ;;
+    --enable-github-backup)
+      [[ -z "$BACKUP_MODE" ]] || { echo 'Choose only one GitHub backup setup mode.' >&2; exit 2; }
+      BACKUP_MODE=enable
+      shift
+      ;;
+    --remote)
+      BACKUP_REMOTE="${2:-}"
+      shift 2
+      ;;
     *)
-      echo "Usage: $0 --tag vX.Y.Z [--yes] [--dry-run] | --sync-x-token-stdin" >&2
+      echo "Usage: $0 --tag vX.Y.Z [--yes] [--dry-run] | --sync-x-token-stdin | --prepare-github-backup --remote git@github.com:OWNER/REPO.git | --enable-github-backup --remote git@github.com:OWNER/REPO.git" >&2
       exit 2
       ;;
   esac
 done
 
 if (( SYNC_X_TOKEN )); then
-  [[ -z "$TAG" && "$ASSUME_YES" -eq 0 && "${#EXTRA[@]}" -eq 0 ]] || {
+  [[ -z "$TAG" && "$ASSUME_YES" -eq 0 && "${#EXTRA[@]}" -eq 0 && -z "$BACKUP_MODE" && -z "$BACKUP_REMOTE" ]] || {
     echo 'Token sync mode cannot be combined with release update options.' >&2
     exit 2
   }
@@ -61,6 +77,19 @@ if (( SYNC_X_TOKEN )); then
   [[ -f "$TOKEN_UPDATER" ]] || { echo "Worker token updater is missing: $TOKEN_UPDATER" >&2; exit 1; }
   exec python3 "$TOKEN_UPDATER"
 fi
+
+if [[ -n "$BACKUP_MODE" ]]; then
+  [[ -z "$TAG" && "$ASSUME_YES" -eq 0 && "${#EXTRA[@]}" -eq 0 && "$SYNC_X_TOKEN" -eq 0 ]] || {
+    echo 'GitHub backup setup mode cannot be combined with release update options.' >&2
+    exit 2
+  }
+  [[ -n "$BACKUP_REMOTE" ]] || { echo 'GitHub backup setup requires --remote.' >&2; exit 2; }
+  BACKUP_SETUP="$SCRIPT_HOME/swartzit-github-backup-setup.sh"
+  [[ -f "$BACKUP_SETUP" ]] || { echo "GitHub backup setup script is missing: $BACKUP_SETUP" >&2; exit 1; }
+  exec bash "$BACKUP_SETUP" "$BACKUP_MODE" "$BACKUP_REMOTE"
+fi
+
+[[ -z "$BACKUP_REMOTE" ]] || { echo '--remote is only valid with a GitHub backup setup mode.' >&2; exit 2; }
 
 [[ -n "$TAG" ]] || { echo "Usage: $0 --tag vX.Y.Z [--yes] [--dry-run]" >&2; exit 2; }
 

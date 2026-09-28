@@ -74,7 +74,10 @@ test('the component toggles through the tested rules and shows which vote is hel
 test('both vote surfaces use the one component', () => {
   // A second, divergent copy of the controls is how these drift apart.
   const detail = repoFile('../routes/post/[id]/+page.svelte');
-  assert.match(detail, /<VoteButtons /);
+  assert.match(detail, /<PostActions post=\{data\.post\}/);
   assert.doesNotMatch(detail, /\/vote`/);
-  assert.match(repoFile('./PostActions.svelte'), /<VoteButtons [^>]*yourVote=\{post\.your_vote\}/);
+  const actions = repoFile('./PostActions.svelte');
+  assert.match(actions, /<VoteButtons [^>]*yourVote=\{post\.your_vote\}/);
+  assert.match(actions, /<ShareButton /);
+  assert.match(actions, /<BookmarkButton /);
 });

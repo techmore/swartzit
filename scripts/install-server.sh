@@ -19,7 +19,7 @@ SWARTZIT_AUTO_UPDATE=${SWARTZIT_AUTO_UPDATE:-0}
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl git build-essential pkg-config libssl-dev rustc cargo postgresql-client nodejs npm caddy
+apt-get install -y ca-certificates curl git openssh-client build-essential pkg-config libssl-dev rustc cargo postgresql-client nodejs npm caddy
 id swartzit >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --create-home --shell /usr/sbin/nologin swartzit
 mkdir -p "$APP_DIR" /etc/swartzit
 if [[ ! -d "$APP_DIR/.git" ]]; then
@@ -73,8 +73,9 @@ install -m 0644 "$APP_DIR/deploy/systemd/swartzit-upgrade-check.service" /etc/sy
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-upgrade-check.timer" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-update.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-update.timer" /etc/systemd/system/
+install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.service" /etc/systemd/system/
+install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.timer" /etc/systemd/system/
 install -m 0755 "$APP_DIR/scripts/preflight-release.sh" "$APP_DIR/scripts/db-restore-verify-postgres.sh" "$APP_DIR/scripts/postgres-native-lib.sh" "$APP_DIR/scripts/swartzit-release-update.sh" "$APP_DIR/scripts/swartzit-linux-update.sh" "$APP_DIR/scripts/swartzit-upgrade-check.sh" "$APP_DIR/scripts/"
-
 if [[ -n "$WIREGUARD_INTERFACE" ]]; then
   [[ "$WIREGUARD_INTERFACE" == wg0 ]] || { echo 'WIREGUARD_INTERFACE currently supports only wg0.' >&2; exit 1; }
   install -d -m 0755 /etc/systemd/system/swartzit-web.service.d

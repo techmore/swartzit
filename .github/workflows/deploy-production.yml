@@ -11,18 +11,25 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'Deploy a release or sync only the production X token'
+        description: 'Deploy a release, manage GitHub database backups, or sync the production X token'
         required: true
         type: choice
         options:
           - deploy
           - sync-x-token
           - test-x-token
+          - prepare-github-backup
+          - enable-github-backup
         default: deploy
       tag:
         description: 'Release tag (used only when operation is deploy)'
         required: false
         type: string
+      backup_remote:
+        description: 'Private GitHub database-backup repository SSH URL'
+        required: false
+        type: string
+        default: git@github.com:techmore/ser8-database-backups.git
 
 permissions:
   contents: read
@@ -120,6 +127,24 @@ jobs:
         run: |
           set -euo pipefail
           sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --tag "$TAG" --yes
+
+      - name: Prepare the GitHub database-backup deploy key
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.operation == 'prepare-github-backup' }}
+        env:
+          BACKUP_REMOTE: ${{ github.event.inputs.backup_remote || 'git@github.com:techmore/ser8-database-backups.git' }}
+        run: |
+          set -euo pipefail
+          sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh \
+            --prepare-github-backup --remote "$BACKUP_REMOTE"
+
+      - name: Run the first backup and enable the daily timer
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.operation == 'enable-github-backup' }}
+        env:
+          BACKUP_REMOTE: ${{ github.event.inputs.backup_remote || 'git@github.com:techmore/ser8-database-backups.git' }}
+        run: |
+          set -euo pipefail
+          sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh \
+            --enable-github-backup --remote "$BACKUP_REMOTE"
 
       - name: Update the production worker X API token
         # The stable updater path is already on the host's sudo allowlist. The

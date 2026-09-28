@@ -16,10 +16,10 @@
 </div>
 
 <style>
-  .post-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0;padding:12px 0;border-top:1px solid var(--border,#c7ccc3);border-bottom:1px solid var(--border,#c7ccc3);color:var(--muted,#66766c)}
+  .post-actions{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;margin:14px 0;padding:12px 0;border-top:1px solid var(--border,#c7ccc3);border-bottom:1px solid var(--border,#c7ccc3);color:var(--muted,#66766c)}
   .comment-action{color:var(--heading,#292524);font-size:.82rem;font-weight:750;white-space:nowrap}
   .comment-action:hover{color:var(--accent,#575d3d);text-decoration:underline;text-underline-offset:3px}
-  :global(.post-actions .vote-controls),:global(.post-actions .share-control),:global(.post-actions .bookmark-control){margin:0}
+  :global(.post-actions .comment-action),:global(.post-actions .vote-controls),:global(.post-actions .share-control),:global(.post-actions .bookmark-control){flex:0 0 auto;margin:0}
   :global(.post-actions .vote-controls){gap:6px}
   :global(.post-actions .vote-button.icon-button){width:34px;height:34px;padding:7px}
   :global(.post-actions .vote-score){min-width:20px;text-align:center;font-size:.82rem}

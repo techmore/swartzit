@@ -189,6 +189,13 @@ Catbox or an S3 provider.
 Keep at least one dump and one `.tgz` archive off the Mac as well; the local
 artifacts are intentionally ignored by Git because they contain private data.
 
+For the Ubuntu Ser8 host, the repository also includes a daily GitHub backup
+timer. It writes database-only snapshots to a separate private repository,
+checks each dump and its table counts before pushing, and retains snapshots for
+the most recent 14 calendar days. See
+[`docs/github-database-backups.md`](docs/github-database-backups.md) for the
+one-time repository and SSH deploy-key setup.
+
 On macOS, install the automatic circular backup job after PostgreSQL is running:
 
 ```sh
@@ -556,6 +563,10 @@ already exist. It keeps the API on `127.0.0.1:18080`, the web server on
 systemctl status swartzit swartzit-web swartzit-worker.timer
 journalctl -u swartzit-worker.service
 ```
+
+The installer places the optional GitHub database backup service and timer.
+Configure and enable them separately after creating a private backup repository;
+see [`docs/github-database-backups.md`](docs/github-database-backups.md).
 
 The Linux source updater is installed at
 `scripts/swartzit-linux-update.sh`. It creates and validates a native

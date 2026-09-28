@@ -241,6 +241,13 @@ if [[ "$healthy" -ne 1 ]]; then
   echo "Updated release failed API/web health checks. Database backup: $DB_DUMP" >&2
   exit 1
 fi
+if ! install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.service" /etc/systemd/system/swartzit-github-backup.service \
+  || ! install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.timer" /etc/systemd/system/swartzit-github-backup.timer \
+  || ! systemctl daemon-reload; then
+  rollback
+  echo 'Could not install the GitHub database backup service units; the previous release was restored.' >&2
+  exit 1
+fi
 resume_services
 mkdir -p "$APP_DIR/state"
 printf '{"tag":"%s","version":"%s","commit":"%s","previous_commit":"%s","previous_version":"%s","backup":"%s","recovery_bundle":"%s","installed_at":"%s"}\n' \

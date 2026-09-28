@@ -3,16 +3,13 @@
   import { invalidateAll } from '$app/navigation';
   import SessionNav from '$lib/SessionNav.svelte';
   import Brand from '$lib/Brand.svelte';
-  import BookmarkButton from '$lib/BookmarkButton.svelte';
-  import ShareButton from '$lib/ShareButton.svelte';
   import PostViews from '$lib/PostViews.svelte';
+  import PostActions from '$lib/PostActions.svelte';
   import SourcePost from '$lib/SourcePost.svelte';
   import PostBody from '$lib/PostBody.svelte';
   import DrawThingsFeedback from '$lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
-  import VoteButtons from '$lib/VoteButtons.svelte';
   import ContentRatingControl from '$lib/ContentRatingControl.svelte';
-  import { mediaShareUrl } from '$lib/media-share.js';
   let commentOrder = 'oldest';
   export let data;
   let token = '', body = '', parent = null, message = '', busy = false, showAllComments = false;
@@ -27,7 +24,6 @@
   $: previewTitle = `${data.post.title} — Swartzit`;
   $: previewDescription = (data.post.body || '').replace(/\s+/g, ' ').trim().slice(0, 240) || 'A public discussion on Swartzit.';
   $: previewMedia = mediaValue(data.post.source?.media?.[0]);
-  $: shareMediaUrl = mediaShareUrl(data.post.source?.media);
   $: canonicalUrl = `https://stoverparc.org/post/${data.post.public_id}`;
   onMount(() => {
     token = localStorage.getItem('swartzit_session') || '';
@@ -91,11 +87,8 @@
     {#if data.draw_feedback && data.post.source?.generation_config?.provider === 'draw_things'}
       <DrawThingsFeedback postId={data.post.id} summary={data.draw_feedback} />
     {/if}
-    <div class="post-engagement"><div class="post-actions">{#key data.post.id}<BookmarkButton id={data.post.id} />{/key}
-    <ShareButton id={data.post.public_id} title={data.post.title} url={shareMediaUrl} media={Boolean(shareMediaUrl)} /></div>
+    {#key data.post.id}<PostActions post={data.post} />{/key}
     <footer class="post-reading-stats"><PostViews id={data.post.id} initial={data.post} /></footer>
-    {#key data.post.id}<VoteButtons id={data.post.id} score={data.post.score} yourVote={data.post.your_vote} />{/key}
-    </div>
   </article>
   {#if article}
     <aside class="article-rail" aria-label="Article series navigation">
@@ -189,12 +182,7 @@
   .article-rail li strong{font-size:.78rem;line-height:1.25;font-weight:700;overflow-wrap:anywhere}
   .article-rail-nav{display:flex;justify-content:space-between;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#d8d5ca);font-size:.72rem;font-weight:750}
   .article-rail-nav a{color:var(--accent,#9b5e38)}
-  .post-engagement{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-top:1px solid var(--border,#dedfd7);padding-top:10px;margin-top:14px}
-  .post-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .post-engagement :global(.vote-controls){margin:0 0 0 auto;gap:6px}
-  .post-engagement :global(.vote-button.icon-button){width:36px;height:36px;padding:6px}
-  .post-engagement :global(.vote-button.icon-button svg){width:21px;height:21px}
-  .post-reading-stats{border:0!important;padding:4px 0!important;margin:0!important;font-size:.72rem!important}
+  .post-reading-stats{border:0!important;padding:4px 0!important;margin:8px 0 0!important;font-size:.72rem!important}
   .comments{border-top:1px solid var(--border,#d8d5ca);margin-top:32px;padding-top:24px}
   .comments-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:16px}
   .comments-heading .eyebrow{margin:0 0 4px;font-size:.66rem;letter-spacing:.14em}
@@ -227,6 +215,6 @@
   .related-post span{font-size:.8rem;color:var(--muted,#77827d)}
   .browse-link{color:var(--accent,#9b5e38);font-weight:700;font-size:.9rem}
   @media(max-width:900px){.article-page{display:block}.article-rail{position:static;margin:0 0 24px}.article-page>.post{margin-top:0}}
-  @media(max-width:700px){.related-posts{grid-template-columns:1fr}.content-loop h2{font-size:1.55rem}.post{padding:16px 14px}.post-engagement{gap:8px}.post-engagement :global(.vote-controls){margin-left:auto}.comments-heading h2{font-size:1.5rem}}
+  @media(max-width:700px){.related-posts{grid-template-columns:1fr}.content-loop h2{font-size:1.55rem}.post{padding:16px 14px}.comments-heading h2{font-size:1.5rem}}
   @media(max-width:420px){.post-page{padding-left:14px;padding-right:14px}.post-context{margin:0 4px 12px}.post-context .back{font-size:.78rem}.post-context .community-export{font-size:.72rem}.post{padding-left:10px;padding-right:10px}.comments-heading{align-items:center}.comments-heading label{gap:5px}}
 </style>
