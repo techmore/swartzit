@@ -8,9 +8,20 @@
   export let post = null;
   export let embedded = false;
   const count = n => n == null ? '—' : new Intl.NumberFormat().format(n);
+  const relativeXTime = (value, now) => {
+    const published = Date.parse(value ?? '');
+    if (!Number.isFinite(published)) return null;
+    const elapsed = Math.max(0, now - published);
+    if (elapsed < 60_000) return 'now';
+    if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
+    if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h`;
+    if (elapsed < 604_800_000) return `${Math.floor(elapsed / 86_400_000)}d`;
+    return new Date(published).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+  };
   let failed = {};
   let videoLoops = {};
   let activeMedia = 0;
+  let relativeClock = Date.now();
   const attachment = m => typeof m === 'string' ? {kind:'image',src:m} : m;
   const isLocalMedia = src => /^\/media\/\d+(?:\/[^?]+)?(?:\?|$)/i.test(String(src ?? ''));
   const clean = value => String(value ?? '').trim();
@@ -34,7 +45,9 @@
   }
   $: parsed = splitPost(source.provider === 'x' ? cleanSourceText(text) : text);
   $: displayDate = source.published_at
-    ? new Date(source.published_at).toLocaleDateString()
+    ? source.provider === 'x'
+      ? relativeXTime(source.published_at, relativeClock)
+      : new Date(source.published_at).toLocaleDateString()
     : source.provider === 'x'
       ? clean(text).split(/\r?\n/).map(line => line.trim()).find(line => /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}$/i.test(line))
       : null;
@@ -64,8 +77,12 @@
     videoLoops = { ...videoLoops, [src]: enabled === true };
   }
   onMount(() => {
+    const relativeClockTimer = setInterval(() => relativeClock = Date.now(), 60_000);
     window.addEventListener('swartzit-media-loop-change', syncVideoLoop);
-    return () => window.removeEventListener('swartzit-media-loop-change', syncVideoLoop);
+    return () => {
+      clearInterval(relativeClockTimer);
+      window.removeEventListener('swartzit-media-loop-change', syncVideoLoop);
+    };
   });
   function announcePause(event) {
     window.dispatchEvent(new CustomEvent('swartzit-media-pause', { detail: { element: event.currentTarget } }));
@@ -73,6 +90,9 @@
   function announceEnded(event) {
     window.dispatchEvent(new CustomEvent('swartzit-media-ended', { detail: { element: event.currentTarget } }));
   }
+  $: profileImageSrc = source.profile_image_url && source.post_id
+    ? `/profile-images/${source.post_id}?src=${encodeURIComponent(source.profile_image_url)}`
+    : null;
   function observeMedia(node, media) {
     // Muted inline playback is allowed by mobile browsers. Keep only the
     // visible card playing so scrolling never leaves background video running.
@@ -100,9 +120,9 @@
   <div class="source-heading">
     {#if source.provider === 'x' && source.profile_image_url}
       <span class="profile-hover" role="button" tabindex="0" aria-label={`Preview ${source.profile_display_name || source.source_author} profile`}>
-        <img class="source-avatar" src={`/profile-images/${source.post_id}`} alt="" loading="lazy" onerror={(event) => event.currentTarget.hidden = true} />
+        <img class="source-avatar" src={profileImageSrc} alt="" loading="lazy" onerror={(event) => event.currentTarget.hidden = true} />
         <div class="profile-card" role="tooltip">
-          <div class="profile-card-heading"><img src={`/profile-images/${source.post_id}`} alt="" onerror={(event) => event.currentTarget.hidden = true} /><div><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<small>{source.profile_url ? new URL(source.profile_url).pathname : source.source_author}</small></div></div>
+          <div class="profile-card-heading"><img src={profileImageSrc} alt="" onerror={(event) => event.currentTarget.hidden = true} /><div><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<small>{source.profile_url ? new URL(source.profile_url).pathname : source.source_author}</small></div></div>
           {#if source.profile_bio}<p>{source.profile_bio}</p>{/if}
           <div class="profile-stats">{#if source.profile_followers != null}<span><strong>{count(source.profile_followers)}</strong> followers</span>{/if}{#if source.profile_following != null}<span><strong>{count(source.profile_following)}</strong> following</span>{/if}</div>
           {#if source.profile_url}<a href={source.profile_url} target="_blank" rel="noopener noreferrer">Open profile ↗</a>{/if}
@@ -110,7 +130,7 @@
       </span>
     {:else}<span class="source-avatar source-avatar-fallback" aria-hidden="true">{(source.profile_display_name || source.source_author || '?').slice(0, 1).toUpperCase()}</span>
     {/if}
-    <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<span class="source-handle">{source.source_author}</span>{#if displayDate}<time datetime={source.published_at || undefined}>{displayDate}</time>{/if}</div>
+    <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<span class="source-handle">{source.source_author}</span>{#if displayDate}<time datetime={source.published_at || undefined} title={source.published_at ? new Date(source.published_at).toLocaleString() : undefined}>{source.provider === 'x' ? `· ${displayDate}` : displayDate}</time>{/if}</div>
     <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a></div></div>
   {#if source.provider === 'x'}
     {#if parsed.text}<p class="source-text">{parsed.text}</p>{/if}
