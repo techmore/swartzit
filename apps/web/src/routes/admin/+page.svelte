@@ -5,7 +5,7 @@
   import Brand from '$lib/Brand.svelte';
   import AdminMediaPreview from '$lib/AdminMediaPreview.svelte';
   import { isFailedRunnerRun, nextRunnerCopyName, runnerFailureHint } from '$lib/content-runner-editor.mjs';
-  const tabs = ['Overview', 'Users', 'Content', 'Reports', 'Moderation', 'Security', 'Settings', 'Server', 'Analytics', 'Logs', 'Imports', 'Crawler Jobs', 'Content Runners'];
+  const tabs = ['Overview', 'Users', 'Content', 'Comments', 'Reports', 'Moderation', 'Security', 'Settings', 'Server', 'Analytics', 'Logs', 'Imports', 'Crawler Jobs', 'Content Runners'];
   let tab = 'Overview', overview = null, storage = null, rows = [], trend = [], jobs = [], runs = [], runners = [], runnerRuns = [], moderationHistory = [], uptime = null, settings = null, loading = true, error = '', notice = '';
   let jobName = '', jobProvider = 'reddit', jobSource = '', jobCommunity = '', jobInterval = 900, jobMax = 10, jobMode = 'review';
   let runnerName = '', runnerKind = 'command', runnerCommand = '', runnerPrompt = '', runnerAuthor = '', runnerCommunity = '', runnerInterval = 1800, runnerDays = [1, 2, 3, 4, 5, 6, 7], runnerPriority = 100, runnerTimeout = 900, runnerAttempts = 3, runnerBackoff = 60, runnerThreshold = 3, runnerRetention = 30, runnerEnvironmentKeys = '', runnerCaptureOutput = true, runnerMaxLogBytes = 20000, packagePack = 'starwars.gravedancer', packageWorkingDir = '', packageOptions = '{}', editingRunner = null;
@@ -235,7 +235,7 @@
     try {
       const params = new URLSearchParams({ q: search, level, kind });
       if (before) params.set('before', before);
-      const endpoint = { Users: 'users', Content: 'content', Reports: 'reports', Moderation: 'moderation', Logs: 'logs' }[tab];
+      const endpoint = { Users: 'users', Content: 'content', Comments: 'comments', Reports: 'reports', Moderation: 'moderation', Logs: 'logs' }[tab];
       const [stats, storageData, items, daily, scheduled, history, runnerData, runnerLogData, securityData, uptimeData, settingsData, moderationHistoryData] = await Promise.all([
         api('overview'), tab === 'Settings' || tab === 'Server' ? api('storage').catch(() => null) : Promise.resolve(null), endpoint ? api(endpoint + '?' + params) : Promise.resolve([]),
         tab === 'Analytics' ? api('analytics') : Promise.resolve([]),
@@ -402,7 +402,7 @@
       <section class="metrics">
         <div><span>Registered users</span><strong>{number(overview.users)}</strong><small>Excludes demo identities</small></div>
         <div><span>Discussions</span><strong>{number(overview.posts)}</strong><small>Across {overview.communities} communities</small></div>
-        <div><span>Comments</span><strong>{number(overview.comments)}</strong><small>Public conversation</small></div>
+        <a class="admin-metric" href="/admin?tab=comments" aria-label={'Open the timeline of ' + number(overview.comments) + ' public comments'}><span>Comments</span><strong>{number(overview.comments)}</strong><small>Public conversation</small><small class="admin-metric-action">Open timeline →</small></a>
         <div><span>Open reports</span><strong>{number(overview.open_reports)}</strong><button onclick={() => selectTab('Reports')}>Review reports →</button></div>
         <div><span>Moderation queue</span><strong>{number(overview.pending_moderation)}</strong><small>Pending or escalated</small><button onclick={() => selectTab('Moderation')}>Review queue →</button></div>
       </section>
@@ -681,15 +681,27 @@
       </section>
     {:else}
       <form class="admin-toolbar" onsubmit={(e) => { e.preventDefault(); filter(); }}>
-        <input aria-label="Search this view" placeholder={tab === 'Users' ? 'Search handles…' : tab === 'Logs' ? 'Search events or details…' : 'Search content…'} bind:value={search} maxlength="200" />
+        <input aria-label="Search this view" placeholder={tab === 'Users' ? 'Search handles…' : tab === 'Logs' ? 'Search events or details…' : tab === 'Comments' ? 'Search comments, authors, or discussions…' : 'Search content…'} bind:value={search} maxlength="200" />
         {#if tab === 'Logs'}<select aria-label="Severity" bind:value={level} onchange={filter}><option value="">All levels</option><option>info</option><option>warn</option><option>error</option></select>{/if}
         {#if tab === 'Content'}<select aria-label="Content type" bind:value={kind} onchange={filter}><option value="posts">Posts</option><option value="comments">Comments</option><option value="communities">Communities</option></select>{/if}
         <button>Search</button>
       </form>
       {#if tab === 'Content' && kind === 'posts'}<p class="muted rating-help">Set the highest content rating that applies. Moderator ratings override uploader or automatic labels. Choose General to clear a rating.</p>{/if}
+      {#if tab === 'Comments'}<p class="muted comment-timeline-note">Approved public comments · newest first · 50 per page.</p>{/if}
       {#if tab === 'Logs'}<p class="muted">Newest first · persistent circular log · newest 1,000 retained · search covers retained events only. Expand a row for structured details.</p>{/if}
       <div class="panel table-wrap">
-      {#if rows.length === 0}<div class="admin-empty"><h3>No matching {tab.toLowerCase()}</h3><p>Try a different search or return to the first page.</p></div>
+      {#if rows.length === 0}<div class="admin-empty"><h3>{tab === 'Comments' ? (search ? 'No matching comments' : 'No public comments yet') : 'No matching ' + tab.toLowerCase()}</h3><p>{tab === 'Comments' && !search ? 'New approved comments will appear here.' : 'Try a different search or return to the first page.'}</p></div>
+      {:else if tab === 'Comments'}
+        <ol class="comment-timeline">{#each rows as item (item.id)}
+          <li class="comment-timeline-entry">
+            <span class="comment-timeline-marker" aria-hidden="true"></span>
+            <article class="comment-timeline-card">
+              <div class="comment-timeline-meta"><a href={'/u/' + item.author}>u/{item.author}</a><time datetime={item.created_at}>{date(item.created_at)}</time>{#if item.parent_id}<span class="badge">Reply</span>{/if}</div>
+              <p class="comment-timeline-body">{item.body}</p>
+              <p class="comment-timeline-context">In <a href={'/?community=' + item.community}>c/{item.community}</a> · <a href={'/post/' + item.post_public_id + '#comment-' + item.id}>{item.post_title || 'Open discussion'} ↗</a></p>
+            </article>
+          </li>
+        {/each}</ol>
       {:else if tab === 'Users'}
         <table><thead><tr><th>User</th><th>Role</th><th>Created</th><th>Posts / comments</th><th>Sessions</th><th>Action</th></tr></thead><tbody>{#each rows as user}<tr><td><strong>u/{user.handle}</strong><small>#{user.id} · {user.registered ? 'Registered' : 'Demo identity'}</small></td><td><span class="badge">{user.is_admin ? 'Admin' : 'Member'}</span></td><td>{date(user.created_at)}</td><td>{user.posts} / {user.comments}</td><td>{user.sessions}</td><td><button disabled={busy || !user.sessions} onclick={() => action('users/' + user.id + '/revoke-sessions', 'Sign u/' + user.handle + ' out of every device?')}>Revoke sessions</button></td></tr>{/each}</tbody></table>
       {:else if tab === 'Content'}
@@ -712,6 +724,22 @@
 
 <style>
   .admin-auth{max-width:620px}
+  .admin .metrics a.admin-metric{display:grid;align-content:start;padding:18px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:inherit;text-decoration:none;transition:border-color .16s,box-shadow .16s}
+  .admin .metrics a.admin-metric:hover{border-color:var(--accent);box-shadow:0 5px 16px color-mix(in srgb,var(--heading) 8%,transparent)}
+  .admin .metrics .admin-metric-action{margin-top:13px;color:var(--link);font-weight:700}
+  .comment-timeline{list-style:none;margin:0;padding:22px;display:grid}
+  .comment-timeline-note{margin:-6px 0 14px;font-size:.8rem}
+  .comment-timeline-entry{position:relative;display:grid;grid-template-columns:14px minmax(0,1fr);gap:14px;padding-bottom:18px}
+  .comment-timeline-entry:not(:last-child)::before{content:'';position:absolute;left:6px;top:14px;bottom:0;width:2px;background:var(--border)}
+  .comment-timeline-marker{position:relative;z-index:1;width:14px;height:14px;margin-top:5px;border:3px solid var(--surface);border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--border)}
+  .comment-timeline-card{min-width:0;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+  .comment-timeline-meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap;color:var(--muted);font-size:.78rem}
+  .comment-timeline-meta>a{color:var(--heading);font-weight:750;text-decoration:none}
+  .comment-timeline-meta time{margin-left:auto}
+  .comment-timeline-body{margin:12px 0;color:var(--text);line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+  .comment-timeline-context{margin:0;color:var(--muted);font-size:.76rem}
+  .comment-timeline-context a{color:var(--link);text-decoration:underline}
+  @media(max-width:700px){.comment-timeline{padding:16px 12px}.comment-timeline-entry{gap:10px}.comment-timeline-card{padding:12px}.comment-timeline-meta time{margin-left:0}}
   .admin-sign-in{display:inline-block;background:var(--button-bg,#173d34);color:var(--button-text,#fff);border-radius:6px;padding:12px 20px;font-weight:700}
   .admin-sign-in:hover{background:var(--heading,#28594a)}
   .runner-page{display:grid;gap:20px;margin-top:18px}

@@ -189,6 +189,34 @@ pub async fn content(
     };
     rows(&db, sql, &f.search()?, f.before).await
 }
+pub async fn comments(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Query(f): Query<Filter>,
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    require_admin(&headers, &db).await?;
+    rows(
+        &db,
+        r#"SELECT row_to_json(t) FROM (
+            SELECT cm.id,cm.post_id,cm.parent_id,cm.body,cm.created_at,
+                a.handle AS author,p.public_id AS post_public_id,p.title AS post_title,
+                c.slug AS community
+            FROM comments cm
+            JOIN authors a ON a.id=cm.author_id
+            JOIN posts p ON p.id=cm.post_id
+            JOIN communities c ON c.id=p.community_id
+            WHERE cm.moderation_status='approved'
+                AND p.moderation_status='approved'
+                AND strpos(lower(cm.body || ' ' || a.handle || ' ' || p.title || ' ' || c.slug),lower($1))>0
+                AND ($2::bigint IS NULL OR cm.id<$2)
+            ORDER BY cm.id DESC
+            LIMIT 50
+        ) t"#,
+        &f.search()?,
+        f.before,
+    )
+    .await
+}
 pub async fn reports(
     State(db): State<PgPool>,
     headers: HeaderMap,

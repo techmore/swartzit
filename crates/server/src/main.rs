@@ -2378,6 +2378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(admin::revoke),
         )
         .route("/api/admin/content", get(admin::content))
+        .route("/api/admin/comments", get(admin::comments))
         .route("/api/admin/reports", get(admin::reports))
         .route(
             "/api/admin/reports/{id}/resolve",
