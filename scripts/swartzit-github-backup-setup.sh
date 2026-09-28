@@ -69,8 +69,10 @@ with open(sys.argv[1], encoding="utf-8") as source:
 keys = meta.get("ssh_keys", [])
 fingerprint = meta.get("ssh_key_fingerprints", {}).get("SHA256_ED25519", "")
 key = next((item for item in keys if item.startswith("ssh-ed25519 ")), "")
-if not fingerprint.startswith("SHA256:") or not key:
+if not fingerprint or not key:
     raise SystemExit("GitHub did not publish an Ed25519 SSH key and fingerprint.")
+if not fingerprint.startswith("SHA256:"):
+    fingerprint = "SHA256:" + fingerprint
 print(fingerprint)
 print(key)
 PY
