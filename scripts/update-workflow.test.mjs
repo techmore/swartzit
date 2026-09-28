@@ -159,6 +159,7 @@ test('the production X token travels over stdin and is applied after release ins
   assert.ok(installer >= 0 && tokenSync > installer);
   assert.match(workflow, /X_BEARER_TOKEN: \$\{\{ secrets\.X_BEARER_TOKEN \}\}/);
   assert.match(workflow, /sync-x-token/);
+  assert.match(workflow, /test-x-token/);
   assert.match(workflow, /steps\.install-release\.outcome == 'success'/);
   assert.match(workflow, /printf '%s' "\$X_BEARER_TOKEN" \\\n\s*\| sudo -n \/var\/lib\/swartzit\/scripts\/swartzit-linux-update\.sh --sync-x-token-stdin/);
   assert.doesNotMatch(workflow, /--(?:token|x-token) "\$X_BEARER_TOKEN"/);
@@ -166,6 +167,15 @@ test('the production X token travels over stdin and is applied after release ins
   const updater = read('scripts/swartzit-linux-update.sh');
   assert.match(updater, /--sync-x-token-stdin/);
   assert.match(updater, /exec python3 "\$TOKEN_UPDATER"/);
+});
+
+test('the SER8 token probe is read-only and uses the X profile and timeline endpoints', () => {
+  const workflow = read('.github/workflows/deploy-production.yml');
+  assert.match(workflow, /runs-on: \[self-hosted, swartzit, production\]/);
+  assert.match(workflow, /Test X API access from SER8/);
+  assert.match(workflow, /api\.x\.com\/2\/users\/by\/username\/DarioAmodei/);
+  assert.ok(workflow.includes("f'https://api.x.com/2/users/{user_id}/tweets?{query}'"));
+  assert.doesNotMatch(workflow, /Test X API access from SER8[\s\S]*?POST/);
 });
 
 test('worker X token updater preserves settings, replaces duplicates, and locks permissions', () => {
