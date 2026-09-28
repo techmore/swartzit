@@ -521,6 +521,8 @@ pub struct UpdateSettings {
     orchard_enabled: Option<bool>,
     content_runners_enabled: Option<bool>,
     moderation_enabled: Option<bool>,
+    adsense_enabled: Option<bool>,
+    adsense_publisher_id: Option<String>,
     media_primary: Option<String>,
     media_secondary: Option<String>,
     media_secondaries: Option<Vec<String>>,
@@ -556,6 +558,16 @@ pub async fn settings(
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let adsense_enabled: bool =
+        sqlx::query_scalar("SELECT enabled FROM instance_modules WHERE module_key = 'adsense'")
+            .fetch_optional(&db)
+            .await?
+            .unwrap_or(false);
+    let adsense_publisher_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT publisher_id FROM adsense_settings WHERE singleton = TRUE",
+    )
+    .fetch_one(&db)
+    .await?;
     let media = media_store::settings_view(&db)
         .await
         .map_err(ApiError::Storage)?;
@@ -569,10 +581,68 @@ pub async fn settings(
             },
             "moderation": {
                 "enabled": moderation_enabled
+            },
+            "adsense": {
+                "enabled": adsense_enabled
             }
+        },
+        "adsense": {
+            "configured": adsense_publisher_id.is_some(),
+            "publisher_id": adsense_publisher_id
         },
         "media": media
     })))
+}
+
+pub async fn adsense_config(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
+    let enabled: bool =
+        sqlx::query_scalar("SELECT enabled FROM instance_modules WHERE module_key = 'adsense'")
+            .fetch_optional(&db)
+            .await?
+            .unwrap_or(false);
+    let publisher_id: Option<String> = if enabled {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT publisher_id FROM adsense_settings WHERE singleton = TRUE",
+        )
+        .fetch_one(&db)
+        .await?
+    } else {
+        None
+    };
+    let publisher_id = publisher_id.filter(|value| valid_adsense_publisher_id(value));
+    Ok(Json(serde_json::json!({
+        "enabled": publisher_id.is_some(),
+        "publisher_id": publisher_id
+    })))
+}
+
+fn valid_adsense_publisher_id(value: &str) -> bool {
+    let Some(digits) = value.strip_prefix("ca-pub-") else {
+        return false;
+    };
+    (10..=24).contains(&digits.len()) && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn normalize_adsense_publisher_id(value: &str) -> Result<Option<String>, ApiError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let normalized = if value.starts_with("ca-pub-") {
+        value.to_owned()
+    } else if value.bytes().all(|byte| byte.is_ascii_digit()) {
+        format!("ca-pub-{value}")
+    } else {
+        return Err(ApiError::Invalid(
+            "AdSense publisher ID must be ca-pub- followed by digits",
+        ));
+    };
+    if !valid_adsense_publisher_id(&normalized) {
+        return Err(ApiError::Invalid(
+            "AdSense publisher ID must contain 10 to 24 digits",
+        ));
+    }
+    Ok(Some(normalized))
 }
 
 pub async fn storage(
@@ -601,6 +671,27 @@ pub async fn update_settings(
         .as_deref()
         .map(normalize_media_secondaries)
         .transpose()?;
+    let normalized_adsense_publisher_id = input
+        .adsense_publisher_id
+        .as_deref()
+        .map(normalize_adsense_publisher_id)
+        .transpose()?;
+    if input.adsense_enabled == Some(true) {
+        let publisher_id = if let Some(publisher_id) = normalized_adsense_publisher_id.as_ref() {
+            publisher_id.clone()
+        } else {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT publisher_id FROM adsense_settings WHERE singleton = TRUE",
+            )
+            .fetch_one(&db)
+            .await?
+        };
+        if publisher_id.is_none() {
+            return Err(ApiError::Invalid(
+                "Save an AdSense publisher ID before enabling ads",
+            ));
+        }
+    }
     let legacy_secondary = normalized_secondaries.as_ref().map(|values| {
         values
             .first()
@@ -610,6 +701,8 @@ pub async fn update_settings(
     if input.orchard_enabled.is_none()
         && input.content_runners_enabled.is_none()
         && input.moderation_enabled.is_none()
+        && input.adsense_enabled.is_none()
+        && input.adsense_publisher_id.is_none()
         && input.media_primary.is_none()
         && input.media_secondary.is_none()
         && input.media_secondaries.is_none()
@@ -667,6 +760,67 @@ pub async fn update_settings(
             "info",
             "admin.module_toggled",
             serde_json::json!({"actor_id": actor, "module": "moderation", "enabled": enabled}),
+        )
+        .await;
+    }
+    if let Some(publisher_id) = normalized_adsense_publisher_id.as_ref() {
+        sqlx::query(
+            "UPDATE adsense_settings
+             SET publisher_id = $1, updated_by = $2, updated_at = now()
+             WHERE singleton = TRUE",
+        )
+        .bind(publisher_id.as_deref())
+        .bind(actor)
+        .execute(&db)
+        .await?;
+        log_event(
+            &db,
+            "info",
+            "admin.adsense_publisher_updated",
+            serde_json::json!({"actor_id": actor, "configured": publisher_id.is_some()}),
+        )
+        .await;
+    }
+    let adsense_enabled = if let Some(enabled) = input.adsense_enabled {
+        Some(enabled)
+    } else if normalized_adsense_publisher_id
+        .as_ref()
+        .is_some_and(Option::is_none)
+    {
+        Some(false)
+    } else {
+        None
+    };
+    if let Some(enabled) = adsense_enabled {
+        let publisher_id = if let Some(publisher_id) = normalized_adsense_publisher_id.as_ref() {
+            publisher_id.clone()
+        } else {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT publisher_id FROM adsense_settings WHERE singleton = TRUE",
+            )
+            .fetch_one(&db)
+            .await?
+        };
+        if enabled && publisher_id.is_none() {
+            return Err(ApiError::Invalid(
+                "Save an AdSense publisher ID before enabling ads",
+            ));
+        }
+        sqlx::query(
+            "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
+             VALUES ('adsense', $1, $2, now())
+             ON CONFLICT (module_key) DO UPDATE
+             SET enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = now()",
+        )
+        .bind(enabled)
+        .bind(actor)
+        .execute(&db)
+        .await?;
+        log_event(
+            &db,
+            "info",
+            "admin.module_toggled",
+            serde_json::json!({"actor_id": actor, "module": "adsense", "enabled": enabled}),
         )
         .await;
     }
