@@ -151,8 +151,8 @@ jobs:
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.operation == 'enable-github-backup' && steps.enable-github-backup.outcome == 'failure' }}
         run: |
           set -euo pipefail
-          sudo -n systemctl --no-pager --full status swartzit-github-backup.service || true
-          sudo -n journalctl -u swartzit-github-backup.service -n 100 --no-pager || true
+          systemctl --no-pager --full status swartzit-github-backup.service || true
+          journalctl -u swartzit-github-backup.service -n 100 --no-pager || true
 
       - name: Update the production worker X API token
         # The stable updater path is already on the host's sudo allowlist. The
