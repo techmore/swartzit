@@ -19,13 +19,34 @@
   let composeOpen = false;
   let searchInput;
   function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (targetFeed === 'following' && data.feed === 'following' && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params; }
-  function pageLink(page) { return '/?' + applyContentFilters(new URLSearchParams({feed:data.feed,community:data.community,q:data.q,sort:data.sort,page:String(page)})); }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
   function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
   const initialCommunity = preferredCommunity(data.communities);
   let token = '', title = '', body = '', contentRating = 'general', community = initialCommunity, formError = '', formMessage = '';
-  let feedPosts = data.posts, feedHasMore = data.hasMore, feedLoading = false, feedError = '', followingRequestKey = '';
+  let feedPosts = data.posts, feedHasMore = data.hasMore, feedPage = data.page, feedLoading = false, feedError = '';
+  let feedKey = '', activeFeedKey = '', feedRequestController, followingInitialKey = '', initialPosts = data.posts;
+  $: feedKey = JSON.stringify([data.feed, data.community, data.q, data.sort, data.hideR, data.hideX, data.ratings, data.page]);
+  $: if (feedKey !== activeFeedKey) {
+    activeFeedKey = feedKey;
+    feedRequestController?.abort();
+    feedRequestController = null;
+    feedLoading = false;
+    feedError = '';
+    feedPage = data.page;
+    feedHasMore = data.feed === 'following' ? false : data.hasMore;
+    feedPosts = data.feed === 'following' ? [] : data.posts;
+    initialPosts = data.posts;
+    followingInitialKey = '';
+    if (data.feed === 'following' && !token) feedError = 'Sign in to see posts from people and communities you follow.';
+  }
+  $: if (feedKey === activeFeedKey && data.feed !== 'following' && data.posts !== initialPosts) {
+    const freshPosts = data.posts || [];
+    const freshIds = new Set(freshPosts.map(post => post.id));
+    feedPosts = [...freshPosts, ...feedPosts.filter(post => !freshIds.has(post.id))];
+    initialPosts = data.posts;
+    if (feedPage === data.page) feedHasMore = data.hasMore;
+  }
   const TIMELINE_LONG_POST_THRESHOLD = 900;
   const TIMELINE_EXCERPT_LIMIT = 420;
   const redundantSourceTitle = post => post?.source?.provider === 'x' && post.title?.trim() === post.body?.split(/\r?\n/, 1)[0]?.trim();
@@ -45,12 +66,18 @@
     searchOpen = !searchOpen;
     if (searchOpen) setTimeout(() => searchInput?.focus(), 0);
   }
-  async function loadFollowing() {
-    if (!token) return;
-    const key = `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.ratings}`;
-    if (followingRequestKey === key) return;
-    followingRequestKey = key; feedLoading = true; feedError = '';
-    const params = new URLSearchParams({sort:data.sort,page:String(data.page)});
+  async function loadFeedPage(page, append = true) {
+    if (feedLoading || (append && !feedHasMore)) return;
+    if (data.feed === 'following' && !token) {
+      feedError = 'Sign in to see posts from people and communities you follow.';
+      return;
+    }
+    const requestKey = activeFeedKey;
+    const controller = new AbortController();
+    feedRequestController = controller;
+    feedLoading = true;
+    feedError = '';
+    const params = new URLSearchParams({sort:data.sort,page:String(page)});
     if (data.q) params.set('q',data.q);
     if (data.community) params.set('community',data.community);
     if (data.ratings) params.set('ratings', data.ratings);
@@ -59,18 +86,47 @@
       params.set('hide_x', data.hideX ? 'true' : 'false');
     }
     try {
-      const response = await fetch('/api/home?' + params,{headers:{authorization:'Bearer ' + token}});
+      const following = data.feed === 'following';
+      const response = await fetch((following ? '/api/home?' : '/api/posts?') + params, {
+        headers: following ? {authorization:'Bearer ' + token} : {},
+        signal: controller.signal
+      });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Could not load your Following feed.');
-      feedPosts = result.posts; feedHasMore = result.has_more;
-    } catch (error) { feedError = error.message || 'Could not reach Swartzit.'; }
-    finally { feedLoading = false; }
+      if (!response.ok) throw new Error(result.error || 'Could not load more discussions.');
+      if (requestKey !== activeFeedKey) return;
+      const posts = Array.isArray(result.posts) ? result.posts : [];
+      if (append) {
+        const knownIds = new Set(feedPosts.map(post => post.id));
+        feedPosts = [...feedPosts, ...posts.filter(post => !knownIds.has(post.id))];
+      } else {
+        feedPosts = posts;
+      }
+      feedPage = page;
+      feedHasMore = Boolean(result.has_more);
+    } catch (error) {
+      if (error.name !== 'AbortError' && requestKey === activeFeedKey) feedError = error.message || 'Could not reach Swartzit.';
+    } finally {
+      if (feedRequestController === controller) {
+        feedRequestController = null;
+        feedLoading = false;
+      }
+    }
   }
-  $: if (data.feed === 'following' && token && followingRequestKey !== `${data.page}:${data.q}:${data.community}:${data.sort}:${data.hideR}:${data.hideX}:${data.ratings}`) loadFollowing();
-  $: if (data.feed === 'following') {
-    if (token) loadFollowing();
-    else { feedPosts = []; feedHasMore = false; feedError = 'Sign in to see posts from people and communities you follow.'; }
-  } else { feedPosts = data.posts; feedHasMore = data.hasMore; feedError = ''; followingRequestKey = ''; }
+  $: if (feedKey === activeFeedKey && data.feed === 'following' && token && followingInitialKey !== activeFeedKey) {
+    followingInitialKey = activeFeedKey;
+    loadFeedPage(data.page, false);
+  }
+  function loadNextPage() {
+    if (!feedLoading && feedHasMore) loadFeedPage(feedPage + 1, true);
+  }
+  function observeFeedEnd(node) {
+    if (typeof IntersectionObserver === 'undefined') return {};
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) loadNextPage();
+    }, {rootMargin:'850px 0px'});
+    observer.observe(node);
+    return {destroy: () => observer.disconnect()};
+  }
   async function createPost() { formError = ''; formMessage = ''; const response = await fetch('/api/posts', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ community, title, body, content_rating: contentRating }) }); const result = await response.json(); if (!response.ok) { formError = result.error ?? 'Could not submit discussion'; return; } if (result.status === 'pending') { formMessage = result.message ?? 'Your discussion is waiting for moderator review.'; title = ''; body = ''; contentRating = 'general'; return; } window.location.assign(`/post/${result.public_id}`); }
 </script>
 
@@ -120,7 +176,7 @@
         {/if}
       </div>
     </div>
-    {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from people and communities you follow.</p>{:else if feedLoading}<p role="status">Loading {data.feed === 'following' ? 'Following' : 'rated posts'}…</p>{:else if feedError}<p role="alert">{feedError}</p>{:else if feedPosts.length === 0}<p class="empty">{data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a person on X or a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
+    {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from people and communities you follow.</p>{:else if feedPosts.length === 0 && feedLoading}<p role="status">Loading {data.feed === 'following' ? 'Following' : data.feed === 'rated' ? 'rated posts' : 'discussions'}…</p>{:else if feedPosts.length === 0 && feedError}<p role="alert">{feedError}</p>{#if data.feed === 'following' && token}<button class="feed-load-more" type="button" onclick={() => loadFeedPage(data.page, false)}>Retry loading</button>{/if}{:else if feedPosts.length === 0}<p class="empty">{data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a person on X or a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
       {#each feedPosts as post (post.id)}
         <article class:source-article={Boolean(post.source)}>
           {#if post.content_rating === 'r' || post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={post.content_rating === 'r'} class:content-rating-x={post.content_rating === 'x'} class="content-rating" title={post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}>{post.content_rating.toUpperCase()}</span><span>{post.content_rating === 'r' ? 'R-rated' : 'X-rated'}</span></div>{/if}
@@ -157,7 +213,13 @@
         </article>
       {/each}
     {/if}
-    <nav aria-label="Discussion pages">{#if data.page > 1}<a href={pageLink(data.page - 1)}>← Previous</a>{/if} {#if feedHasMore}<a href={pageLink(data.page + 1)}>Next →</a>{/if}</nav>
+    {#if feedPosts.length > 0 && feedHasMore}
+      <div class="feed-pagination">
+        <div class="feed-scroll-sentinel" use:observeFeedEnd aria-hidden="true"></div>
+        {#if feedLoading}<p role="status">Loading more discussions…</p>{/if}
+        {#if feedError}<p role="alert">{feedError}</p><button class="feed-load-more" type="button" onclick={loadNextPage}>Retry loading</button>{:else}<button class="feed-load-more" type="button" disabled={feedLoading} onclick={loadNextPage}>Load more discussions</button>{/if}
+      </div>
+    {/if}
   </section>
 </div>
 {#if token}<div class="compose-launcher"><button class="compose-fab" type="button" aria-label={composeOpen ? 'Close composer' : 'Start a discussion'} title={composeOpen ? 'Close composer' : 'Start a discussion'} aria-expanded={composeOpen} onclick={() => composeOpen = !composeOpen}><Icon name={composeOpen ? 'x' : 'plus'} size={20} /><span class="compose-label">{composeOpen ? 'Close' : 'Start discussion'}</span></button>{#if composeOpen}<section id="compose-panel" class="compose-panel" aria-labelledby="compose-title"><div class="compose-panel-heading"><div><p class="eyebrow">ADD TO THE COMMONS</p><h2 id="compose-title">Start a discussion</h2></div><button class="panel-close" type="button" aria-label="Close composer" title="Close composer" onclick={() => composeOpen = false}><Icon name="x" size={18} /></button></div><form onsubmit={(event) => { event.preventDefault(); createPost(); }}><CommunityPicker communities={data.communities} bind:value={community} id="discussion-community" /><label>Title<input bind:value={title} required maxlength="300" /></label><label>Body<textarea bind:value={body} maxlength="50000" rows="5" aria-describedby="discussion-body-help"></textarea><small id="discussion-body-help">Paste a YouTube video URL here and it will be embedded automatically.</small></label><label>Content rating<select bind:value={contentRating} aria-describedby="content-rating-help"><option value="general">General</option><option value="r">R — mature themes</option><option value="x">X — explicit content</option></select><small id="content-rating-help">Choose the highest rating that applies. Auto-tagging will build on this label later.</small></label><button class="publish-button" type="submit">Publish</button>{#if formError}<p class="form-error">{formError}</p>{/if}{#if formMessage}<p class="form-message">{formMessage}</p>{/if}</form><details class="source-import"><summary><Icon name="download" size={16} />Share a source post (X, Reddit, or YouTube)</summary><QuickCrossPost communities={data.communities} selectedCommunity={community} /></details></section>{/if}</div>{/if}
@@ -237,6 +299,12 @@
   .timeline-read-link{color:var(--heading,#173d34);font-size:.8rem;font-weight:800}
   .feed>article>footer{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border,#dedfd7);color:var(--muted,#66766c);font-size:.78rem}
   .open-discussion{margin-left:auto;color:var(--accent,#9b5e38);font-weight:700}
+  .feed-pagination{display:grid;justify-items:center;gap:10px;padding:24px 0 36px}
+  .feed-scroll-sentinel{width:100%;height:1px;pointer-events:none}
+  .feed-pagination p{margin:0;color:var(--muted,#66766c);font-size:.8rem}
+  .feed-load-more{min-height:38px;padding:0 15px;border:1px solid var(--border,#c7ccc3);border-radius:999px;background:var(--surface,#fff);color:var(--heading,#173d34);font-size:.78rem;font-weight:750;cursor:pointer}
+  .feed-load-more:hover,.feed-load-more:focus-visible{border-color:var(--accent,#9b5e38);background:var(--subtle,#e4e9df)}
+  .feed-load-more:disabled{cursor:wait;opacity:.65}
   .mobile-community-nav{display:none}
   .compose-launcher{position:fixed;right:30px;bottom:132px;z-index:40}
   .compose-fab{min-width:54px;height:46px;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:0 17px;background:var(--accent,#9b5e38);color:#fff;box-shadow:0 8px 22px #0003;cursor:pointer;font-weight:750}
@@ -289,7 +357,7 @@
     .mobile-community-nav{display:none}
     .feed>article{border:0;border-top:1px solid var(--border,#dedfd7);border-radius:0;background:transparent;padding:20px 18px;margin:0}
     .feed>article:first-of-type{border-top:0}
-    .feed nav{padding:22px 18px}
+    .feed-pagination{padding:22px 18px 34px}
     .compose-launcher{right:18px;bottom:132px}
     .compose-fab{width:54px;min-width:54px;height:54px;padding:0;border-radius:50%}
     .compose-label{display:none}
