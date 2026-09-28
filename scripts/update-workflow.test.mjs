@@ -175,6 +175,8 @@ test('the SER8 token probe is read-only and uses the X profile and timeline endp
   assert.match(workflow, /Test X API access from SER8/);
   assert.match(workflow, /api\.x\.com\/2\/users\/by\/username\/DarioAmodei/);
   assert.ok(workflow.includes("f'https://api.x.com/2/users/{user_id}/tweets?{query}'"));
+  assert.match(workflow, /summarize_http_error/);
+  assert.match(workflow, /error\.read\(\)/);
   assert.doesNotMatch(workflow, /Test X API access from SER8[\s\S]*?POST/);
 });
 

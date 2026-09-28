@@ -162,6 +162,24 @@ jobs:
           if decoded != configured:
               candidates.append(('percent-decoded', decoded))
 
+          def summarize_http_error(error):
+              try:
+                  payload = json.loads(error.read().decode('utf-8', 'replace'))
+              except Exception:
+                  return ''
+              if not isinstance(payload, dict):
+                  return ''
+              details = []
+              for key in ('title', 'detail', 'type'):
+                  value = payload.get(key)
+                  if not isinstance(value, str) or not value:
+                      continue
+                  for _, candidate in candidates:
+                      if candidate:
+                          value = value.replace(candidate, '[redacted]')
+                  details.append(f'{key}: {value[:240]}')
+              return '; '.join(details)
+
           for form, token in candidates:
               headers = {'Authorization': 'Bearer ' + token, 'User-Agent': 'Swartzit-SER8-X-token-check'}
               profile_url = 'https://api.x.com/2/users/by/username/DarioAmodei?user.fields=username'
@@ -169,7 +187,9 @@ jobs:
                   with urllib.request.urlopen(urllib.request.Request(profile_url, headers=headers), timeout=20) as response:
                       profile = json.load(response).get('data', {})
               except urllib.error.HTTPError as error:
-                  print(f'X profile lookup from SER8 ({form}) returned HTTP {error.code}.')
+                  detail = summarize_http_error(error)
+                  suffix = f' ({detail})' if detail else ''
+                  print(f'X profile lookup from SER8 ({form}) returned HTTP {error.code}{suffix}.')
                   continue
               except Exception as error:
                   print(f'X profile lookup from SER8 failed ({type(error).__name__}).')
@@ -190,7 +210,9 @@ jobs:
                   with urllib.request.urlopen(urllib.request.Request(timeline_url, headers=headers), timeout=25) as response:
                       timeline = json.load(response)
               except urllib.error.HTTPError as error:
-                  print(f'X timeline lookup from SER8 ({form}) returned HTTP {error.code}.')
+                  detail = summarize_http_error(error)
+                  suffix = f' ({detail})' if detail else ''
+                  print(f'X timeline lookup from SER8 ({form}) returned HTTP {error.code}{suffix}.')
                   raise SystemExit(1)
               except Exception as error:
                   print(f'X timeline lookup from SER8 failed ({type(error).__name__}).')
