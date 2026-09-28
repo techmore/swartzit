@@ -59,16 +59,117 @@ function originalPost(tweet) {
   return result && typeof result === 'object' ? result : tweet;
 }
 
+function syndicationToken(id) {
+  return ((Number(id) / 1e15) * Math.PI).toString(36).replace(/(0+|\.)/g, '');
+}
+
+function fromFxStatus(status, quoteDepth = 0) {
+  if (!status || typeof status !== 'object') return null;
+  const user = status.author ?? {};
+  const media = status.media ?? {};
+  const mediaDetails = [];
+
+  for (const photo of media.photos ?? []) {
+    mediaDetails.push({
+      type: photo.type === 'gif' ? 'animated_gif' : 'photo',
+      media_url_https: photo.url,
+      ext_alt_text: photo.altText
+    });
+  }
+  for (const video of media.videos ?? []) {
+    mediaDetails.push({
+      type: video.type === 'gif' ? 'animated_gif' : 'video',
+      media_url_https: video.thumbnail_url,
+      video_info: {
+        variants: (video.formats ?? []).map(format => ({
+          content_type: format.container === 'mp4' ? 'video/mp4' : `video/${format.container ?? ''}`,
+          bitrate: format.bitrate,
+          url: format.url
+        }))
+      }
+    });
+  }
+
+  const quote = quoteDepth < 3 && status.quote?.type === 'status'
+    ? fromFxStatus(status.quote, quoteDepth + 1)
+    : null;
+  return {
+    id_str: String(status.id ?? ''),
+    text: typeof status.text === 'string' ? status.text : '',
+    created_at: status.created_at,
+    favorite_count: status.likes,
+    retweet_count: status.reposts,
+    reply_count: status.replies,
+    views: status.views == null ? null : { count: status.views },
+    user: {
+      screen_name: user.screen_name,
+      name: user.name,
+      description: user.description,
+      profile_image_url_https: user.avatar_url,
+      followers_count: user.followers,
+      friends_count: user.following,
+      is_blue_verified: user.verification?.verified === true,
+      verified: user.verification?.verified === true
+    },
+    mediaDetails,
+    ...(quote ? { quoted_tweet: quote } : {})
+  };
+}
+
+function isMatchingTweet(tweet, id) {
+  return tweet && typeof tweet === 'object' && String(tweet.id_str ?? tweet.id ?? '') === id
+    && tweet.__typename !== 'TweetTombstone';
+}
+
 export async function resolveXPost(raw, fetcher = fetch) {
   const { id, source_url } = parseXStatusUrl(raw);
-  const response = await fetcher(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=0`, {
-    headers: { accept: 'application/json' },
-    redirect: 'error',
-    signal: AbortSignal.timeout(15000)
-  });
-  if (!response.ok) throw new Error('X could not load that post. Check that it is public and try again.');
-  const tweet = await response.json();
-  if (String(tweet.id_str ?? tweet.id ?? '') !== id) throw new Error('That X post is unavailable or private.');
+  const syndicationUrl = new URL('https://cdn.syndication.twimg.com/tweet-result');
+  syndicationUrl.searchParams.set('id', id);
+  syndicationUrl.searchParams.set('lang', 'en');
+  syndicationUrl.searchParams.set('token', syndicationToken(id));
+  let tweet = null;
+  try {
+    const response = await fetcher(syndicationUrl, {
+      headers: { accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(10000)
+    });
+    if (response.ok) {
+      const result = await response.json();
+      if (isMatchingTweet(result, id)) tweet = result;
+    }
+  } catch {
+    // Try the public read fallback below when the syndication endpoint is unavailable.
+  }
+
+  if (!tweet) {
+    let fallback;
+    try {
+      const response = await fetcher(`https://api.fxtwitter.com/i/status/${id}`, {
+        headers: { accept: 'application/json' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 403) throw new Error('That X post is unavailable or private.');
+        throw new Error('X could not load that post. Check that it is public and try again.');
+      }
+      fallback = await response.json();
+    } catch (error) {
+      if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw error;
+      if (error?.message === 'That X post is unavailable or private.') throw error;
+      throw new Error('X could not load that post. Check that it is public and try again.');
+    }
+
+    if (fallback?.code === 403 || fallback?.code === 404) {
+      throw new Error('That X post is unavailable or private.');
+    }
+    if (fallback?.code !== 200 || String(fallback.tweet?.id ?? '') !== id) {
+      throw new Error('X could not load that post. Check that it is public and try again.');
+    }
+    tweet = fromFxStatus(fallback.tweet);
+  }
+
   // When the submitted URL belongs to a repost, the post that was reposted is
   // the source people usually mean to follow. Keep the outer URL for attribution
   // but use the original post's author, text, metrics, and media.
