@@ -180,7 +180,7 @@ pub async fn content(
             ) t"#
         }
         "comments" => {
-            "SELECT row_to_json(t) FROM (SELECT c.id,c.post_id,c.body,c.created_at,a.handle AS author FROM comments c JOIN authors a ON a.id=c.author_id WHERE strpos(lower(c.body),lower($1))>0 AND ($2::bigint IS NULL OR c.id<$2) ORDER BY c.id DESC LIMIT 50) t"
+            "SELECT row_to_json(t) FROM (SELECT c.id,c.post_id,c.body || CASE WHEN c.source IS NULL THEN '' ELSE E'\\n\\n' || COALESCE(c.source->>'title','External post') || E'\\n' || COALESCE(c.source->>'body','') || E'\\n' || COALESCE(c.source->>'source_url','') END AS body,c.source,c.created_at,a.handle AS author FROM comments c JOIN authors a ON a.id=c.author_id WHERE strpos(lower(c.body || ' ' || COALESCE(c.source->>'body','')),lower($1))>0 AND ($2::bigint IS NULL OR c.id<$2) ORDER BY c.id DESC LIMIT 50) t"
         }
         "communities" => {
             "SELECT row_to_json(t) FROM (SELECT c.id,c.slug,c.name,c.description,(SELECT count(*) FROM posts WHERE community_id=c.id) AS posts FROM communities c WHERE strpos(lower(c.slug || ' ' || c.name),lower($1))>0 AND ($2::bigint IS NULL OR c.id<$2) ORDER BY c.id DESC LIMIT 50) t"
@@ -308,7 +308,7 @@ pub async fn moderation(
                   CASE
                     WHEN mi.kind = 'profile'
                       THEN concat_ws(E'\\n', NULLIF(mi.payload->>'display_name', ''), NULLIF(mi.payload->>'bio', ''))
-                    ELSE COALESCE(p.body, cm.body, '')
+                    ELSE COALESCE(p.body, cm.body, '') || CASE WHEN cm.source IS NULL THEN '' ELSE E'\\n\\n' || COALESCE(cm.source->>'title','External post') || E'\\n' || COALESCE(cm.source->>'body','') || E'\\n' || COALESCE(cm.source->>'source_url','') END
                   END AS body,
                   c.slug AS community,
                   CASE WHEN mi.kind = 'profile' THEN mi.payload ELSE NULL::jsonb END AS profile
@@ -321,7 +321,7 @@ pub async fn moderation(
              AND mi.status IN ('pending', 'escalated')
              AND ($1 = '' OR strpos(lower(
                a.handle || ' ' || COALESCE(p.title, '') || ' ' ||
-               COALESCE(p.body, cm.body, '') || ' ' || COALESCE(mi.payload::text, '')
+               COALESCE(p.body, cm.body, '') || ' ' || COALESCE(cm.source->>'body','') || ' ' || COALESCE(mi.payload::text, '')
              ), lower($1)) > 0)
              AND ($2 = '' OR mi.kind = $2)
              AND ($3::bigint IS NULL OR mi.id < $3)

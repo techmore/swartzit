@@ -116,6 +116,7 @@ struct Comment {
     id: i64,
     parent_id: Option<i64>,
     body: String,
+    source: Option<serde_json::Value>,
     author: String,
     created_at: DateTime<Utc>,
 }
@@ -151,6 +152,7 @@ struct CommentExport {
     parent_id: Option<i64>,
     author: String,
     body: String,
+    source: Option<serde_json::Value>,
     created_at: DateTime<Utc>,
 }
 #[derive(Serialize, FromRow)]
@@ -222,6 +224,8 @@ struct CreatedPost {
 struct CreateCommentRequest {
     body: String,
     parent_id: Option<i64>,
+    #[serde(default)]
+    source: Option<serde_json::Value>,
 }
 #[derive(Deserialize)]
 struct ProfileUpdateRequest {
@@ -235,6 +239,7 @@ struct CreatedComment {
     post_id: i64,
     parent_id: Option<i64>,
     body: String,
+    source: Option<serde_json::Value>,
     author: String,
 }
 #[derive(Deserialize)]
@@ -1713,14 +1718,32 @@ async fn create_comment(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let author_id = active_author(&headers, &db).await?;
     let body = input.body.trim();
-    if body.is_empty() || body.len() > 10000 {
+    let source = input
+        .source
+        .map(imports::validate_comment_source)
+        .transpose()?;
+    if (body.is_empty() && source.is_none()) || body.len() > 10000 {
         return Err(ApiError::Invalid(
-            "Comment must be between 1 and 10000 characters",
+            "Comment must include text or an external post and be 10000 characters or fewer",
         ));
+    }
+    let mut moderation_text = body.to_owned();
+    if let Some(source) = &source {
+        if let Some(source_body) = source.get("body").and_then(serde_json::Value::as_str) {
+            if !moderation_text.is_empty() && !source_body.is_empty() {
+                moderation_text.push_str("\n\n");
+            }
+            moderation_text.push_str(source_body);
+        }
+        if moderation_text.trim().is_empty()
+            && let Some(source_url) = source.get("source_url").and_then(serde_json::Value::as_str)
+        {
+            moderation_text.push_str(source_url);
+        }
     }
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
     let (severity, flags, urgent) = if moderation_enabled {
-        let analysis = analyze_user_content(&db, author_id, body).await?;
+        let analysis = analyze_user_content(&db, author_id, &moderation_text).await?;
         (
             analysis.severity.clone(),
             flags_json(&analysis),
@@ -1737,9 +1760,9 @@ async fn create_comment(
     let mut tx = db.begin().await?;
     let result = sqlx::query_as::<_, CreatedComment>(
         "INSERT INTO comments (
-           post_id, author_id, parent_id, body, moderation_status
+           post_id, author_id, parent_id, body, source, moderation_status
          )
-         SELECT $1, $2, $3, $4, $5
+         SELECT $1, $2, $3, $4, $5, $6
          WHERE EXISTS (
            SELECT 1 FROM posts WHERE id = $1 AND moderation_status = 'approved'
          )
@@ -1749,12 +1772,13 @@ async fn create_comment(
              WHERE id = $3 AND post_id = $1 AND moderation_status = 'approved'
            )
          )
-         RETURNING id, post_id, parent_id, body, (SELECT handle FROM authors WHERE id = $2) AS author",
+         RETURNING id, post_id, parent_id, body, source, (SELECT handle FROM authors WHERE id = $2) AS author",
     )
     .bind(post_id)
     .bind(author_id)
     .bind(input.parent_id)
     .bind(body)
+    .bind(&source)
     .bind(publication_status)
     .fetch_optional(&mut *tx)
     .await?
@@ -1812,6 +1836,7 @@ async fn create_comment(
             "post_id": result.post_id,
             "parent_id": result.parent_id,
             "body": result.body,
+            "source": result.source,
             "author": result.author,
             "status": publication_status,
             "severity": severity,
@@ -2087,7 +2112,7 @@ async fn post(
     .ok_or(ApiError::Missing)?;
     let id = post.id;
     // Bounded for the initial reader; expose truncation instead of silently losing replies.
-    let mut comments: Vec<Comment> = sqlx::query_as("SELECT cm.id, cm.parent_id, cm.body, a.handle AS author, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id WHERE cm.post_id = $1 AND cm.moderation_status = 'approved' ORDER BY cm.id LIMIT 501").bind(id).fetch_all(&db).await?;
+    let mut comments: Vec<Comment> = sqlx::query_as("SELECT cm.id, cm.parent_id, cm.body, cm.source, a.handle AS author, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id WHERE cm.post_id = $1 AND cm.moderation_status = 'approved' ORDER BY cm.id LIMIT 501").bind(id).fetch_all(&db).await?;
     let comments_truncated = comments.len() > 500;
     comments.truncate(500);
     let media: Vec<MediaAsset> = sqlx::query_as("SELECT m.id, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id WHERE pm.post_id = $1 ORDER BY pm.position, m.id").bind(id).fetch_all(&db).await?;
@@ -2124,7 +2149,7 @@ async fn export(
         .bind(&query.community).fetch_all(&db).await?;
     let posts: Vec<PostExport> = sqlx::query_as("SELECT p.id, c.slug AS community, a.handle AS author, p.title, p.body, p.content_rating, p.created_at FROM posts p JOIN communities c ON c.id = p.community_id JOIN authors a ON a.id = p.author_id WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY p.id LIMIT 10000")
         .bind(&query.community).fetch_all(&db).await?;
-    let comments: Vec<CommentExport> = sqlx::query_as("SELECT cm.id, cm.post_id, cm.parent_id, a.handle AS author, cm.body, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id JOIN posts p ON p.id = cm.post_id JOIN communities c ON c.id = p.community_id WHERE cm.moderation_status = 'approved' AND p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY cm.id LIMIT 50000")
+    let comments: Vec<CommentExport> = sqlx::query_as("SELECT cm.id, cm.post_id, cm.parent_id, a.handle AS author, cm.body, cm.source, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id JOIN posts p ON p.id = cm.post_id JOIN communities c ON c.id = p.community_id WHERE cm.moderation_status = 'approved' AND p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY cm.id LIMIT 50000")
         .bind(&query.community).fetch_all(&db).await?;
     let media: Vec<ExportMedia> = sqlx::query_as("SELECT pm.post_id, pm.media_id, pm.position, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id JOIN posts p ON p.id = pm.post_id JOIN communities c ON c.id = p.community_id WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY pm.post_id, pm.position LIMIT 50000")
         .bind(&query.community).fetch_all(&db).await?;

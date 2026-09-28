@@ -10,12 +10,15 @@
   import DrawThingsFeedback from '$lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
   import ContentRatingControl from '$lib/ContentRatingControl.svelte';
+  import { parseCommentDraft } from '$lib/comment-source.mjs';
   let commentOrder = 'oldest';
   export let data;
   let token = '', body = '', parent = null, message = '', busy = false, showAllComments = false;
+  $: commentDraft = parseCommentDraft(body);
   const redundantSourceTitle = post => post?.source?.provider === 'x' && post.title?.trim() === post.body?.split(/\r?\n/, 1)[0]?.trim();
   const articleConfig = post => post?.source?.generation_config?.content_kind === 'article' ? post.source.generation_config : null;
   const mediaValue = value => typeof value === 'string' ? { kind: 'image', src: value } : value;
+  const sourceProviderLabel = provider => provider === 'reddit' ? 'Reddit' : provider === 'youtube' ? 'YouTube' : 'X';
   $: article = articleConfig(data.post);
   $: articleSeries = Array.isArray(data.article_series) ? data.article_series : [];
   $: articleIndex = articleSeries.findIndex(item => item.public_id === data.post.public_id);
@@ -44,7 +47,13 @@
     finally { busy = false; }
   }
   async function comment() {
-    const result = await send(`/api/posts/${data.post.id}/comments`, { body, parent_id: parent });
+    if (commentDraft.error) { message = commentDraft.error; return; }
+    if (!commentDraft.body && !commentDraft.sourceUrl) { message = 'Write a comment or paste a supported source link.'; return; }
+    const result = commentDraft.sourceUrl
+      ? await send('/api/comment-cross-post', {
+        post_id: data.post.id, parent_id: parent, body: commentDraft.body, url: commentDraft.sourceUrl
+      })
+      : await send(`/api/posts/${data.post.id}/comments`, { body: commentDraft.body, parent_id: parent });
     if (result) {
       body = ''; parent = null;
       message = result.status === 'pending' ? (result.message ?? 'Your comment is waiting for moderator review.') : '';
@@ -107,8 +116,10 @@
         {#if parent}<p class="replying-to">Replying to comment #{parent} <button type="button" class="text-button" on:click={() => parent = null}>Cancel</button></p>{/if}
         <form on:submit|preventDefault={comment}>
           <label class="visually-hidden" for="comment-body">Add a comment</label>
-          <textarea id="comment-body" bind:value={body} required maxlength="10000" rows="3" placeholder="Add to the conversation…"></textarea>
-          <div class="comment-submit"><button disabled={busy}>{busy ? 'Posting…' : 'Post comment'}</button></div>
+          <textarea id="comment-body" bind:value={body} maxlength="10000" rows="3" placeholder="Add to the conversation or paste an X, Reddit, or YouTube link…"></textarea>
+          {#if commentDraft.sourceUrl}<p class="comment-source-hint">{sourceProviderLabel(commentDraft.provider)} link detected. It will appear as a cross-post in the thread.</p>{/if}
+          {#if commentDraft.error}<p class="comment-source-error" role="alert">{commentDraft.error}</p>{/if}
+          <div class="comment-submit"><button disabled={busy || Boolean(commentDraft.error) || (!commentDraft.body && !commentDraft.sourceUrl)}>{busy ? 'Posting…' : 'Post comment'}</button></div>
         </form>
       </section>
     {:else}<p class="join-prompt"><a href="/login">Sign in</a> to join the discussion.</p>{/if}
@@ -118,7 +129,8 @@
         <div style:margin-left={depth > 0 ? '16px' : '0'}>
           <article id={'comment-' + item.id}>
             <div class="meta comment-author"><AuthorAvatar handle={item.author} size="small" /><span><a href={'/u/' + item.author}>u/{item.author}</a> · {new Date(item.created_at).toLocaleDateString()}</span></div>
-            <p>{item.body}</p>
+            {#if item.body}<p>{item.body}</p>{/if}
+            {#if item.source}<div class="comment-source"><SourcePost source={item.source} text={item.source.body} embedded={true} /></div>{/if}
             {#if token}<a href="#reply" on:click={() => parent = item.id}>Reply</a>{/if}
           </article>
           {@render thread(item.id, depth + 1)}
@@ -195,6 +207,9 @@
   .comment-compose textarea{border:0;padding:4px;background:transparent;resize:vertical;min-height:64px}
   .comment-submit{display:flex;justify-content:flex-end}
   .comment-submit button{border-radius:6px;padding:8px 13px;font-size:.84rem}
+  .comment-source-hint,.comment-source-error{margin:0;color:var(--muted,#77827d);font-size:.78rem}
+  .comment-source-error{color:var(--danger,#9b3b36)}
+  .comment-source{margin-top:10px}
   .join-prompt,.source-replies-note,.replying-to{font-size:.82rem;color:var(--muted,#77827d);margin:10px 0 18px}
   .join-prompt a,.source-replies-note a{color:var(--link,#215e47);font-weight:650}
   .replying-to{display:flex;align-items:center;gap:8px;margin:0 0 6px}
