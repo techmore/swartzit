@@ -7,7 +7,18 @@ test('accepts public X status links and canonicalizes tracking URLs', () => {
     id: '123', source_url: 'https://x.com/i/status/123'
   });
   assert.equal(parseXStatusUrl('https://x.com/i/status/456').id, '456');
-  for (const value of ['https://x.com/person', 'http://x.com/a/status/1', 'https://x.com.evil.test/a/status/1', 'https://x.com/a/status/no']) {
+  assert.deepEqual(parseXStatusUrl('https://x.com/FloridaManAF/status/2104618999141061018/video/1?s=46'), {
+    id: '2104618999141061018', source_url: 'https://x.com/i/status/2104618999141061018'
+  });
+  assert.equal(parseXStatusUrl('https://twitter.com/person/status/123/photo/2').id, '123');
+  for (const value of [
+    'https://x.com/person',
+    'http://x.com/a/status/1',
+    'https://x.com.evil.test/a/status/1',
+    'https://x.com/a/status/no',
+    'https://x.com/a/status/123/audio/1',
+    'https://x.com/a/status/123/video/no'
+  ]) {
     assert.throws(() => parseXStatusUrl(value));
   }
 });

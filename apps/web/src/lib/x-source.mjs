@@ -8,11 +8,10 @@ export function parseXStatusUrl(raw) {
     throw new Error('Use a public post link from x.com or twitter.com.');
   }
   const parts = url.pathname.split('/').filter(Boolean);
-  const id = parts.length === 3 && parts[1] === 'status' && /^\d{1,24}$/.test(parts[2])
-    ? parts[2]
-    : parts.length === 3 && parts[0] === 'i' && parts[1] === 'status' && /^\d{1,24}$/.test(parts[2])
-      ? parts[2]
-      : null;
+  const statusPath = parts.length >= 3 && parts[1] === 'status';
+  const validMediaSuffix = parts.length === 3
+    || parts.length === 5 && ['video', 'photo'].includes(parts[3]) && /^\d+$/.test(parts[4]);
+  const id = statusPath && validMediaSuffix && /^\d{1,24}$/.test(parts[2]) ? parts[2] : null;
   if (!id) throw new Error('Use a link to one X post, not a profile or feed.');
   return { id, source_url: `https://x.com/i/status/${id}` };
 }
