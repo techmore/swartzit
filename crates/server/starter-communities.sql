@@ -1,5 +1,6 @@
 -- Familiar topics with original descriptions; no imported posts or affiliation.
 INSERT INTO communities (slug,name,description) VALUES
+('general','General','A place for links and discussions that do not fit another community.'),
 ('ask','Ask the Community','Good questions, thoughtful answers, and perspectives beyond your own.'),
 ('technology','Technology','Discuss the tools and systems changing how we live and work.'),
 ('science','Science','Discover research, ask questions, and examine the evidence.'),

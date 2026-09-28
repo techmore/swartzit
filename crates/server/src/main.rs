@@ -205,6 +205,7 @@ struct LoginResponse {
 }
 #[derive(Deserialize)]
 struct CreatePostRequest {
+    #[serde(default)]
     community: String,
     title: String,
     body: String,
@@ -401,6 +402,15 @@ fn validate_content_rating(value: Option<&str>) -> Result<String, ApiError> {
         return Err(ApiError::Invalid("Content rating must be General, R, or X"));
     }
     Ok(rating)
+}
+
+fn normalize_community_slug(raw: &str) -> String {
+    let slug = raw.trim().to_ascii_lowercase();
+    if slug.is_empty() {
+        "general".to_owned()
+    } else {
+        slug
+    }
 }
 
 fn is_draw_things_source(source: &Option<serde_json::Value>) -> bool {
@@ -1593,7 +1603,7 @@ async fn create_post(
     let author_id = active_author(&headers, &db).await?;
     let title = input.title.trim();
     let body = input.body.trim();
-    let community = input.community.trim().to_ascii_lowercase();
+    let community = normalize_community_slug(&input.community);
     let content_rating = validate_content_rating(input.content_rating.as_deref())?;
     if title.is_empty() || title.len() > 300 || body.len() > 50000 {
         return Err(ApiError::Invalid(
@@ -2627,6 +2637,13 @@ mod tests {
                 "accepted {invalid:?}"
             );
         }
+    }
+    #[test]
+    fn defaults_missing_post_community_to_general() {
+        let input: CreatePostRequest =
+            serde_json::from_value(serde_json::json!({"title": "A link", "body": ""})).unwrap();
+        assert_eq!(normalize_community_slug(&input.community), "general");
+        assert_eq!(normalize_community_slug("  Ask "), "ask");
     }
     #[test]
     fn hides_x_rated_content_by_default_but_allows_explicit_opt_in() {

@@ -14,6 +14,7 @@
   import QuickCrossPost from '$lib/QuickCrossPost.svelte';
   import CommunityPicker from '$lib/CommunityPicker.svelte';
   import Brand from '$lib/Brand.svelte';
+  import { preferredCommunity } from '$lib/community-picker-logic.mjs';
   let searchOpen = Boolean(data.q);
   let composeOpen = false;
   let searchInput;
@@ -22,7 +23,7 @@
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
   function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
-  const initialCommunity = data.communities.find(item => item.slug === data.community)?.slug || data.communities[0]?.slug || '';
+  const initialCommunity = preferredCommunity(data.communities);
   let token = '', title = '', body = '', contentRating = 'general', community = initialCommunity, formError = '', formMessage = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedLoading = false, feedError = '', followingRequestKey = '';
   const TIMELINE_LONG_POST_THRESHOLD = 900;

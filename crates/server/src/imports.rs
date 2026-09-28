@@ -85,6 +85,7 @@ fn validate_source_comments(comments: &[SourceComment]) -> Result<(), ApiError> 
 
 #[derive(Deserialize)]
 pub struct Import {
+    #[serde(default)]
     pub community: String,
     pub provider: String,
     pub source_url: String,
@@ -340,8 +341,9 @@ pub async fn ingest(
         .bind(&source)
         .execute(&mut *tx)
         .await?;
+    let community_slug = normalize_community_slug(&input.community);
     let community: Option<i64> = sqlx::query_scalar("SELECT id FROM communities WHERE slug=$1")
-        .bind(&input.community)
+        .bind(&community_slug)
         .fetch_optional(&mut *tx)
         .await?;
     let community = community.ok_or(ApiError::Invalid("Community not found"))?;
@@ -507,7 +509,7 @@ pub async fn cross_post(
         return Err(ApiError::Invalid("Invalid profile metadata"));
     }
 
-    let community_slug = input.community.trim().to_ascii_lowercase();
+    let community_slug = normalize_community_slug(&input.community);
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
     let (severity, flags, urgent) = if moderation_enabled {
         let analysis = analyze_user_content(
@@ -731,5 +733,21 @@ mod tests {
             assert!(canonical("youtube", u).is_err());
         }
         assert!(order(Some("score; DROP TABLE posts")).is_err());
+    }
+    #[test]
+    fn imported_links_default_to_general_when_community_is_missing_or_blank() {
+        let mut value = serde_json::json!({
+            "provider": "x",
+            "source_url": "https://x.com/i/status/123",
+            "source_author": "@example",
+            "title": "A link",
+            "body": "",
+            "observed_at": "2026-09-28T00:00:00Z"
+        });
+        let missing: Import = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(normalize_community_slug(&missing.community), "general");
+        value["community"] = serde_json::json!("  ");
+        let blank: Import = serde_json::from_value(value).unwrap();
+        assert_eq!(normalize_community_slug(&blank.community), "general");
     }
 }

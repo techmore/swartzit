@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/private';
+import { crossPostCommunity } from '$lib/community-picker-logic.mjs';
 import { parseXStatusUrl, resolveXPost } from '$lib/x-source.mjs';
 import { parseRedditPostUrl, resolveRedditPost } from '$lib/reddit-source.mjs';
 import { parseYouTubeUrl, resolveYouTubePost } from '$lib/youtube-source.mjs';
@@ -14,7 +15,7 @@ export async function POST({ request }) {
   let input;
   try { input = await request.json(); } catch { return json({ error: 'Send a link and choose a community.' }, 400); }
   const url = typeof input.url === 'string' ? input.url.trim() : '';
-  const community = typeof input.community === 'string' ? input.community.trim().toLowerCase() : '';
+  const community = crossPostCommunity(input.community);
   if (!/^[a-z0-9_]{1,40}$/.test(community)) return json({ error: 'Choose a valid community.' }, 400);
   let provider = '';
   try { parseXStatusUrl(url); provider = 'x'; }
