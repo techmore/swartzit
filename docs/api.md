@@ -28,7 +28,10 @@ Participation endpoints use `Authorization: Bearer <token>`:
 - `DELETE /api/communities/:slug/subscription` — unfollow a community
 - `GET /api/communities/:slug/subscription` — inspect follow status
 - `POST /api/posts` — create a text post
-- `POST /api/posts/:id/comments` — create a top-level or child comment
+- `POST /api/posts/:id/comments` — create a top-level or child comment. The
+  `source` field may contain a validated X, Reddit, or YouTube cross-post; a
+  comment can consist of the source alone or include a text caption. Source
+  text is included in moderation and preserved in public exports.
 - `POST /api/posts/:id/vote` — set `value` to `-1`, `0`, or `1`
 - `POST /api/reports` — report exactly one post or comment with a reason
 - `POST /api/media` — register a content hash and optional magnet URI
@@ -45,6 +48,11 @@ Administrators can correct a post label with
 `content_rating` (`general`, `r`, or `x`) and optional `reason`. The response
 contains the saved rating, `moderator` source, and update time; the correction
 is also recorded in the operational log.
+
+The web comment composer recognizes a pasted public X post, Reddit post, or
+YouTube video URL and resolves it server-side before submitting the comment.
+The resulting discussion card keeps the original source URL and source media;
+Swartzit does not rehost the original post.
 
 Media storage is intentionally separate from posts. Migration `0007_media_assets`
 stores content hashes, media types, sizes, and optional magnet URIs; migration

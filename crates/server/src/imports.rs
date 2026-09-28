@@ -64,6 +64,75 @@ pub struct SourceComment {
     pub created_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Deserialize, Serialize)]
+struct ExternalCommentSource {
+    provider: String,
+    source_url: String,
+    source_author: String,
+    title: String,
+    body: String,
+    published_at: Option<DateTime<Utc>>,
+    observed_at: DateTime<Utc>,
+    source_views: Option<i64>,
+    source_likes: Option<i64>,
+    source_reposts: Option<i64>,
+    source_replies: Option<i64>,
+    #[serde(default)]
+    media: Vec<Media>,
+    #[serde(default)]
+    attribution: String,
+    #[serde(default)]
+    source_comments: Vec<SourceComment>,
+    profile_display_name: Option<String>,
+    profile_verified: Option<bool>,
+}
+
+pub(crate) fn validate_comment_source(
+    value: serde_json::Value,
+) -> Result<serde_json::Value, ApiError> {
+    let source: ExternalCommentSource = serde_json::from_value(value)
+        .map_err(|_| ApiError::Invalid("Invalid external comment source"))?;
+    let canonical_url = canonical(&source.provider, &source.source_url)?;
+    let handle = source.source_author.strip_prefix('@').unwrap_or("");
+    if !matches!(source.provider.as_str(), "x" | "reddit" | "youtube")
+        || canonical_url != source.source_url
+        || source.source_author.trim().is_empty()
+        || source.source_author.len() > 200
+        || (source.provider == "x"
+            && (!(1..=15).contains(&handle.len())
+                || !handle
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')))
+        || source.title.trim().is_empty()
+        || source.title.len() > 300
+        || source.body.len() > 50_000
+        || source.attribution.len() > 2_000
+        || source
+            .profile_display_name
+            .as_ref()
+            .is_some_and(|name| name.len() > 200)
+        || source.media.len() > 8
+        || source.source_comments.len() > 50
+        || [
+            source.source_views,
+            source.source_likes,
+            source.source_reposts,
+            source.source_replies,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|count| !(0..=9_007_199_254_740_991).contains(&count))
+        || (source.provider == "youtube" && !source.media.is_empty())
+    {
+        return Err(ApiError::Invalid("Invalid external comment source"));
+    }
+    for media in &source.media {
+        validate_media(media, &source.provider)?;
+    }
+    validate_source_comments(&source.source_comments)?;
+    serde_json::to_value(source).map_err(|_| ApiError::Invalid("Invalid external comment source"))
+}
+
 fn validate_source_comments(comments: &[SourceComment]) -> Result<(), ApiError> {
     if comments.len() > 50
         || comments.iter().any(|comment| {
