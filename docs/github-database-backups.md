@@ -48,6 +48,8 @@ The timer runs daily at 03:30 UTC with a randomized delay of up to 15 minutes.
 `Persistent=true` runs a missed backup after the host comes back online. Local
 backup files and the temporary Git workspace live under
 `/var/lib/swartzit-github-backup`; the local backup copy also retains 14 dumps.
+It uses a dedicated local-backup directory instead of the application's
+`SWARTZIT_BACKUP_DIR`, so the two scheduled backup jobs do not share a lock.
 
 ## Restore
 
