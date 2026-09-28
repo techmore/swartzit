@@ -30,25 +30,43 @@ export function hashBytes(bytes, algorithm='sha256') {
 export function normalizeMedia(media=[]) {
   return media.map(item=>typeof item==='string'?{kind:'image',src:item}:item)
     .filter(item=>item && typeof item.src==='string')
-    .map(item=>({kind:item.kind??'image',src:item.src, ...(item.poster?{poster:item.poster}:{}), ...(item.alt?{alt:item.alt}:{}), ...(item.md5?{md5:item.md5}:{}), ...(item.sha256?{sha256:item.sha256}:{})}));
+    .map(item=>({kind:item.kind??'image',src:item.src, ...(item.poster?{poster:item.poster}:{}), ...(item.alt?{alt:item.alt}:{}), ...(item.md5?{md5:String(item.md5).toLowerCase()}:{}), ...(item.sha256?{sha256:String(item.sha256).toLowerCase()}:{})}));
 }
 
 export function normalizeRecord(record) {
   const provider=String(record.provider??'x').toLowerCase();
   const source_url=canonicalSourceUrl(provider,record.source_url);
   const media=normalizeMedia(record.media);
-  const media_hashes=[...(record.media_hashes??[]),...media.flatMap(m=>[m.md5,m.sha256]).filter(Boolean)];
+  const media_hashes=[...(record.media_hashes??[]).map(value=>String(value).toLowerCase()),...media.flatMap(m=>[m.md5,m.sha256]).filter(Boolean)];
   return {...record,provider,source_url,media,media_hashes:[...new Set(media_hashes)].sort(),observed_at:new Date(record.observed_at??Date.now()).toISOString()};
 }
 
 export function selectRerunCandidates(records,{usedSources=[],usedMediaHashes=[],limit=10,seed='default'}={}) {
+  if(!Number.isInteger(limit)||limit<=0)return [];
   const sourceSet=new Set(usedSources.map(String));
-  const mediaSet=new Set(usedMediaHashes.map(String));
-  const candidates=records.map(normalizeRecord).filter(item=>!sourceSet.has(item.source_url)&&!item.media_hashes.some(h=>mediaSet.has(h)));
+  const mediaSet=new Set(usedMediaHashes.map(value=>String(value).toLowerCase()));
+  const candidates=records.map(normalizeRecord).filter(item=>!sourceSet.has(item.source_url));
   // Seeded Fisher-Yates means a scheduled rerun can be reproduced and tested.
   let state=hashBytes(seed,'sha256').slice(0,8); const rand=()=>{state=hashBytes(state,'sha256').slice(0,8);return parseInt(state,16)/0x100000000;};
   for(let i=candidates.length-1;i>0;i--){const j=Math.floor(rand()*(i+1));[candidates[i],candidates[j]]=[candidates[j],candidates[i]];}
-  return candidates.slice(0,limit);
+  const selected=[];
+  for(const item of candidates) {
+    const hashesOf=media=>[media.md5,media.sha256].filter(Boolean).map(value=>String(value).toLowerCase());
+    const attachedHashes=new Set(item.media.flatMap(hashesOf));
+    const unassociatedHashes=item.media_hashes.filter(hash=>!attachedHashes.has(hash));
+    // Keep legacy record-level fingerprints conservative: without a matching
+    // per-attachment hash, we cannot safely remove just one item from a post.
+    if(unassociatedHashes.some(hash=>mediaSet.has(hash)))continue;
+    const media=item.media.filter(entry=>!hashesOf(entry).some(hash=>mediaSet.has(hash)));
+    if(item.media.length && !media.length)continue;
+    const media_hashes=[...new Set([...unassociatedHashes,...media.flatMap(hashesOf)])].sort();
+    const candidate={...item,media,media_hashes};
+    selected.push(candidate);
+    sourceSet.add(candidate.source_url);
+    for(const hash of media_hashes)mediaSet.add(hash);
+    if(selected.length>=limit)break;
+  }
+  return selected;
 }
 
 export async function fingerprintMedia(record,{fetchMedia=false,timeoutMs=12000}={}) {
@@ -57,11 +75,19 @@ export async function fingerprintMedia(record,{fetchMedia=false,timeoutMs=12000}
     if(!fetchMedia || item.md5 || item.sha256) return item;
     const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),timeoutMs);
     try {
-      const response=await fetch(item.src,{signal:controller.signal});
-      if(!response.ok) return item;
+      let response;
+      for(let attempt=0;attempt<3;attempt++) {
+        response=await fetch(item.src,{headers:{'user-agent':'Swartzit/0.1 (https://stoverparc.org; public-media-fingerprint)'},signal:controller.signal});
+        if(response.ok)break;
+        if(![429,500,502,503,504].includes(response.status)||attempt===2)throw Error(`HTTP ${response.status}`);
+        const retryAfter=Number(response.headers.get('retry-after'));
+        const delay=Number.isFinite(retryAfter)?Math.min(5000,Math.max(0,retryAfter*1000)):500*2**attempt;
+        await new Promise(resolve=>setTimeout(resolve,delay));
+      }
       const bytes=Buffer.from(await response.arrayBuffer());
+      if(!bytes.length)throw Error('empty media response');
       return {...item,md5:hashBytes(bytes,'md5'),sha256:hashBytes(bytes,'sha256')};
-    } catch { return item; } finally { clearTimeout(timer); }
+    } catch(error) { throw Error(`Could not fingerprint media from ${new URL(item.src).hostname}: ${error.message??error}`); } finally { clearTimeout(timer); }
   }));
   const media_hashes=[...new Set(media.flatMap(m=>[m.md5,m.sha256]).filter(Boolean))].sort();
   return {...normalized,media,media_hashes};
@@ -91,12 +117,14 @@ if (process.argv[1]===fileURLToPath(import.meta.url)) {
     return (!contains||new RegExp(contains,'i').test(text))&&(!postContains||new RegExp(postContains,'i').test(postText));
   });
   const prepared=await prepare(sourceRecords),records=prepared.records;
-  let bootstrap=[]; const bootstrapPath=option(args,'--bootstrap');
+  let bootstrap=[],bootstrapSourceUrls=[]; const bootstrapPath=option(args,'--bootstrap');
   let bootstrapErrors=[];
-  if(bootstrapPath){const value=JSON.parse(await readFile(resolve(root,bootstrapPath),'utf8'));if(!Array.isArray(value))throw new Error('Bootstrap must be a JSON array');const preparedBootstrap=await prepare(value);bootstrap=preparedBootstrap.records;bootstrapErrors=preparedBootstrap.errors;}
-  const usedSources=[...state.usedSources,...bootstrap.map(x=>x.source_url)],usedMediaHashes=[...state.usedMediaHashes,...bootstrap.flatMap(x=>x.media_hashes)];
+  if(bootstrapPath){const value=JSON.parse(await readFile(resolve(root,bootstrapPath),'utf8'));if(!Array.isArray(value))throw new Error('Bootstrap must be a JSON array');bootstrapSourceUrls=value.map(item=>normalizeRecord(item).source_url);const preparedBootstrap=await prepare(value);bootstrap=preparedBootstrap.records;bootstrapErrors=preparedBootstrap.errors;}
+  const usedSources=[...state.usedSources,...bootstrapSourceUrls],usedMediaHashes=[...state.usedMediaHashes,...bootstrap.flatMap(x=>x.media_hashes)];
   const selected=selectRerunCandidates(records,{usedSources,usedMediaHashes,limit:Number(option(args,'--limit')??records.length),seed:option(args,'--seed')??new Date().toISOString().slice(0,10)});
   if(args.includes('--mark-selected')) await writeState(statePath,{usedSources:[...usedSources,...selected.map(x=>x.source_url)],usedMediaHashes:[...usedMediaHashes,...selected.flatMap(x=>x.media_hashes)]});
   await mkdir(dirname(resolve(root,output)),{recursive:true}); await writeFile(resolve(root,output),JSON.stringify(selected,null,2)+'\n');
-  console.log(JSON.stringify({input:raw.length,matched:sourceRecords.length,bootstrap:bootstrap.length,eligible:records.length,selected:selected.length,duplicate_or_used:records.length-selected.length,errors:[...prepared.errors,...bootstrapErrors],output}));
+  const inputMedia=records.reduce((count,item)=>count+item.media.length,0),selectedMedia=selected.reduce((count,item)=>count+item.media.length,0);
+  const fingerprintedMedia=records.reduce((count,item)=>count+item.media.filter(media=>Boolean(media.md5&&media.sha256)).length,0);
+  console.log(JSON.stringify({input:raw.length,matched:sourceRecords.length,bootstrap:bootstrap.length,eligible:records.length,selected:selected.length,duplicate_or_used:records.length-selected.length,input_media:inputMedia,selected_media:selectedMedia,duplicate_or_used_media:inputMedia-selectedMedia,fingerprinted_media:fingerprintedMedia,errors:[...prepared.errors,...bootstrapErrors],output}));
 }
