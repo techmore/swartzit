@@ -5,7 +5,10 @@ The browser driver (currently the signed-in X page; later FluidUse) emits a JSON
 
 - canonicalizes X status URLs so `x.com`, `twitter.com`, and tracking links collapse to one source;
 - keeps source URLs and media fingerprints in `.local/content-harness-state.json`;
-- can add MD5 and SHA-256 fingerprints to image/video records with `--fingerprint`;
+- adds MD5 and SHA-256 fingerprints to image/video records with `--fingerprint`;
+- fails a record whose media could not be fetched for hashing, so unknown bytes
+  are not treated as unique;
+- removes exact image/video duplicates within the batch and against prior state;
 - selects a seeded random subset for a future rerunner, excluding anything already used.
 
 Example:
