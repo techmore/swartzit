@@ -4,6 +4,7 @@
   import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
   import XAuthorFollowButton from '$lib/XAuthorFollowButton.svelte';
   import { youtubeEmbedUrl } from '$lib/youtube-source.mjs';
+  import { cleanXSourceText, splitXPost } from '$lib/x-post-display.mjs';
   export let source;
   export let text = '';
   export let post = null;
@@ -26,25 +27,7 @@
   const attachment = m => typeof m === 'string' ? {kind:'image',src:m} : m;
   const isLocalMedia = src => /^\/media\/\d+(?:\/[^?]+)?(?:\?|$)/i.test(String(src ?? ''));
   const clean = value => String(value ?? '').trim();
-  function cleanSourceText(value) {
-    let body = clean(value);
-    // X syndication sometimes appends its own video title, player clock and
-    // engagement counts to extracted profile-page text. The actual video is
-    // rendered from source.media, so keep that player chrome out of the copy.
-    body = body.replace(/\nFrom\s*\n[^\n]+\n\d{1,2}:\d{2}\s*\/\s*\d{1,2}:\d{2}[\s\S]*$/i, '');
-    const lines = body.split(/\r?\n/);
-    while (lines.length) {
-      const line = lines[0].trim();
-      if (!line || line === source.profile_display_name || line === source.source_author || line === '·' || line === 'Fan account' || /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}$/i.test(line)) lines.shift();
-      else break;
-    }
-    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  }
-  function splitPost(value) {
-    const match = clean(value).match(/^(.*?)(?:\n\nQuoted post by (@[^:]+):\s*)([\s\S]*)$/i);
-    return match ? { text: match[1].trim(), quotedAuthor: match[2].trim(), quotedText: match[3].trim() } : { text: clean(value), quotedAuthor: '', quotedText: '' };
-  }
-  $: parsed = splitPost(source.provider === 'x' ? cleanSourceText(text) : text);
+  $: parsed = splitXPost(source.provider === 'x' ? cleanXSourceText(text, source) : text);
   $: displayDate = source.published_at
     ? source.provider === 'x'
       ? relativeXTime(source.published_at, relativeClock)
@@ -134,8 +117,13 @@
     <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<span class="source-handle">{source.source_author}</span>{#if displayDate}<time datetime={source.published_at || undefined} title={source.published_at ? new Date(source.published_at).toLocaleString() : undefined}>{source.provider === 'x' ? `· ${displayDate}` : displayDate}</time>{/if}</div>
     <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a>{#if source.provider === 'x'}<XAuthorFollowButton handle={source.source_author} />{/if}</div></div>
   {#if source.provider === 'x'}
+    {#each parsed.threadContexts as context}
+      <blockquote class="thread-context"><strong>{context.author} · earlier in this thread</strong><p>{context.text}</p></blockquote>
+    {/each}
     {#if parsed.text}<p class="source-text">{parsed.text}</p>{/if}
-    {#if parsed.quotedText}<blockquote class="quoted-post"><strong>{parsed.quotedAuthor}</strong><p>{parsed.quotedText}</p></blockquote>{/if}
+    {#each parsed.quotedPosts as context}
+      <blockquote class="quoted-post"><strong>{context.author} · quoted post</strong><p>{context.text}</p></blockquote>
+    {/each}
     {#if sourceMetrics.length}<div class="source-metrics" aria-label="X metrics"><div class="source-metric-items">{#each sourceMetrics as [label, value, icon]}<span title={label}>{icon} {count(value)}</span>{/each}</div><small>Source counts · {new Date(source.observed_at).toLocaleDateString()}</small></div>{/if}
   {:else}
     {#if source.published_at}<small>Originally published {new Date(source.published_at).toLocaleString()}</small>{/if}
@@ -198,7 +186,7 @@
   .profile-card-heading{display:flex;gap:10px;align-items:center}.profile-card-heading img{width:44px;height:44px;border-radius:50%;object-fit:cover}.profile-card-heading small{margin:2px 0 0}.profile-card p{font-size:.9rem;line-height:1.35}.profile-stats{display:flex;gap:12px;font-size:.8rem;color:var(--muted,#66766c)}.verified{display:inline-grid;place-items:center;width:16px;height:16px;margin-left:4px;border-radius:50%;background:var(--link,#215e47);color:white;font-size:.7rem}
   a{color:var(--link,#215e47);text-decoration:underline}
   small{display:block;color:var(--muted,#66766c);margin:6px 0}
-  .source-post p{margin:8px 0}.source-text{font-size:1rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text,#1d2a27)}.quoted-post{border-left:3px solid var(--border,#c7d0c6);margin:12px 0;padding:8px 12px;background:var(--subtle,#f5f7f3);color:var(--muted,#53615d);overflow-wrap:anywhere}.quoted-post p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}.source-metrics{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted,#66766c);margin:10px 0 0!important;font-size:.76rem}.source-metric-items{display:flex;gap:12px}.source-metrics small{font-size:.68rem;margin:0 0 0 auto}
+  .source-post p{margin:8px 0}.source-text{font-size:1rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text,#1d2a27)}.quoted-post,.thread-context{border-left:3px solid var(--border,#c7d0c6);margin:12px 0;padding:8px 12px;background:var(--subtle,#f5f7f3);color:var(--muted,#53615d);overflow-wrap:anywhere}.thread-context{margin:8px 0;background:color-mix(in srgb,var(--subtle,#f5f7f3) 72%,transparent)}.quoted-post p,.thread-context p{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}.source-metrics{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted,#66766c);margin:10px 0 0!important;font-size:.76rem}.source-metric-items{display:flex;gap:12px}.source-metrics small{font-size:.68rem;margin:0 0 0 auto}
   .source-comments{margin-top:12px;border-top:1px solid var(--border,#c7d0c6);padding-top:10px}.source-comments summary{cursor:pointer;color:var(--muted,#66766c);font-size:.78rem;font-weight:700}.source-comment-list{display:grid;gap:9px;margin-top:10px}.source-comment{padding:9px 10px;border-left:2px solid var(--border,#c7d0c6);background:var(--subtle,#f5f7f3)}.source-comment>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted,#66766c);font-size:.72rem}.source-comment>div strong{color:var(--heading,#173d34)}.source-comment>div time{margin-left:auto}.source-comment p{margin:5px 0 0!important;white-space:pre-wrap;font-size:.82rem;line-height:1.4}
   .source-images{display:grid;gap:8px;margin:8px 0;max-width:680px}
   .media-shell{position:relative}.carousel-shell{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}.carousel-images{display:block;min-height:220px}.carousel-slide.inactive{display:none}.carousel-button{width:36px;height:36px;border:1px solid var(--border,#c7d0c6);border-radius:50%;background:var(--surface,#fff);color:var(--text,#15251b);font-size:1.8rem;line-height:1;cursor:pointer}.carousel-button:hover{background:var(--subtle,#f0f3ec)}.carousel-status{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:680px;color:var(--muted,#66766c);font-size:.78rem}.carousel-dots{display:flex;gap:5px}.carousel-dots button{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:var(--border,#c7d0c6);cursor:pointer}.carousel-dots button.active{background:var(--link,#215e47);transform:scale(1.25)}

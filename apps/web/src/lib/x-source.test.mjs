@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseXStatusUrl, resolveXPost } from './x-source.mjs';
+import { parseXStatusUrl, resolveXPost, resolveXConversation } from './x-source.mjs';
 
 test('accepts public X status links and canonicalizes tracking URLs', () => {
   assert.deepEqual(parseXStatusUrl('https://twitter.com/person/status/123?s=20'), {
@@ -128,4 +128,31 @@ test('attributes an X repost to the original author', async () => {
   assert.equal(record.body, 'The original post');
   assert.equal(record.source_likes, 5);
   assert.equal(record.published_at, '2026-09-27T12:00:00.000Z');
+});
+
+test('retains expanded long text and complete parent and nested quote context', async () => {
+  const record = await resolveXConversation({ id_str: '3', text: 'Preview', note_tweet: { note_tweet_results: { result: { text: 'Full long post' } } }, user: { screen_name: 'child' }, in_reply_to_status_id_str: '2', quoted_tweet: { id_str: '2', text: 'Parent', user: { screen_name: 'parent' } } }, async url => {
+    assert.match(String(url), /id=2/);
+    return { ok: true, json: async () => ({ id_str: '2', text: 'Parent', user: { screen_name: 'parent' }, in_reply_to_status_id_str: '1', parent: { id_str: '1', full_text: 'First post', user: { screen_name: 'first' } } }) };
+  });
+  assert.match(record.body, /^Full long post/);
+  assert.match(record.body, /Thread context by @first:\nFirst post/);
+  assert.match(record.body, /Thread context by @parent:\nParent/);
+  assert.match(record.body, /Quoted post by @parent: Parent/);
+});
+
+test('expands missing note text through the fallback and rejects unavailable full text', async () => {
+  const t = { id_str: '3', text: 'Preview', note_tweet: {}, user: { screen_name: 'child' } };
+  const r = await resolveXConversation(t, async () => ({ ok: true, json: async () => ({ code: 200, tweet: { id: '3', raw_text: { text: 'Complete original text' }, author: { screen_name: 'child' } } }) }));
+  assert.equal(r.body, 'Complete original text');
+  await assert.rejects(resolveXConversation(t, async () => ({ ok: false, status: 404 })), /full text is unavailable/);
+});
+
+test('uses one read for repeated quoted note IDs and rejects oversized UTF-8 context', async () => {
+  let reads = 0;
+  const quote = { id_str: '2', text: 'Preview', note_tweet: {}, user: { screen_name: 'quote' } };
+  const parent = { id_str: '1', text: 'Parent', user: { screen_name: 'parent' }, quoted_tweet: quote };
+  const r = await resolveXConversation({ id_str: '3', text: 'Post', user: { screen_name: 'child' }, parent, in_reply_to_status_id_str: '1', quoted_tweet: quote }, async () => { reads++; return { ok: true, json: async () => ({ code: 200, tweet: { id: '2', text: 'Full quote', author: { screen_name: 'quote' } } }) }; });
+  assert.equal(reads, 1); assert.match(r.body, /Full quote/);
+  await assert.rejects(resolveXConversation({ id_str: '3', full_text: '界'.repeat(85000) }), /size limit/);
 });

@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
   import Brand from '$lib/Brand.svelte';
-  import { parseXBookmarkImport, mergeXBookmarkImports, folderPathKey } from '$lib/x-bookmarks.mjs';
+  import { parseXBookmarkImport, mergeXBookmarkImports } from '$lib/x-bookmarks.mjs';
+  import { runXBookmarkImport, createBookmarkRequest } from '$lib/bookmark-import.mjs';
   let token = '', loaded = false, busy = false, error = '', folders = [], items = [], filter = 'all', page = 1, hasMore = false, name = '', rename = '', message = '';
   let newParentId = '', moveParentId = '', importFolderId = '', importRating = 'general';
   let importProgress = null, importSummary = '', importFailures = [], importPlan = null, previewLoading = false, ownerHandle = '';
@@ -98,46 +99,14 @@
     event.preventDefault(); error = ''; message = ''; importSummary = ''; importFailures = [];
     if (!importPlan || !ownerHandle) { error = 'Load your account and choose valid bookmark files first.'; return; }
     const plan = importPlan, folderId = importFolderId ? Number(importFolderId) : null, rating = importRating;
-    const failures = [], destinationFolders = new Map();
-    let next = 0, completed = 0, saved = 0, failed = 0, pending = 0;
-    importProgress = { total: plan.bookmarks.length, completed, saved, failed, pending, preparing: true };
     busy = true;
-    async function worker() {
-      while (next < plan.bookmarks.length) {
-        const item = plan.bookmarks[next++];
-        const targetFolder = item.folderPath.length ? destinationFolders.get(folderPathKey(item.folderPath)) : folderId;
-        try {
-          const sourceUrl = `https://x.com/i/status/${item.id}`;
-          const existing = await request('/api/bookmarks/import-x', 'POST', { source_url: sourceUrl, folder_id: targetFolder });
-          let status = existing.status;
-          if (!existing.found) {
-            const shared = await request('/api/cross-post', 'POST', { url: sourceUrl, community: 'x_imports', content_rating: rating });
-            const postId = Number(shared.id);
-            if (!Number.isSafeInteger(postId) || postId < 1) throw new Error('Swartzit did not return a post ID.');
-            await request(`/api/posts/${postId}/bookmark`, 'POST', { folder_id: targetFolder });
-            status = shared.status;
-          }
-          saved++;
-          if (status === 'pending') pending++;
-        } catch (cause) {
-          failed++;
-          failures.push({ ...item, reason: cause.message || 'Could not import this X post.' });
-        }
-        completed++;
-        importProgress = { total: plan.bookmarks.length, completed, saved, failed, pending, preparing: false };
-        importFailures = [...failures];
-      }
-    }
     try {
-      const session = await request('/api/me');
-      if (session.handle !== ownerHandle) throw new Error('Your signed-in account changed. Reload before importing.');
-      for (const path of plan.folderPaths) {
-        const folder = await request('/api/bookmark-folders/import-path', 'POST', { path, parent_id: folderId });
-        destinationFolders.set(folderPathKey(path), folder.id);
-      }
-      importProgress = { ...importProgress, preparing: false };
-      await Promise.all(Array.from({ length: Math.min(3, plan.bookmarks.length) }, worker));
-      importSummary = `Saved ${saved.toLocaleString()} of ${plan.bookmarks.length.toLocaleString()} X bookmarks to u/${ownerHandle}${failed ? `; ${failed.toLocaleString()} need attention` : ''}${pending ? `; ${pending.toLocaleString()} are waiting for moderation` : ''}.`;
+      const result = await runXBookmarkImport({
+        plan, expectedHandle: ownerHandle, folderId, rating,
+        request: createBookmarkRequest({ token }),
+        onProgress: (progress, failures) => { importProgress = progress; importFailures = failures; }
+      });
+      importSummary = `Saved ${result.saved.toLocaleString()} of ${result.total.toLocaleString()} X bookmarks to u/${ownerHandle}${result.failed ? `; ${result.failed.toLocaleString()} need attention` : ''}${result.pending ? `; ${result.pending.toLocaleString()} are waiting for moderation` : ''}.`;
       filter = folderId == null ? 'all' : String(folderId);
       page = 1;
       await refresh();
