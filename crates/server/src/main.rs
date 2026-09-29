@@ -2728,6 +2728,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(bookmarks::folders).post(bookmarks::create_folder),
         )
         .route(
+            "/api/bookmark-folders/import-path",
+            post_method(bookmarks::import_folder_path),
+        )
+        .route(
             "/api/bookmark-folders/{id}",
             post_method(bookmarks::rename_folder).delete(bookmarks::delete_folder),
         )

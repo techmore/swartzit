@@ -3,6 +3,7 @@
 
   let token = '', visibility = 'followers', nonRatedOnly = true;
   let followers = [], loading = true, loaded = false, saving = false, busyHandle = '', error = '', message = '';
+  let savedVisibility = 'followers', savedNonRatedOnly = true;
 
   async function load() {
     loading = true;
@@ -21,6 +22,8 @@
       if (!response.ok) throw new Error(result.error || 'Could not load your settings.');
       visibility = result.visibility || 'followers';
       nonRatedOnly = Boolean(result.non_rated_only);
+      savedVisibility = visibility;
+      savedNonRatedOnly = nonRatedOnly;
       followers = Array.isArray(result.followers) ? result.followers : [];
       loaded = true;
     } catch (cause) {
@@ -33,8 +36,6 @@
   onMount(load);
 
   async function saveSettings() {
-    const previousVisibility = visibility;
-    const previousNonRatedOnly = nonRatedOnly;
     saving = true;
     error = '';
     message = '';
@@ -48,23 +49,27 @@
       if (!response.ok) throw new Error(result.error || 'Could not save your settings.');
       visibility = result.visibility;
       nonRatedOnly = Boolean(result.non_rated_only);
+      savedVisibility = visibility;
+      savedNonRatedOnly = nonRatedOnly;
       message = 'Like-sharing settings saved.';
     } catch (cause) {
-      visibility = previousVisibility;
-      nonRatedOnly = previousNonRatedOnly;
+      visibility = savedVisibility;
+      nonRatedOnly = savedNonRatedOnly;
       error = cause.message || 'Could not reach Swartzit.';
     } finally {
       saving = false;
     }
   }
 
-  async function toggleFollower(follower) {
+  async function toggleFollower(follower, selected) {
+    const previousSelected = follower.selected;
+    followers = followers.map(item => item.handle === follower.handle ? { ...item, selected } : item);
     busyHandle = follower.handle;
     error = '';
     message = '';
     try {
       const response = await fetch(`/api/me/like-sharing/audience/${encodeURIComponent(follower.handle)}`, {
-        method: follower.selected ? 'DELETE' : 'POST',
+        method: selected ? 'POST' : 'DELETE',
         headers: { authorization: 'Bearer ' + token }
       });
       const result = await response.json();
@@ -74,6 +79,7 @@
         : item);
       message = result.selected ? `u/${follower.handle} can see your likes.` : `u/${follower.handle} was removed from your selected audience.`;
     } catch (cause) {
+      followers = followers.map(item => item.handle === follower.handle ? { ...item, selected: previousSelected } : item);
       error = cause.message || 'Could not reach Swartzit.';
     } finally {
       busyHandle = '';
@@ -92,14 +98,14 @@
     <button type="button" onclick={load}>Retry</button>
   {:else}
     <label class="setting-label" for="like-visibility">Share my likes with</label>
-    <select id="like-visibility" bind:value={visibility} disabled={saving} onchange={saveSettings}>
+    <select id="like-visibility" bind:value={visibility} disabled={saving || busyHandle !== ''} onchange={saveSettings}>
       <option value="followers">Everyone who follows and pins me</option>
       <option value="selected">Only selected followers</option>
       <option value="hidden">No one — hide my likes</option>
     </select>
 
     <label class="rated-setting">
-      <input type="checkbox" checked={nonRatedOnly} disabled={saving} onchange={(event) => { nonRatedOnly = event.currentTarget.checked; saveSettings(); }} />
+      <input type="checkbox" checked={nonRatedOnly} disabled={saving || busyHandle !== ''} onchange={(event) => { nonRatedOnly = event.currentTarget.checked; saveSettings(); }} />
       <span>Only share likes on General-rated posts</span>
     </label>
     <p class="hint">When enabled, likes on R-rated and X-rated posts stay out of everyone’s Buddies feed, even if you selected that person.</p>
@@ -114,7 +120,7 @@
             {#each followers as follower (follower.handle)}
               <li>
                 <label>
-                  <input type="checkbox" checked={follower.selected} disabled={saving || busyHandle === follower.handle} onchange={() => toggleFollower(follower)} />
+                  <input type="checkbox" checked={follower.selected} disabled={saving || busyHandle !== ''} onchange={(event) => toggleFollower(follower, event.currentTarget.checked)} />
                   <span><strong>{follower.display_name || 'u/' + follower.handle}</strong><small>@{follower.handle}</small></span>
                 </label>
                 {#if busyHandle === follower.handle}<span class="muted">Saving…</span>{/if}

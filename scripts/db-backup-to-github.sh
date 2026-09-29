@@ -28,7 +28,7 @@ case "$REMOTE" in
   *) die 'use an SSH remote such as git@github.com:OWNER/REPOSITORY.git.' ;;
 esac
 
-for command_name in git pg_restore sha256sum awk date ssh flock; do
+for command_name in git pg_restore sha256sum awk date ssh flock python3; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command is missing: $command_name"
 done
 [[ -f "$ROOT/scripts/db-backup.sh" ]] || die 'scripts/db-backup.sh was not found.'
@@ -92,36 +92,7 @@ row_total() {
 }
 
 compare_row_counts() {
-  awk -F '\t' '
-    FNR == NR {
-      if (NF != 2 || $1 == "" || $2 !~ /^[0-9]+$/) { invalid = 1; next }
-      previous[$1] = $2
-      previous_count++
-      next
-    }
-    {
-      if (NF != 2 || $1 == "" || $2 !~ /^[0-9]+$/) { invalid = 1; next }
-      current[$1] = $2
-      current_count++
-    }
-    END {
-      if (invalid || previous_count == 0 || current_count == 0) {
-        print "row-count files are empty or malformed" > "/dev/stderr"
-        exit 2
-      }
-      smaller = 0
-      for (table in previous) {
-        if (!(table in current)) {
-          printf "table disappeared: %s\n", table > "/dev/stderr"
-          smaller = 1
-        } else if (current[table] < previous[table]) {
-          printf "row count decreased for %s: %s -> %s\n", table, previous[table], current[table] > "/dev/stderr"
-          smaller = 1
-        }
-      }
-      if (smaller) exit 1
-    }
-  ' "$1" "$2"
+  python3 "$ROOT/scripts/compare-backup-counts.py" "$1" "$2"
 }
 
 NEW_SHA=$(dump_sha "$DUMP")
@@ -172,14 +143,14 @@ if [[ -n "$LATEST_SNAPSHOT" ]]; then
   PREVIOUS_BYTES=$(dump_bytes "$LATEST_SNAPSHOT/swartzit.dump")
   SHRINK_REASONS=()
   if (( NEW_BYTES < PREVIOUS_BYTES )); then
-    SHRINK_REASONS+=("dump size decreased from $PREVIOUS_BYTES to $NEW_BYTES bytes")
+    echo "Dump size decreased from $PREVIOUS_BYTES to $NEW_BYTES bytes; validating table row counts (expiry and compression can change dump size)."
   fi
   if compare_row_counts "$LATEST_SNAPSHOT/row-counts.tsv" "$COUNTS"; then
     :
   else
     compare_status=$?
     if (( compare_status == 1 )); then
-      SHRINK_REASONS+=("one or more public table row counts decreased")
+      SHRINK_REASONS+=("one or more durable table row counts decreased, or a table disappeared")
     else
       die 'could not compare the current and previous row counts.'
     fi
