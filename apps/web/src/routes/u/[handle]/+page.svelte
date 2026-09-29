@@ -5,6 +5,7 @@
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
   import PostBody from '$lib/PostBody.svelte';
   import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
+  import LikeSharingSettings from '$lib/LikeSharingSettings.svelte';
 
   export let data;
   let token = '', viewer = null, buddyFollowing = false, buddyPinned = false, buddyBusy = false, buddyError = '', displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
@@ -131,6 +132,7 @@
       {#if formMessage}<p class="form-message" role="status">{formMessage}</p>{/if}
       {#if formError}<p class="form-error" role="alert">{formError}</p>{/if}
     </section>
+    <LikeSharingSettings />
   {/if}
 
   <section class="activity">
