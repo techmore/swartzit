@@ -6,6 +6,12 @@ pub struct FolderInput {
     parent_id: Option<Option<i64>>,
 }
 
+#[derive(Deserialize)]
+pub struct ImportFolderPathInput {
+    path: Vec<String>,
+    parent_id: Option<i64>,
+}
+
 fn deserialize_optional_parent<'de, D>(deserializer: D) -> Result<Option<Option<i64>>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -46,6 +52,7 @@ pub struct Saved {
     title: String,
     community: String,
     created_at: DateTime<Utc>,
+    moderation_status: String,
 }
 async fn owner(h: &HeaderMap, db: &PgPool) -> Result<i64, ApiError> {
     authenticated_author(h, db).await.map_err(|e| match e {
@@ -60,8 +67,63 @@ pub async fn folders(
     let uid = owner(&h, &db).await?;
     Ok(Json(crate::operations::timed_query(
         "bookmarks.folders",
-        sqlx::query_as("SELECT f.id,f.name,f.parent_id,count(b.post_id) AS count FROM bookmark_folders f LEFT JOIN bookmarks b ON b.author_id=f.author_id AND b.folder_id=f.id WHERE f.author_id=$1 GROUP BY f.id ORDER BY lower(f.name),f.id").bind(uid).fetch_all(&db),
+        sqlx::query_as("SELECT f.id,f.name,f.parent_id,count(b.post_id) FILTER (WHERE p.moderation_status='approved' OR (p.author_id=$1 AND p.moderation_status='pending')) AS count FROM bookmark_folders f LEFT JOIN bookmarks b ON b.author_id=f.author_id AND b.folder_id=f.id LEFT JOIN posts p ON p.id=b.post_id WHERE f.author_id=$1 GROUP BY f.id ORDER BY lower(f.name),f.id").bind(uid).fetch_all(&db),
     ).await?))
+}
+
+pub async fn import_folder_path(
+    State(db): State<PgPool>,
+    h: HeaderMap,
+    Json(input): Json<ImportFolderPathInput>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let uid = owner(&h, &db).await?;
+    if input.path.is_empty() || input.path.len() > 12 {
+        return Err(ApiError::Invalid("Folder paths must contain 1–12 names"));
+    }
+    let path = input
+        .path
+        .iter()
+        .map(|name| name.trim())
+        .collect::<Vec<_>>();
+    if path
+        .iter()
+        .any(|name| name.is_empty() || name.chars().count() > 80)
+    {
+        return Err(ApiError::Invalid("Folder names must be 1–80 characters"));
+    }
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
+        .bind(format!("bookmark-folders:{uid}"))
+        .execute(&mut *tx)
+        .await?;
+    let mut parent_id = input.parent_id;
+    if let Some(id) = parent_id {
+        let owned: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM bookmark_folders WHERE author_id=$1 AND id=$2)",
+        )
+        .bind(uid)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !owned {
+            return Err(ApiError::Missing);
+        }
+    }
+    for name in path {
+        let existing: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM bookmark_folders WHERE author_id=$1 AND parent_id IS NOT DISTINCT FROM $2 AND lower(name)=lower($3)",
+        ).bind(uid).bind(parent_id).bind(name).fetch_optional(&mut *tx).await?;
+        let id = if let Some(id) = existing {
+            id
+        } else {
+            sqlx::query_scalar::<_, i64>(
+                "INSERT INTO bookmark_folders(author_id,name,parent_id) VALUES ($1,$2,$3) RETURNING id",
+            ).bind(uid).bind(name).bind(parent_id).fetch_one(&mut *tx).await?
+        };
+        parent_id = Some(id);
+    }
+    tx.commit().await?;
+    Ok(Json(serde_json::json!({"id": parent_id})))
 }
 async fn write_folder(
     db: &PgPool,
@@ -379,7 +441,7 @@ pub async fn list(
     if !(1..=100000).contains(&page) {
         return Err(ApiError::Invalid("Invalid page"));
     }
-    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=$1 AND p.moderation_status='approved' AND ($2::bigint IS NULL OR b.folder_id=$2) AND (NOT $3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET $4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
+    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at,p.moderation_status FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=$1 AND (p.moderation_status='approved' OR (p.author_id=$1 AND p.moderation_status='pending')) AND ($2::bigint IS NULL OR b.folder_id=$2) AND (NOT $3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET $4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
     let has_more = rows.len() > 50;
     rows.truncate(50);
     Ok(Json(serde_json::json!({"items":rows,"has_more":has_more})))
@@ -613,5 +675,137 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+    #[sqlx::test(migrations = "./migrations")]
+    #[ignore = "requires DATABASE_URL and permission to create an isolated test database"]
+    async fn import_paths_and_pending_bookmarks(db: PgPool) {
+        let alice: i64 =
+            sqlx::query_scalar("INSERT INTO authors(handle) VALUES ('alice') RETURNING id")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let bob: i64 =
+            sqlx::query_scalar("INSERT INTO authors(handle) VALUES ('bob') RETURNING id")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let mut headers = Vec::new();
+        for (uid, token) in [(alice, "a".repeat(64)), (bob, "b".repeat(64))] {
+            sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES ($1,$2,now()+interval '1 hour')").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(uid).execute(&db).await.unwrap();
+            let mut h = HeaderMap::new();
+            h.insert("authorization", format!("Bearer {token}").parse().unwrap());
+            headers.push(h);
+        }
+        let root = write_folder(&db, alice, None, "X archive".into(), None)
+            .await
+            .unwrap()
+            .0["id"]
+            .as_i64()
+            .unwrap();
+        let input = || ImportFolderPathInput {
+            path: vec![" Research ".into(), "Linux".into()],
+            parent_id: Some(root),
+        };
+        let (first, second) = tokio::join!(
+            import_folder_path(State(db.clone()), headers[0].clone(), Json(input())),
+            import_folder_path(State(db.clone()), headers[0].clone(), Json(input()))
+        );
+        let folder = first.unwrap().0["id"].as_i64().unwrap();
+        assert_eq!(second.unwrap().0["id"], folder);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM bookmark_folders WHERE author_id=$1"
+            )
+            .bind(alice)
+            .fetch_one(&db)
+            .await
+            .unwrap(),
+            3
+        );
+        assert!(matches!(
+            import_folder_path(State(db.clone()), headers[1].clone(), Json(input())).await,
+            Err(ApiError::Missing)
+        ));
+        assert!(matches!(
+            import_folder_path(State(db.clone()), HeaderMap::new(), Json(input())).await,
+            Err(ApiError::Unauthorized)
+        ));
+        assert!(matches!(
+            import_folder_path(
+                State(db.clone()),
+                headers[0].clone(),
+                Json(ImportFolderPathInput {
+                    path: vec!["bad".into(), " ".into()],
+                    parent_id: Some(root)
+                })
+            )
+            .await,
+            Err(ApiError::Invalid(_))
+        ));
+        let community: i64 = sqlx::query_scalar(
+            "INSERT INTO communities(slug,name) VALUES ('test','Test') RETURNING id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        let mine: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES ($1,$2,'My pending import','pending') RETURNING id").bind(community).bind(alice).fetch_one(&db).await.unwrap();
+        let theirs: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES ($1,$2,'Other pending import','approved') RETURNING id").bind(community).bind(bob).fetch_one(&db).await.unwrap();
+        for post in [mine, theirs] {
+            save(
+                State(db.clone()),
+                headers[0].clone(),
+                Path(post),
+                Json(SaveInput {
+                    folder_id: Some(folder),
+                }),
+            )
+            .await
+            .unwrap();
+        }
+        sqlx::query("UPDATE posts SET moderation_status='pending' WHERE id=$1")
+            .bind(theirs)
+            .execute(&db)
+            .await
+            .unwrap();
+        let listed = list(
+            State(db.clone()),
+            headers[0].clone(),
+            Query(ListInput {
+                folder_id: Some(folder),
+                unfiled: None,
+                page: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(listed["items"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["items"][0]["post_id"], mine);
+        assert_eq!(listed["items"][0]["moderation_status"], "pending");
+        let counts = folders(State(db.clone()), headers[0].clone())
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(counts.iter().find(|f| f.id == folder).unwrap().count, 1);
+        assert!(matches!(
+            save(
+                State(db.clone()),
+                headers[1].clone(),
+                Path(mine),
+                Json(SaveInput { folder_id: None })
+            )
+            .await,
+            Err(ApiError::Missing)
+        ));
+        sqlx::query("UPDATE posts SET moderation_status='rejected' WHERE id=$1")
+            .bind(mine)
+            .execute(&db)
+            .await
+            .unwrap();
+        let counts = folders(State(db.clone()), headers[0].clone())
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(counts.iter().find(|f| f.id == folder).unwrap().count, 0);
     }
 }

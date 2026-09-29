@@ -9,13 +9,20 @@ snapshot tree without retaining prior Git commits, so ordinary branch history
 does not grow past the rolling set.
 
 Before publishing, the job checks that the dump is non-empty and readable by
-`pg_restore`, verifies the checksum, and compares the dump size and public table
-row counts with the previous snapshot. It stops if a dump is smaller or any
-table's row count decreased. This leaves the last good GitHub backup in place
-when the live database is unexpectedly reset or truncated. For a deliberate
-data deletion or database compaction, inspect the new database and run one
-manual backup with `SWARTZIT_GITHUB_BACKUP_ALLOW_SHRINK=1` in the service's
-environment; remove that override afterward.
+`pg_restore`, verifies the checksum, and compares public-schema table row counts
+with the previous snapshot. It stops if a table disappears or durable content
+such as authors, posts, comments, sources, or media shrinks. The explicit mutable
+table list in `scripts/compare-backup-counts.py` permits normal session expiry,
+view/IP activity cleanup, runner history retention, and user removal of bookmarks,
+votes, follows, or configuration. Those changes are logged. Dump-size changes
+are reported but do not fail the backup: compression and normal cleanup can make
+a valid dump smaller. All tables still remain in the dump and its row-count manifest.
+
+This leaves the last good GitHub backup in place when durable content is
+unexpectedly reset or truncated. For a deliberate durable-content deletion,
+inspect the new database and run one manual backup with
+`SWARTZIT_GITHUB_BACKUP_ALLOW_SHRINK=1` in the service's environment; remove that
+override afterward.
 
 ## Configure the private repository
 
