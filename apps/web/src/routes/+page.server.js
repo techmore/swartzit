@@ -20,8 +20,9 @@ export async function load({ fetch, url }) {
   // the paused ranking back into the primary user path.
   const feedMode = requestedFeed === 'following'
     ? 'following'
+    : requestedFeed === 'buddies' ? 'buddies'
     : requestedFeed === 'rated' || matureOnly ? 'rated' : 'timeline';
-  const useRatings = feedMode === 'rated' || matureOnly || (requestedFeed === 'following' && validRatings.includes(ratingsParam));
+  const useRatings = feedMode === 'rated' || matureOnly || (['following', 'buddies'].includes(requestedFeed) && validRatings.includes(ratingsParam));
   if (useRatings) {
     // Exact positive selection overrides hide-R / hide-X preferences, so an
     // R+X view really includes X-rated posts even though X is hidden by default.
@@ -34,9 +35,10 @@ export async function load({ fetch, url }) {
   params.set('sort', requestedSort === 'recommended' ? 'newest' : (requestedSort ?? 'newest'));
   if (url.searchParams.has('page')) params.set('page',url.searchParams.get('page'));
   let [postsResponse, communitiesResponse] = await Promise.all([
-    fetch(`${api}/api/posts?${params}`), fetch(`${api}/api/communities`)
+    feedMode === 'buddies' ? Promise.resolve(null) : fetch(`${api}/api/posts?${params}`),
+    fetch(`${api}/api/communities`)
   ]);
-  if (!postsResponse.ok || !communitiesResponse.ok) error(503, 'Discussions are temporarily unavailable. Please try again.');
-  const result = await postsResponse.json();
+  if ((postsResponse && !postsResponse.ok) || !communitiesResponse.ok) error(503, 'Discussions are temporarily unavailable. Please try again.');
+  const result = postsResponse ? await postsResponse.json() : { posts: [], has_more: false };
   return { posts: result.posts, hasMore: result.has_more, communities: await communitiesResponse.json(), sort: params.get('sort'), q: params.get('q') ?? '', community: params.get('community') ?? '', page: Number(params.get('page') ?? 1), feed: feedMode, hideR: useRatings ? false : hideR, hideX: useRatings ? false : hideX, matureOnly: useRatings, ratings: useRatings ? ratings : null };
 }

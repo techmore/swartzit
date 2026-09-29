@@ -104,6 +104,14 @@ struct Post {
     /// buttons can neither highlight nor toggle themselves off.
     #[sqlx(default)]
     your_vote: Option<i16>,
+    /// Only populated by the private buddies feed.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    liked_by: Option<Vec<String>>,
+    /// Most recent pinned-buddy upvote represented by this feed item.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    liked_at: Option<DateTime<Utc>>,
 }
 #[derive(Serialize, FromRow)]
 struct ArticleSeriesItem {
@@ -302,6 +310,24 @@ struct CreateCommunityRequest {
 struct SubscriptionResponse {
     community: String,
     subscribed: bool,
+}
+#[derive(Serialize, FromRow)]
+struct Buddy {
+    handle: String,
+    display_name: Option<String>,
+    avatar_url: Option<String>,
+    pinned: bool,
+    followed_at: DateTime<Utc>,
+}
+#[derive(Serialize)]
+struct BuddyResponse {
+    handle: String,
+    following: bool,
+    pinned: bool,
+}
+#[derive(Deserialize)]
+struct BuddyPinRequest {
+    pinned: bool,
 }
 #[derive(Deserialize)]
 struct XAuthorSubscriptionRequest {
@@ -1386,6 +1412,188 @@ async fn unfollow_x_author(
         following: false,
     }))
 }
+fn normalize_buddy_handle(raw: &str) -> Result<String, ApiError> {
+    let raw = raw.trim();
+    let raw = raw.strip_prefix("u/").unwrap_or(raw);
+    let handle = raw.strip_prefix('@').unwrap_or(raw).to_ascii_lowercase();
+    if !(3..=32).contains(&handle.len())
+        || !handle
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        return Err(ApiError::Invalid("Use a valid Swartzit member handle"));
+    }
+    Ok(handle)
+}
+
+async fn buddy_list(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Buddy>>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let buddies = sqlx::query_as::<_, Buddy>(
+        "SELECT a.handle, NULLIF(a.display_name, '') AS display_name, a.avatar_url,
+                f.pinned, f.created_at AS followed_at
+         FROM buddy_follows f
+         JOIN authors a ON a.id = f.followed_id
+         WHERE f.follower_id = $1
+         ORDER BY f.pinned DESC, a.handle",
+    )
+    .bind(author_id)
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(buddies))
+}
+
+async fn follow_buddy(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(raw_handle): Path<String>,
+) -> Result<Json<BuddyResponse>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    let handle = normalize_buddy_handle(&raw_handle)?;
+    let target_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle = $1")
+        .bind(&handle)
+        .fetch_optional(&db)
+        .await?
+        .ok_or(ApiError::Missing)?;
+    if target_id == author_id {
+        return Err(ApiError::Invalid("You cannot follow yourself"));
+    }
+    sqlx::query(
+        "INSERT INTO buddy_follows (follower_id, followed_id) VALUES ($1, $2)
+         ON CONFLICT (follower_id, followed_id) DO NOTHING",
+    )
+    .bind(author_id)
+    .bind(target_id)
+    .execute(&db)
+    .await?;
+    let pinned: bool = sqlx::query_scalar(
+        "SELECT pinned FROM buddy_follows WHERE follower_id = $1 AND followed_id = $2",
+    )
+    .bind(author_id)
+    .bind(target_id)
+    .fetch_one(&db)
+    .await?;
+    Ok(Json(BuddyResponse {
+        handle,
+        following: true,
+        pinned,
+    }))
+}
+
+async fn unfollow_buddy(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(raw_handle): Path<String>,
+) -> Result<Json<BuddyResponse>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    let handle = normalize_buddy_handle(&raw_handle)?;
+    sqlx::query(
+        "DELETE FROM buddy_follows f USING authors a
+         WHERE f.followed_id = a.id AND f.follower_id = $1 AND a.handle = $2",
+    )
+    .bind(author_id)
+    .bind(&handle)
+    .execute(&db)
+    .await?;
+    Ok(Json(BuddyResponse {
+        handle,
+        following: false,
+        pinned: false,
+    }))
+}
+
+async fn pin_buddy(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(raw_handle): Path<String>,
+    Json(input): Json<BuddyPinRequest>,
+) -> Result<Json<BuddyResponse>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    let handle = normalize_buddy_handle(&raw_handle)?;
+    let updated = sqlx::query(
+        "UPDATE buddy_follows f SET pinned = $3
+         FROM authors a
+         WHERE f.followed_id = a.id AND f.follower_id = $1 AND a.handle = $2",
+    )
+    .bind(author_id)
+    .bind(&handle)
+    .bind(input.pinned)
+    .execute(&db)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::Invalid("Follow this member before pinning them"));
+    }
+    Ok(Json(BuddyResponse {
+        handle,
+        following: true,
+        pinned: input.pinned,
+    }))
+}
+
+async fn buddies_feed(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Query(query): Query<FeedQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let offset = query.validate()?;
+    let ratings = query.ratings.as_deref();
+    let mature_only = query.mature_only() && ratings.is_none();
+    let hide_r = ratings.is_none() && !mature_only && query.hide_r();
+    let hide_x = ratings.is_none() && !mature_only && query.hide_x();
+    let post_select = POST_SELECT.replacen(
+        " FROM posts p",
+        ", buddy_likes.liked_by AS liked_by, buddy_likes.liked_at AS liked_at FROM posts p",
+        1,
+    );
+    let sql = format!(
+        "WITH buddy_likes AS (
+             SELECT v.post_id,
+                    ARRAY_AGG(DISTINCT buddy.handle ORDER BY buddy.handle) AS liked_by,
+                    MAX(v.created_at) AS liked_at
+             FROM post_votes v
+             JOIN buddy_follows f ON f.followed_id = v.author_id
+                                  AND f.follower_id = $1 AND f.pinned
+             JOIN authors buddy ON buddy.id = f.followed_id
+             GROUP BY v.post_id
+         )
+         {post_select}
+         JOIN buddy_likes ON buddy_likes.post_id = p.id
+         WHERE p.moderation_status = 'approved'
+           AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2))
+           AND ($3::text IS NULL OR c.slug = $3)
+           AND (NOT $5 OR p.content_rating <> 'r')
+           AND (NOT $6 OR p.content_rating <> 'x')
+           AND (NOT $7 OR p.content_rating IN ('r', 'x'))
+           AND ($8::text IS NULL OR ($8 = 'r' AND p.content_rating = 'r')
+             OR ($8 = 'x' AND p.content_rating = 'x')
+             OR ($8 = 'rx' AND p.content_rating IN ('r', 'x')))
+         ORDER BY buddy_likes.liked_at DESC, p.id DESC
+         LIMIT {} OFFSET $4",
+        FEED_PAGE_SIZE + 1
+    );
+    let mut posts: Vec<Post> = operations::timed_query(
+        "feed.buddies",
+        sqlx::query_as(&sql)
+            .bind(author_id)
+            .bind(query.q.as_deref().unwrap_or("").trim())
+            .bind(&query.community)
+            .bind(offset)
+            .bind(hide_r)
+            .bind(hide_x)
+            .bind(mature_only)
+            .bind(ratings)
+            .fetch_all(&db),
+    )
+    .await?;
+    let has_more = posts.len() > FEED_PAGE_SIZE as usize;
+    posts.truncate(FEED_PAGE_SIZE as usize);
+    let mut value = serde_json::json!({"posts": posts, "has_more": has_more});
+    attach_your_votes(&db, &headers, &mut value).await;
+    Ok(Json(value))
+}
 async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
     let value = headers
         .get("authorization")
@@ -2400,6 +2608,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .post(follow_x_author)
                 .delete(unfollow_x_author),
         )
+        .route("/api/buddies", get(buddy_list))
+        .route("/api/buddies/feed", get(buddies_feed))
+        .route(
+            "/api/buddies/{handle}",
+            post_method(follow_buddy).delete(unfollow_buddy),
+        )
+        .route("/api/buddies/{handle}/pin", post_method(pin_buddy))
         .route("/api/admin/logs", get(admin::logs))
         .route("/api/admin/users", get(admin::users))
         .route(

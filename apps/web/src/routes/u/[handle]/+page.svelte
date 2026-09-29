@@ -7,7 +7,7 @@
   import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
 
   export let data;
-  let token = '', viewer = null, displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
+  let token = '', viewer = null, buddyFollowing = false, buddyPinned = false, buddyBusy = false, buddyError = '', displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
   let activeTab = data.tab ?? 'posts';
   let videoLoops = {};
   const date = value => value ? new Date(value).toLocaleDateString() : '—';
@@ -31,9 +31,47 @@
       const meResponse = await fetch('/api/me', { headers: { authorization: 'Bearer ' + token } });
       if (!meResponse.ok) return;
       viewer = await meResponse.json();
-      if (viewer.handle !== data.profile.handle) return;
+      if (viewer.handle !== data.profile.handle) {
+        const buddiesResponse = await fetch('/api/buddies', { headers: { authorization: 'Bearer ' + token } });
+        if (buddiesResponse.ok) {
+          const buddies = await buddiesResponse.json();
+          const buddy = buddies.find(item => item.handle === data.profile.handle);
+          buddyFollowing = Boolean(buddy);
+          buddyPinned = Boolean(buddy?.pinned);
+        }
+      }
     } catch { /* Public profile rendering does not depend on session refresh. */ }
   });
+
+  async function toggleBuddy() {
+    buddyBusy = true; buddyError = '';
+    try {
+      const response = await fetch(`/api/buddies/${encodeURIComponent(data.profile.handle)}`, {
+        method: buddyFollowing ? 'DELETE' : 'POST',
+        headers: { authorization: 'Bearer ' + token }
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not update your buddies.');
+      buddyFollowing = result.following;
+      if (!buddyFollowing) buddyPinned = false;
+    } catch (cause) { buddyError = cause.message || 'Could not reach Swartzit.'; }
+    finally { buddyBusy = false; }
+  }
+
+  async function toggleBuddyPin() {
+    buddyBusy = true; buddyError = '';
+    try {
+      const response = await fetch(`/api/buddies/${encodeURIComponent(data.profile.handle)}/pin`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+        body: JSON.stringify({ pinned: !buddyPinned })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not update this pin.');
+      buddyPinned = result.pinned;
+    } catch (cause) { buddyError = cause.message || 'Could not reach Swartzit.'; }
+    finally { buddyBusy = false; }
+  }
 
   async function saveProfile() {
     formError = ''; formMessage = ''; saving = true;
@@ -69,6 +107,15 @@
     </div>
     {#if data.profile.bio}<p class="bio">{data.profile.bio}</p>{:else}<p class="muted">This member has not added a bio yet.</p>{/if}
     <dl class="profile-stats"><div><dt>Joined</dt><dd>{date(data.profile.joined_at)}</dd></div><div><dt>Posts</dt><dd>{data.profile.post_count}</dd></div><div><dt>Replies</dt><dd>{data.profile.comment_count}</dd></div></dl>
+    {#if token && viewer && viewer.handle !== data.profile.handle}
+      <div class="buddy-controls">
+        <button type="button" disabled={buddyBusy} onclick={toggleBuddy}>{buddyBusy ? 'Saving…' : buddyFollowing ? 'Unfollow buddy' : 'Follow buddy'}</button>
+        {#if buddyFollowing}<button class:pinned={buddyPinned} type="button" disabled={buddyBusy} onclick={toggleBuddyPin}>{buddyPinned ? 'Unpin from Buddies feed' : 'Pin to Buddies feed'}</button>{/if}
+      </div>
+      {#if buddyError}<p class="form-error" role="alert">{buddyError}</p>{/if}
+    {:else if !token}
+      <p class="buddy-sign-in"><a href="/login">Sign in</a> to follow and pin this member.</p>
+    {/if}
   </section>
 
   {#if viewer?.handle === data.profile.handle}
@@ -148,6 +195,7 @@
   .profile-identity{display:flex;align-items:center;gap:16px}.profile-identity :global(.author-avatar){width:72px;height:72px;flex-basis:72px;font-size:1.2rem}.profile-avatar{width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid var(--border,#dedfd7)}
   .profile-card h1{font:500 2rem/1.1 Georgia,serif;color:var(--heading,#173d34);margin:4px 0}.handle{margin:0;color:var(--muted,#77827d);font-size:.86rem}.bio{max-width:650px;margin:22px 0 0;white-space:pre-wrap}
   .profile-stats{display:flex;gap:28px;margin:24px 0 0;border-top:1px solid var(--border,#dedfd7);padding-top:18px}.profile-stats div{display:grid;gap:3px}.profile-stats dt{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#77827d)}.profile-stats dd{margin:0;font-weight:700;color:var(--heading,#173d34)}
+  .buddy-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.buddy-controls button{padding:8px 12px;border:1px solid var(--border,#c7ccc3);border-radius:8px;background:var(--surface,#fff);color:var(--heading,#173d34);font:650 .8rem/1.1 inherit;cursor:pointer}.buddy-controls button:first-child{background:var(--heading,#173d34);border-color:var(--heading,#173d34);color:#fff}.buddy-controls button.pinned{background:var(--wash,#f0ece4);border-color:var(--accent,#9b5e38);color:var(--accent,#9b5e38)}.buddy-controls button:disabled{opacity:.6;cursor:wait}.buddy-sign-in{margin:16px 0 0;color:var(--muted,#66766c);font-size:.82rem}.buddy-sign-in a{color:var(--accent,#9b5e38);font-weight:700}
   .profile-editor{margin-top:20px}.profile-editor h2{margin-top:0}.profile-editor form{display:grid;gap:12px}.profile-editor textarea{resize:vertical}.profile-editor button{justify-self:start}.form-message,.form-error{font-size:.84rem;margin-bottom:0}
   .activity{margin-top:40px}.section-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border,#dedfd7);padding-bottom:12px}.section-heading h2{margin:0;font:500 1.7rem/1.1 Georgia,serif;color:var(--heading,#173d34)}.section-heading a{color:var(--accent,#9b5e38);font-weight:700;font-size:.84rem}
   .profile-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#dedfd7);margin-top:16px;overflow-x:auto}.profile-tabs a{position:relative;padding:13px 15px;color:var(--muted,#66766c);font:600 .82rem/1 inherit;white-space:nowrap;text-decoration:none}.profile-tabs a span{margin-left:4px;font-size:.72rem;opacity:.75}.profile-tabs a:hover{color:var(--heading,#173d34)}.profile-tabs a.active{color:var(--heading,#173d34)}.profile-tabs a.active::after{content:'';position:absolute;right:12px;bottom:-1px;left:12px;height:3px;border-radius:3px 3px 0 0;background:var(--accent,#9b5e38)}
