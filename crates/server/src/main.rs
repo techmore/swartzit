@@ -329,6 +329,17 @@ struct BuddyResponse {
 struct BuddyPinRequest {
     pinned: bool,
 }
+#[derive(Serialize, FromRow)]
+struct LikeShareFollower {
+    handle: String,
+    display_name: Option<String>,
+    selected: bool,
+}
+#[derive(Deserialize)]
+struct LikeSharingRequest {
+    visibility: String,
+    non_rated_only: bool,
+}
 #[derive(Deserialize)]
 struct XAuthorSubscriptionRequest {
     handle: String,
@@ -1532,6 +1543,133 @@ async fn pin_buddy(
     }))
 }
 
+async fn my_like_sharing(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let preferences: Option<(String, bool)> = sqlx::query_as(
+        "SELECT visibility, non_rated_only FROM author_like_privacy WHERE author_id = $1",
+    )
+    .bind(author_id)
+    .fetch_optional(&db)
+    .await?;
+    let (visibility, non_rated_only) =
+        preferences.unwrap_or_else(|| ("followers".to_owned(), false));
+    let followers = sqlx::query_as::<_, LikeShareFollower>(
+        "SELECT a.handle, NULLIF(a.display_name, '') AS display_name,
+                (s.recipient_id IS NOT NULL) AS selected
+         FROM buddy_follows f
+         JOIN authors a ON a.id = f.follower_id
+         LEFT JOIN author_like_share_recipients s
+                ON s.author_id = $1 AND s.recipient_id = a.id
+         WHERE f.followed_id = $1
+         ORDER BY a.handle",
+    )
+    .bind(author_id)
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "visibility": visibility,
+        "non_rated_only": non_rated_only,
+        "followers": followers
+    })))
+}
+
+async fn update_like_sharing(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<LikeSharingRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    let visibility = input.visibility.trim();
+    if !matches!(visibility, "followers" | "selected" | "hidden") {
+        return Err(ApiError::Invalid(
+            "Like sharing must be followers, selected, or hidden",
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO author_like_privacy (author_id, visibility, non_rated_only)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (author_id) DO UPDATE
+         SET visibility = EXCLUDED.visibility,
+             non_rated_only = EXCLUDED.non_rated_only,
+             updated_at = now()",
+    )
+    .bind(author_id)
+    .bind(visibility)
+    .bind(input.non_rated_only)
+    .execute(&db)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "visibility": visibility,
+        "non_rated_only": input.non_rated_only
+    })))
+}
+
+async fn add_like_share_recipient(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(raw_handle): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    let handle = normalize_buddy_handle(&raw_handle)?;
+    let recipient_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle = $1")
+        .bind(&handle)
+        .fetch_optional(&db)
+        .await?
+        .ok_or(ApiError::Missing)?;
+    if recipient_id == author_id {
+        return Err(ApiError::Invalid("You cannot select yourself"));
+    }
+    let follows: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM buddy_follows
+             WHERE follower_id = $2 AND followed_id = $1
+         )",
+    )
+    .bind(author_id)
+    .bind(recipient_id)
+    .fetch_one(&db)
+    .await?;
+    if !follows {
+        return Err(ApiError::Invalid(
+            "Only members who follow you can be selected",
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO author_like_share_recipients (author_id, recipient_id)
+         VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(author_id)
+    .bind(recipient_id)
+    .execute(&db)
+    .await?;
+    Ok(Json(
+        serde_json::json!({"handle": handle, "selected": true}),
+    ))
+}
+
+async fn remove_like_share_recipient(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(raw_handle): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    let handle = normalize_buddy_handle(&raw_handle)?;
+    sqlx::query(
+        "DELETE FROM author_like_share_recipients s USING authors a
+         WHERE s.recipient_id = a.id AND s.author_id = $1 AND a.handle = $2",
+    )
+    .bind(author_id)
+    .bind(&handle)
+    .execute(&db)
+    .await?;
+    Ok(Json(
+        serde_json::json!({"handle": handle, "selected": false}),
+    ))
+}
+
 async fn buddies_feed(
     State(db): State<PgPool>,
     headers: HeaderMap,
@@ -1557,6 +1695,17 @@ async fn buddies_feed(
              JOIN buddy_follows f ON f.followed_id = v.author_id
                                   AND f.follower_id = $1 AND f.pinned
              JOIN authors buddy ON buddy.id = f.followed_id
+             JOIN posts liked_post ON liked_post.id = v.post_id
+                                  AND liked_post.moderation_status = 'approved'
+             LEFT JOIN author_like_privacy privacy ON privacy.author_id = f.followed_id
+             LEFT JOIN author_like_share_recipients selected
+                    ON selected.author_id = f.followed_id AND selected.recipient_id = $1
+             WHERE v.value = 1
+               AND COALESCE(privacy.visibility, 'followers') <> 'hidden'
+               AND (COALESCE(privacy.visibility, 'followers') <> 'selected'
+                    OR selected.recipient_id IS NOT NULL)
+               AND (NOT COALESCE(privacy.non_rated_only, FALSE)
+                    OR liked_post.content_rating = 'general')
              GROUP BY v.post_id
          )
          {post_select}
@@ -2610,6 +2759,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/api/buddies", get(buddy_list))
         .route("/api/buddies/feed", get(buddies_feed))
+        .route(
+            "/api/me/like-sharing",
+            get(my_like_sharing).post(update_like_sharing),
+        )
+        .route(
+            "/api/me/like-sharing/audience/{handle}",
+            post_method(add_like_share_recipient).delete(remove_like_share_recipient),
+        )
         .route(
             "/api/buddies/{handle}",
             post_method(follow_buddy).delete(unfollow_buddy),
