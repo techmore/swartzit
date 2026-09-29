@@ -1,7 +1,6 @@
-import { appendQuotedText } from './x-media.mjs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { resolveXPost } from '../apps/web/src/lib/x-source.mjs';
+import { appendXContext, resolveXPost, xPostText } from '../apps/web/src/lib/x-source.mjs';
 
 const require = createRequire(import.meta.url);
 const now=()=>new Date().toISOString();
@@ -135,11 +134,11 @@ export async function collectX(job) {
   if (process.env.X_SOURCE_MODE === 'playwright') return collectXFromPlaywright(job);
   const token=normalizeXBearerToken(process.env.X_BEARER_TOKEN);
   const h={authorization:`Bearer ${token}`};
-  const fields='created_at,public_metrics,attachments,text,author_id,referenced_tweets';
+  const fields='created_at,public_metrics,attachments,text,note_tweet,author_id,referenced_tweets';
   const mediaFields='type,url,preview_image_url,alt_text,variants,media_key';
   const captured=now();
   const query=job.source.trim().replace(/^search:\s*/i,'');
-  let tweets, users, media;
+  let tweets, users, media, relatedTweets;
   try {
   if (/^search:/i.test(job.source)) {
     if (!query || query.length > 512) throw Error('X search source must contain a query of at most 512 characters');
@@ -147,7 +146,7 @@ export async function collectX(job) {
     applyXWindow(params, job);
     const d=await getJson(`https://api.x.com/2/tweets/search/recent?${params}`,h);
     tweets=d.data||[]; users=d.includes?.users||[]; media=d.includes?.media||[];
-    var quotedTweets=d.includes?.tweets||[];
+    relatedTweets=d.includes?.tweets||[];
   } else {
     const handle=job.source.replace(/^@/,'').replace(/^https?:\/\/(?:www\.)?x\.com\//,'').split(/[/?#]/)[0];
     if (!handle) throw Error('X source must be an @handle, X profile URL, or search: query');
@@ -158,9 +157,10 @@ export async function collectX(job) {
     applyXWindow(params, job);
     const d=await getJson(`https://api.x.com/2/users/${u.data.id}/tweets?${params}`,h);
     tweets=d.data||[]; users=[...users,...(d.includes?.users||[])]; media=d.includes?.media||[];
-    var quotedTweets=d.includes?.tweets||[];
+    relatedTweets=d.includes?.tweets||[];
   }
   const byMedia=new Map(media.map(m=>[m.media_key,m]));
+  const relatedById=new Map(relatedTweets.map(item=>[item.id,item]));
   const byUser=new Map(users.filter(Boolean).map(u=>[u.id,u]));
   return tweets.slice(0,job.max_items).map(t=>{
     const profile=byUser.get(t.author_id)||{};
@@ -172,11 +172,15 @@ export async function collectX(job) {
       return null;
     }).filter(Boolean);
     const metrics=t.public_metrics||{}, profileMetrics=profile.public_metrics||{};
-    const quoteId=t.referenced_tweets?.find(ref=>ref.type==='quoted')?.id;
-    const quoted=quotedTweets.find(item=>item.id===quoteId);
-    const quotedProfile=byUser.get(quoted?.author_id)||{};
-    const body=appendQuotedText(t.text||'',quoted?.text,quotedProfile.username);
-    return {community:job.community,provider:'x',source_url:`https://x.com/${username}/status/${t.id}`,source_author:`@${username}`,title:titleOf(t.text||''),body,published_at:t.created_at||null,observed_at:captured,source_views:Number.isSafeInteger(metrics.impression_count)?metrics.impression_count:null,source_likes:Number.isSafeInteger(metrics.like_count)?metrics.like_count:null,source_reposts:Number.isSafeInteger(metrics.retweet_count)?metrics.retweet_count:null,source_replies:Number.isSafeInteger(metrics.reply_count)?metrics.reply_count:null,media:attachments,profile_image_url:profile.profile_image_url||null,profile_url:`https://x.com/${username}`,profile_display_name:profile.name||null,profile_bio:profile.description||null,profile_followers:Number.isSafeInteger(profileMetrics.followers_count)?profileMetrics.followers_count:null,profile_following:Number.isSafeInteger(profileMetrics.following_count)?profileMetrics.following_count:null,profile_verified:profile.verified===true,attribution:`Imported from @${username}; source: https://x.com/${username}/status/${t.id}`};
+    const refs=t.referenced_tweets||[];
+    const quote=relatedById.get(refs.find(ref=>ref.type==='quoted')?.id);
+    const parent=relatedById.get(refs.find(ref=>ref.type==='replied_to')?.id);
+    const relatedAuthor=item=>byUser.get(item?.author_id)?.username;
+    let body=xPostText(t);
+    if(parent)body=appendXContext(body,'Thread context',relatedAuthor(parent),xPostText(parent));
+    if(quote)body=appendXContext(body,'Quoted post',relatedAuthor(quote),xPostText(quote));
+    const sourceText=xPostText(t);
+    return {community:job.community,provider:'x',source_url:`https://x.com/${username}/status/${t.id}`,source_author:`@${username}`,title:titleOf(sourceText),body,published_at:t.created_at||null,observed_at:captured,source_views:Number.isSafeInteger(metrics.impression_count)?metrics.impression_count:null,source_likes:Number.isSafeInteger(metrics.like_count)?metrics.like_count:null,source_reposts:Number.isSafeInteger(metrics.retweet_count)?metrics.retweet_count:null,source_replies:Number.isSafeInteger(metrics.reply_count)?metrics.reply_count:null,media:attachments,profile_image_url:profile.profile_image_url||null,profile_url:`https://x.com/${username}`,profile_display_name:profile.name||null,profile_bio:profile.description||null,profile_followers:Number.isSafeInteger(profileMetrics.followers_count)?profileMetrics.followers_count:null,profile_following:Number.isSafeInteger(profileMetrics.following_count)?profileMetrics.following_count:null,profile_verified:profile.verified===true,attribution:`Imported from @${username}; source: https://x.com/${username}/status/${t.id}`};
   }).filter(Boolean);
   } catch (error) {
     if (/HTTP 402\b/.test(error.message) && process.env.X_PLAYWRIGHT_USER_DATA_DIR) return collectXFromPlaywright(job);

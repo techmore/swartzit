@@ -1,6 +1,8 @@
 use super::*;
 use url::Url;
 
+const MAX_IMPORTED_BODY_BYTES: usize = 250_000;
+
 #[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Media {
@@ -326,7 +328,7 @@ pub async fn ingest(
     };
     if input.title.trim().is_empty()
         || input.title.len() > 300
-        || input.body.len() > 50000
+        || input.body.len() > MAX_IMPORTED_BODY_BYTES
         || input.source_author.trim().is_empty()
         || input.source_author.len() > 200
         || input.attribution.len() > 2000
@@ -518,7 +520,7 @@ pub async fn cross_post(
     };
     if input.title.trim().is_empty()
         || input.title.len() > 300
-        || input.body.len() > 50000
+        || input.body.len() > MAX_IMPORTED_BODY_BYTES
         || input.source_author.trim().is_empty()
         || input.source_author.len() > 200
         || input.attribution.len() > 2000

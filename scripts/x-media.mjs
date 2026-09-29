@@ -1,4 +1,6 @@
 // Resolve public X attachments without browser cookies or downloading media.
+import { resolveXConversation, resolveXPost, syndicationToken } from '../apps/web/src/lib/x-source.mjs';
+
 export function appendQuotedText(text, quotedText, quotedHandle) {
   const body=String(text??'').trim();
   const quote=String(quotedText??'').trim();
@@ -28,26 +30,50 @@ export async function enrichX(item) {
   const u=new URL(item.source_url);
   const id=u.pathname.match(/^\/[^/]+\/status\/(\d+)\/?$/)?.[1];
   if(!['x.com','www.x.com','twitter.com','www.twitter.com'].includes(u.hostname)||!id)throw Error('Invalid X status URL');
-  const response=await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=0`,{signal:AbortSignal.timeout(20000)});
+  const response=await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=${syndicationToken(id)}`,{signal:AbortSignal.timeout(20000)});
   if(!response.ok)throw Error(`X media metadata: HTTP ${response.status}`);
   const tweet=await response.json();
   // Authenticated collectors can supply a validated CDN attachment when X's
   // public syndication response is empty or omits the status. Keep that
   // observed media rather than degrading a video post into text-only content.
   if(tweet.id_str!==id){
-    if(item.media?.length)return item;
-    throw Error('X media metadata unavailable for '+id);
+    try {
+      return mergeResolved(item, await resolveXPost(item.source_url));
+    } catch (error) {
+      if (/long post|conversation context exceed/.test(String(error?.message))) throw error;
+      if(item.media?.length)return item;
+      throw Error('X media metadata unavailable for '+id);
+    }
   }
-  const media=mediaFromTweet(tweet);
-  const profileImage=trustedProfileImage(tweet.user?.profile_image_url_https);
-  const profile=profileFromUser(tweet.user);
-  // Retain previously collected attachments if this response omitted them.
-  if(!media.length && item.media?.length)return {...item, ...profile, profile_image_url:profileImage??item.profile_image_url};
+  const conversation=await resolveXConversation(tweet);
+  const resolvedTweet=conversation.tweet;
+  return mergeResolved(item, {
+    body: conversation.body,
+    media: conversation.media,
+    profile_image_url: trustedProfileImage(resolvedTweet.user?.profile_image_url_https),
+    ...profileFromUser(resolvedTweet.user)
+  });
+}
+function mergeResolved(item, resolved) {
   const attribution=(item.attribution??'').replace(/Source includes a video; open the original to watch it\.?/g,'').trim();
-  const quoted=tweet.quoted_tweet;
-  const quotedHandle=quoted?.user?.screen_name||quoted?.user?.username;
-  const body=appendQuotedText(item.body,quoted?.text||quoted?.full_text,quotedHandle);
-  return {...item,body,media, ...profile, profile_image_url:profileImage??item.profile_image_url,attribution};
+  return {
+    ...item,
+    body: resolved.body || String(item.body??'').trim(),
+    media: resolved.media?.length ? resolved.media : (item.media??[]),
+    ...profileFromUser({
+      screen_name: resolved.profile_url?.split('/').filter(Boolean).at(-1),
+      name: resolved.profile_display_name,
+      is_blue_verified: resolved.profile_verified
+    }),
+    profile_url: resolved.profile_url || item.profile_url,
+    profile_display_name: resolved.profile_display_name || item.profile_display_name,
+    profile_verified: resolved.profile_verified ?? item.profile_verified,
+    profile_image_url: trustedProfileImage(resolved.profile_image_url) || item.profile_image_url,
+    profile_bio: resolved.profile_bio || item.profile_bio,
+    profile_followers: resolved.profile_followers ?? item.profile_followers,
+    profile_following: resolved.profile_following ?? item.profile_following,
+    attribution
+  };
 }
 function profileFromUser(user) {
   const handle=String(user?.screen_name??'').trim();

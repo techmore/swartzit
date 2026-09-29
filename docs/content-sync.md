@@ -7,7 +7,7 @@ must be reported, never bypassed. Do not send to Signal or enable its old job.
 
 ## Each hourly run
 
-1. Work from `/Users/seandolbec/Projects/modern-reddit`. Check the local API.
+1. Work from `/Users/seandolbec/Projects/swartzit`. Check the local API.
 2. Independently run `node scripts/scheduled-imports.mjs --job ddario --limit 3 --due-hours 24`.
    This publishes up to three previously uncheckpointed Commons sources from the
    Daddario manifest per day. Recheck source credits/licenses. No private library

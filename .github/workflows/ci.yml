@@ -38,4 +38,5 @@ jobs:
         working-directory: apps/web
       - run: npm run build
         working-directory: apps/web
-      - run: node --test scripts/backup-counts.test.mjs
+      - run: node --test scripts/*.test.mjs
+      - run: node --check scripts/import-x-bookmarks.mjs && node --check scripts/prepare-bookmark-transfer.mjs
