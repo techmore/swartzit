@@ -1549,13 +1549,15 @@ async fn my_like_sharing(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let preferences: Option<(String, bool)> = sqlx::query_as(
-        "SELECT visibility, non_rated_only FROM author_like_privacy WHERE author_id = $1",
+        "SELECT visibility,
+                CASE WHEN non_rated_only_configured THEN non_rated_only ELSE TRUE END
+         FROM author_like_privacy WHERE author_id = $1",
     )
     .bind(author_id)
     .fetch_optional(&db)
     .await?;
     let (visibility, non_rated_only) =
-        preferences.unwrap_or_else(|| ("followers".to_owned(), false));
+        preferences.unwrap_or_else(|| ("followers".to_owned(), true));
     let followers = sqlx::query_as::<_, LikeShareFollower>(
         "SELECT a.handle, NULLIF(a.display_name, '') AS display_name,
                 (s.recipient_id IS NOT NULL) AS selected
@@ -1589,11 +1591,13 @@ async fn update_like_sharing(
         ));
     }
     sqlx::query(
-        "INSERT INTO author_like_privacy (author_id, visibility, non_rated_only)
-         VALUES ($1, $2, $3)
+        "INSERT INTO author_like_privacy
+             (author_id, visibility, non_rated_only, non_rated_only_configured)
+         VALUES ($1, $2, $3, TRUE)
          ON CONFLICT (author_id) DO UPDATE
          SET visibility = EXCLUDED.visibility,
              non_rated_only = EXCLUDED.non_rated_only,
+             non_rated_only_configured = TRUE,
              updated_at = now()",
     )
     .bind(author_id)
@@ -1704,8 +1708,9 @@ async fn buddies_feed(
                AND COALESCE(privacy.visibility, 'followers') <> 'hidden'
                AND (COALESCE(privacy.visibility, 'followers') <> 'selected'
                     OR selected.recipient_id IS NOT NULL)
-               AND (NOT COALESCE(privacy.non_rated_only, FALSE)
-                    OR liked_post.content_rating = 'general')
+               AND (liked_post.content_rating = 'general'
+                    OR (COALESCE(privacy.non_rated_only_configured, FALSE)
+                        AND NOT COALESCE(privacy.non_rated_only, TRUE)))
              GROUP BY v.post_id
          )
          {post_select}

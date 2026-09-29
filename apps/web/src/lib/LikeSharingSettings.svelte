@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
 
-  let token = '', visibility = 'followers', nonRatedOnly = false;
+  let token = '', visibility = 'followers', nonRatedOnly = true;
   let followers = [], loading = true, loaded = false, saving = false, busyHandle = '', error = '', message = '';
 
   async function load() {
