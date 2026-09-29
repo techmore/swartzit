@@ -2,12 +2,20 @@
   import { onMount } from 'svelte';
   import SessionNav from '$lib/SessionNav.svelte';
   import Brand from '$lib/Brand.svelte';
+  import { parseXBookmarkExport } from '$lib/x-bookmarks.mjs';
   let token = '', loaded = false, busy = false, error = '', folders = [], items = [], filter = 'all', page = 1, hasMore = false, name = '', rename = '', message = '';
+  let newParentId = '', moveParentId = '', importFolderId = '', xBookmarksFiles = [], importRating = 'general';
+  let importProgress = null, importSummary = '', importFailures = [];
   $: selected = folders.find(f => String(f.id) === filter);
+  $: folderOptions = folders.map(folder => ({ ...folder, label: folderPath(folder.id) }));
+  $: selectedPath = selected ? folderAncestors(selected.id) : [];
+  $: subfolders = folders.filter(folder => selected ? folder.parent_id === selected.id : folder.parent_id == null);
+  $: allowedParents = folders.filter(folder => !selected || (folder.id !== selected.id && !isDescendant(folder.id, selected.id)));
   async function request(path, method = 'GET', body) {
     const r = await fetch(path, {method,headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:body === undefined ? undefined : JSON.stringify(body)});
-    if (!r.ok) throw new Error((await r.json()).error || 'Could not update bookmarks.');
-    return r.status === 204 ? null : r.json();
+    const result = r.status === 204 ? null : await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(result?.error || 'Could not update bookmarks.');
+    return result;
   }
   async function refresh() {
     const query = new URLSearchParams({page:String(page)});
@@ -22,9 +30,96 @@
     finally { busy = false; }
   }
   onMount(async () => { token = localStorage.getItem('swartzit_session') || ''; if (token) await run(async()=>{}); loaded = true; });
-  function changeFilter() { page = 1; rename = folders.find(f => String(f.id) === filter)?.name || ''; run(async()=>{}); }
-  async function create() { await run(async()=>{const f = await request('/api/bookmark-folders','POST',{name}); filter = String(f.id); rename = name.trim(); name = ''; page = 1; message = 'Folder created.';}); }
-  async function deleteFolder() { await run(async()=>{await request('/api/bookmark-folders/'+filter,'DELETE'); filter = 'unfiled'; page = 1; message = 'Folder deleted. Its bookmarks are in Unfiled.';}); }
+  function folderAncestors(id) {
+    const result = [], visited = new Set();
+    let folder = folders.find(item => item.id === id);
+    while (folder && !visited.has(folder.id)) {
+      result.unshift(folder);
+      visited.add(folder.id);
+      folder = folder.parent_id == null ? null : folders.find(item => item.id === folder.parent_id);
+    }
+    return result;
+  }
+  function folderPath(id) { return folderAncestors(id).map(folder => folder.name).join(' / '); }
+  function isDescendant(candidateId, ancestorId) {
+    let folder = folders.find(item => item.id === candidateId);
+    while (folder?.parent_id != null) {
+      if (folder.parent_id === ancestorId) return true;
+      folder = folders.find(item => item.id === folder.parent_id);
+    }
+    return false;
+  }
+  function openFolder(id) { filter = String(id); changeFilter(); }
+  function changeFilter() {
+    page = 1;
+    const folder = folders.find(item => String(item.id) === filter);
+    rename = folder?.name || '';
+    moveParentId = folder?.parent_id == null ? '' : String(folder.parent_id);
+    newParentId = folder ? String(folder.id) : '';
+    importFolderId = folder ? String(folder.id) : '';
+    run(async()=>{});
+  }
+  async function create() {
+    await run(async()=>{
+      const folder = await request('/api/bookmark-folders','POST',{name,parent_id:newParentId ? Number(newParentId) : null});
+      filter = String(folder.id); rename = name.trim(); moveParentId = newParentId; newParentId = String(folder.id); importFolderId = String(folder.id); name = ''; page = 1; message = 'Folder created.';
+    });
+  }
+  async function deleteFolder() {
+    await run(async()=>{await request('/api/bookmark-folders/'+filter,'DELETE'); filter = 'unfiled'; newParentId = ''; moveParentId = ''; page = 1; message = 'Folder deleted. Its bookmarks moved to its parent or Unfiled, and its subfolders moved up one level.';});
+  }
+  async function importXBookmarks(event) {
+    event.preventDefault(); error = ''; message = ''; importSummary = ''; importFailures = [];
+    if (!xBookmarksFiles.length) { error = 'Choose the bookmarks.js or bookmarks.json file from your X archive.'; return; }
+    let ids;
+    try {
+      const parts = await Promise.all(xBookmarksFiles.map(async file => parseXBookmarkExport(await file.text())));
+      ids = [...new Set(parts.flat())];
+      if (ids.length > 10_000) throw new Error('Choose up to 10,000 X bookmarks per import. You can import another batch afterward.');
+    }
+    catch (cause) { error = cause.message || 'Could not read that X bookmarks file.'; return; }
+
+    const folderId = importFolderId ? Number(importFolderId) : null;
+    const failures = [];
+    let next = 0, completed = 0, saved = 0, failed = 0, pending = 0;
+    importProgress = { total: ids.length, completed, saved, failed, pending };
+    busy = true;
+    async function worker() {
+      while (next < ids.length) {
+        const id = ids[next++];
+        try {
+          const sourceUrl = `https://x.com/i/status/${id}`;
+          const existing = await request('/api/bookmarks/import-x', 'POST', { source_url: sourceUrl, folder_id: folderId });
+          let status = existing.status;
+          if (!existing.found) {
+            const shared = await request('/api/cross-post', 'POST', {
+              url: sourceUrl, community: 'x_imports', content_rating: importRating
+            });
+            const postId = Number(shared.id);
+            if (!Number.isSafeInteger(postId) || postId < 1) throw new Error('Swartzit did not return a post ID.');
+            await request(`/api/posts/${postId}/bookmark`, 'POST', { folder_id: folderId });
+            status = shared.status;
+          }
+          saved++;
+          if (status === 'pending') pending++;
+        } catch (cause) {
+          failed++;
+          if (failures.length < 25) failures.push({ id, reason: cause.message || 'Could not import this X post.' });
+        }
+        completed++;
+        importProgress = { total: ids.length, completed, saved, failed, pending };
+        importFailures = [...failures];
+      }
+    }
+    try {
+      await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
+      filter = folderId == null ? 'unfiled' : String(folderId);
+      page = 1;
+      await refresh();
+      importSummary = `Saved ${saved.toLocaleString()} of ${ids.length.toLocaleString()} X bookmarks${failed ? `; ${failed.toLocaleString()} need attention` : ''}${pending ? `; ${pending.toLocaleString()} are waiting for moderation` : ''}.`;
+    } catch (cause) { error = cause.message || 'Could not finish the X bookmark import.'; }
+    finally { busy = false; }
+  }
 </script>
 <svelte:head><title>Bookmarks — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
 <header><Brand /><SessionNav /></header>
@@ -33,21 +128,45 @@
   {#if !loaded}<p role="status">Loading bookmarks…</p>
   {:else if !token}<p><a href="/login">Sign in</a> to save posts and manage folders.</p>
   {:else}
+    <section class="x-bookmark-import" aria-labelledby="x-bookmark-import-title">
+      <h2 id="x-bookmark-import-title">Import X bookmarks</h2>
+      <p>Download and extract your <a href="https://help.x.com/en/managing-your-account/how-to-download-your-x-archive" target="_blank" rel="noopener noreferrer">X archive</a>, then choose its bookmarks <code>.js</code> or <code>.json</code> file. Posts not already on Swartzit will be cross-posted to c/x_imports, then saved in your selected private folder. Existing Swartzit posts are bookmarked without creating duplicates.</p>
+      <form on:submit|preventDefault={importXBookmarks}>
+        <label>Bookmarks file(s)<input type="file" multiple accept=".js,.json,application/json,text/javascript" on:change={(event) => xBookmarksFiles = Array.from(event.currentTarget.files || [])} disabled={busy} /></label>
+        <label>Save imported posts to<select bind:value={importFolderId} disabled={busy}><option value="">Unfiled</option>{#each folderOptions as folder}<option value={String(folder.id)}>{folder.label}</option>{/each}</select></label>
+        <label>Default content rating<select bind:value={importRating} disabled={busy}><option value="general">General</option><option value="r">R — mature themes</option><option value="x">X — explicit content</option></select></label>
+        <button type="submit" disabled={busy || !xBookmarksFiles.length}>{busy && importProgress ? `Importing ${importProgress.completed.toLocaleString()} of ${importProgress.total.toLocaleString()}…` : 'Import X bookmarks'}</button>
+      </form>
+      <p class="import-note">The import is safe to repeat. Unavailable or private X posts are reported and skipped. Imported X posts are public in c/x_imports; choose the highest content rating that applies to this batch.</p>
+      {#if importProgress}<progress value={importProgress.completed} max={importProgress.total} aria-label="X bookmark import progress"></progress><p class="import-progress">{importProgress.completed.toLocaleString()} / {importProgress.total.toLocaleString()} processed · {importProgress.saved.toLocaleString()} saved · {importProgress.failed.toLocaleString()} failed</p>{/if}
+      {#if importSummary}<p role="status">{importSummary}</p>{/if}
+      {#if importFailures.length}<details class="import-failures"><summary>First {importFailures.length} failed post{importFailures.length === 1 ? '' : 's'}</summary><ul>{#each importFailures as failure}<li><a href={`https://x.com/i/status/${failure.id}`} target="_blank" rel="noopener noreferrer">X post {failure.id}</a>: {failure.reason}</li>{/each}</ul></details>{/if}
+    </section>
     <div class="bookmark-layout">
       <aside>
-        <label>Browse <select bind:value={filter} on:change={changeFilter} disabled={busy}><option value="all">All bookmarks</option><option value="unfiled">Unfiled</option>{#each folders as f}<option value={String(f.id)}>{f.name} ({f.count})</option>{/each}</select></label>
-        <form on:submit|preventDefault={create}><label>New folder<input bind:value={name} required maxlength="80" placeholder="e.g. Read later" /></label><button disabled={busy}>Create folder</button></form>
+        <label>Browse <select bind:value={filter} on:change={changeFilter} disabled={busy}><option value="all">All bookmarks</option><option value="unfiled">Unfiled</option>{#each folderOptions as folder}<option value={String(folder.id)}>{folder.label} ({folder.count})</option>{/each}</select></label>
+        <form on:submit|preventDefault={create}>
+          <label>New folder<input bind:value={name} required maxlength="80" placeholder="e.g. Read later" /></label>
+          <label>Inside folder<select bind:value={newParentId} disabled={busy}><option value="">Top level</option>{#each folderOptions as folder}<option value={String(folder.id)}>{folder.label}</option>{/each}</select></label>
+          <button disabled={busy}>Create folder</button>
+        </form>
         {#if selected}
-          <form on:submit|preventDefault={() => run(async()=>{await request('/api/bookmark-folders/'+filter,'POST',{name:rename});message='Folder renamed.';})}><label>Folder name<input bind:value={rename} required maxlength="80" /></label><button disabled={busy}>Rename folder</button></form>
-          <p class="muted">Deleting a folder keeps its bookmarks in Unfiled.</p><button disabled={busy} on:click={deleteFolder}>Delete folder</button>
+          <form on:submit|preventDefault={() => run(async()=>{await request('/api/bookmark-folders/'+filter,'POST',{name:rename,parent_id:moveParentId ? Number(moveParentId) : null});message='Folder updated.';})}>
+            <label>Folder name<input bind:value={rename} required maxlength="80" /></label>
+            <label>Parent folder<select bind:value={moveParentId} disabled={busy}><option value="">Top level</option>{#each allowedParents as folder}<option value={String(folder.id)}>{folderPath(folder.id)}</option>{/each}</select></label>
+            <button disabled={busy}>Save folder</button>
+          </form>
+          <p class="muted">Deleting moves its bookmarks to the parent or Unfiled, and moves subfolders up one level.</p><button disabled={busy} on:click={deleteFolder}>Delete folder</button>
         {/if}
       </aside>
       <section aria-label="Saved posts" aria-busy={busy}>
         <h2>{selected?.name || (filter === 'unfiled' ? 'Unfiled' : 'All bookmarks')}</h2>
+        {#if selectedPath.length > 1}<nav class="breadcrumbs" aria-label="Folder breadcrumbs"><button type="button" on:click={() => openFolder(selectedPath[0].id)}>All bookmarks</button>{#each selectedPath as folder, index}<span aria-hidden="true">/</span>{#if index < selectedPath.length - 1}<button type="button" on:click={() => openFolder(folder.id)}>{folder.name}</button>{:else}<strong>{folder.name}</strong>{/if}{/each}</nav>{/if}
+        {#if subfolders.length}<div class="subfolders" aria-label="Subfolders"><h3>Folders</h3>{#each subfolders as folder}<button type="button" disabled={busy} on:click={() => openFolder(folder.id)}><strong>{folder.name}</strong><span>{folder.count} saved</span></button>{/each}</div>{/if}
         {#if !items.length && !error}<p>No bookmarks here yet. Use “Bookmark” on any discussion to save it.</p>{/if}
         {#each items as item (item.post_id)}
           <article><small>c/{item.community} · Saved {new Date(item.created_at).toLocaleDateString()}</small><h3><a href="/post/{item.public_id}">{item.title}</a></h3>
-            <div class="actions"><label>Folder <select value={item.folder_id == null ? '' : String(item.folder_id)} disabled={busy} on:change={e => {const value=e.currentTarget.value;run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'POST',{folder_id:value ? Number(value) : null});message='Bookmark moved.';});}}><option value="">Unfiled</option>{#each folders as f}<option value={String(f.id)}>{f.name}</option>{/each}</select></label>
+            <div class="actions"><label>Folder <select value={item.folder_id == null ? '' : String(item.folder_id)} disabled={busy} on:change={e => {const value=e.currentTarget.value;run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'POST',{folder_id:value ? Number(value) : null});message='Bookmark moved.';});}}><option value="">Unfiled</option>{#each folderOptions as folder}<option value={String(folder.id)}>{folder.label}</option>{/each}</select></label>
             <button disabled={busy} on:click={() => run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'DELETE');message='Bookmark removed.';})}>Remove bookmark</button></div>
           </article>
         {/each}
@@ -58,5 +177,5 @@
   {#if error}<p role="alert" class="form-error">{error}</p>{/if}{#if message}<p role="status">{message}</p>{/if}
 </main>
 <style>
-  .bookmark-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:30px;margin-top:24px} aside form{margin:24px 0} label{display:flex;flex-direction:column;gap:8px} input,select{min-width:0;max-width:100%} button{margin:6px 0} article{padding:20px 0;border-bottom:1px solid var(--border,#ccd6cd)}.actions,nav{display:flex;flex-wrap:wrap;align-items:center;gap:16px} nav{margin-top:20px} h3{overflow-wrap:anywhere} @media(max-width:700px){.bookmark-layout{grid-template-columns:1fr}}
+  .x-bookmark-import{margin-top:24px;padding:18px;border:1px solid var(--border,#ccd6cd);border-radius:10px;background:var(--surface,#fff)}.x-bookmark-import h2{margin:0 0 8px}.x-bookmark-import>p{max-width:850px;color:var(--muted,#66766c);font-size:.86rem}.x-bookmark-import form{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(180px,1fr) minmax(180px,1fr) auto;align-items:end;gap:12px;margin:16px 0}.x-bookmark-import label,aside label{display:flex;flex-direction:column;gap:8px}.x-bookmark-import input[type=file]{max-width:100%;padding:8px;border:1px solid var(--border,#c7ccc3);border-radius:6px}.x-bookmark-import form button{margin:0;min-height:40px}.import-note,.import-progress{font-size:.78rem!important}.x-bookmark-import progress{width:min(100%,720px);height:12px}.import-failures{font-size:.82rem;color:var(--muted,#66766c)}.import-failures li{margin:5px 0}.bookmark-layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:30px;margin-top:24px}aside form{display:grid;gap:10px;margin:24px 0}aside label{gap:7px}input,select{min-width:0;max-width:100%}button{margin:6px 0}article{padding:20px 0;border-bottom:1px solid var(--border,#ccd6cd)}.actions,nav{display:flex;flex-wrap:wrap;align-items:center;gap:16px}nav{margin-top:20px}h3{overflow-wrap:anywhere}.breadcrumbs{margin:12px 0;color:var(--muted,#66766c);font-size:.84rem}.breadcrumbs button{background:none;padding:0;color:var(--link,#215e47)}.subfolders{display:grid;gap:8px;margin:16px 0}.subfolders h3{margin:0}.subfolders button{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0;padding:10px;border:1px solid var(--border,#ccd6cd);border-radius:7px;background:var(--surface,#fff);text-align:left}.subfolders button span{font-size:.76rem;color:var(--muted,#66766c)}@media(max-width:800px){.x-bookmark-import form{grid-template-columns:1fr 1fr}.x-bookmark-import form label:first-child{grid-column:1/-1}.x-bookmark-import form button{grid-column:1/-1}.bookmark-layout{grid-template-columns:1fr}}
 </style>
