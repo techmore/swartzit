@@ -6,6 +6,7 @@
   import SessionNav from '$lib/SessionNav.svelte';
   import PostActions from '$lib/PostActions.svelte';
   import FollowingXAuthors from '$lib/FollowingXAuthors.svelte';
+  import BuddiesPanel from '$lib/BuddiesPanel.svelte';
   import PostBody from '$lib/PostBody.svelte';
   import SourcePost from '$lib/SourcePost.svelte';
   import MediaDock from '$lib/MediaDock.svelte';
@@ -18,7 +19,7 @@
   let searchOpen = Boolean(data.q);
   let composeOpen = false;
   let searchInput;
-  function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (targetFeed === 'following' && data.feed === 'following' && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params; }
+  function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (['following', 'buddies'].includes(targetFeed) && ['following', 'buddies'].includes(data.feed) && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params; }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
   function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
@@ -34,13 +35,13 @@
     feedLoading = false;
     feedError = '';
     feedPage = data.page;
-    feedHasMore = data.feed === 'following' ? false : data.hasMore;
-    feedPosts = data.feed === 'following' ? [] : data.posts;
+    feedHasMore = ['following', 'buddies'].includes(data.feed) ? false : data.hasMore;
+    feedPosts = ['following', 'buddies'].includes(data.feed) ? [] : data.posts;
     initialPosts = data.posts;
     followingInitialKey = '';
-    if (data.feed === 'following' && !token) feedError = 'Sign in to see posts from people and communities you follow.';
+    if (['following', 'buddies'].includes(data.feed) && !token) feedError = 'Sign in to see your followed feeds.';
   }
-  $: if (feedKey === activeFeedKey && data.feed !== 'following' && data.posts !== initialPosts) {
+  $: if (feedKey === activeFeedKey && !['following', 'buddies'].includes(data.feed) && data.posts !== initialPosts) {
     const freshPosts = data.posts || [];
     const freshIds = new Set(freshPosts.map(post => post.id));
     feedPosts = [...freshPosts, ...feedPosts.filter(post => !freshIds.has(post.id))];
@@ -68,8 +69,8 @@
   }
   async function loadFeedPage(page, append = true) {
     if (feedLoading || (append && !feedHasMore)) return;
-    if (data.feed === 'following' && !token) {
-      feedError = 'Sign in to see posts from people and communities you follow.';
+    if (['following', 'buddies'].includes(data.feed) && !token) {
+      feedError = 'Sign in to see your followed feeds.';
       return;
     }
     const requestKey = activeFeedKey;
@@ -87,8 +88,9 @@
     }
     try {
       const following = data.feed === 'following';
-      const response = await fetch((following ? '/api/home?' : '/api/posts?') + params, {
-        headers: following ? {authorization:'Bearer ' + token} : {},
+      const buddies = data.feed === 'buddies';
+      const response = await fetch((following ? '/api/home?' : buddies ? '/api/buddies/feed?' : '/api/posts?') + params, {
+        headers: following || buddies ? {authorization:'Bearer ' + token} : {},
         signal: controller.signal
       });
       const result = await response.json();
@@ -112,7 +114,7 @@
       }
     }
   }
-  $: if (feedKey === activeFeedKey && data.feed === 'following' && token && followingInitialKey !== activeFeedKey) {
+  $: if (feedKey === activeFeedKey && ['following', 'buddies'].includes(data.feed) && token && followingInitialKey !== activeFeedKey) {
     followingInitialKey = activeFeedKey;
     loadFeedPage(data.page, false);
   }
@@ -161,14 +163,15 @@
     {#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}
   </aside>
   <section class="feed">
-    <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a><a class:active={data.feed === 'rated'} href={feedHref('rated')}>Rated</a></nav>
+    <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a><a class:active={data.feed === 'buddies'} href={feedHref('buddies')}>Buddies</a><a class:active={data.feed === 'rated'} href={feedHref('rated')}>Rated</a></nav>
     {#if data.feed === 'following'}<FollowingXAuthors />{/if}
+    {#if data.feed === 'buddies' && token}<BuddiesPanel />{/if}
     <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class="selected" href={communityHref()}>All discussions</a>{#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
     <div class="feed-head">
-      <div><p class="eyebrow">{data.community ? `c/${data.community}` : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : data.feed === 'rated' ? 'Rated posts' : 'Timeline'}</h1></div>
+      <div><p class="eyebrow">{data.community ? `c/${data.community}` : data.feed === 'buddies' ? 'YOUR PEOPLE' : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : data.feed === 'buddies' ? 'Buddies' : data.feed === 'rated' ? 'Rated posts' : 'Timeline'}</h1></div>
       <div class="feed-head-actions">
         {#if token}<button class="start-discussion-button" type="button" aria-label="Start a discussion" aria-expanded={composeOpen} aria-controls="compose-panel" onclick={() => composeOpen = true}><Icon name="plus" size={17} />Start discussion</button>{:else}<a class="post-cta" href="/login">Sign in to post</a>{/if}
-        <details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>
+        {#if data.feed !== 'buddies'}<details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>{/if}
         {#if data.ratings}
           <form class="rated-filter" method="GET"><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="community" value={data.community} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label for="rated-selection">Show</label><select id="rated-selection" name="ratings" aria-label="Choose ratings to show" value={data.ratings}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select><button type="submit">Apply</button></form>
         {:else}
@@ -176,10 +179,11 @@
         {/if}
       </div>
     </div>
-    {#if data.feed === 'following' && !token}<p><a href="/login">Sign in</a> to see posts from people and communities you follow.</p>{:else if feedPosts.length === 0 && feedLoading}<p role="status">Loading {data.feed === 'following' ? 'Following' : data.feed === 'rated' ? 'rated posts' : 'discussions'}…</p>{:else if feedPosts.length === 0 && feedError}<p role="alert">{feedError}</p>{#if data.feed === 'following' && token}<button class="feed-load-more" type="button" onclick={() => loadFeedPage(data.page, false)}>Retry loading</button>{/if}{:else if feedPosts.length === 0}<p class="empty">{data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a person on X or a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
+    {#if ['following', 'buddies'].includes(data.feed) && !token}<p><a href="/login">Sign in</a> to see your followed feeds.</p>{:else if feedPosts.length === 0 && feedLoading}<p role="status">Loading {data.feed === 'following' ? 'Following' : data.feed === 'buddies' ? 'Buddies' : data.feed === 'rated' ? 'rated posts' : 'discussions'}…</p>{:else if feedPosts.length === 0 && feedError}<p role="alert">{feedError}</p>{#if ['following', 'buddies'].includes(data.feed) && token}<button class="feed-load-more" type="button" onclick={() => loadFeedPage(data.page, false)}>Retry loading</button>{/if}{:else if feedPosts.length === 0}<p class="empty">{data.feed === 'buddies' ? 'Pin a buddy above to see the posts they upvote here.' : data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a person on X or a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
       {#each feedPosts as post (post.id)}
         <article class:source-article={Boolean(post.source)}>
           {#if post.content_rating === 'r' || post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={post.content_rating === 'r'} class:content-rating-x={post.content_rating === 'x'} class="content-rating" title={post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}>{post.content_rating.toUpperCase()}</span><span>{post.content_rating === 'r' ? 'R-rated' : 'X-rated'}</span></div>{/if}
+          {#if data.feed === 'buddies' && post.liked_by?.length}<div class="buddy-like-context"><span>Upvoted by</span>{#each post.liked_by as handle}<a href={'/u/' + handle}>u/{handle}</a>{/each}{#if post.liked_at}<time datetime={post.liked_at}>{new Date(post.liked_at).toLocaleString()}</time>{/if}</div>{/if}
           {#if isTimelinePreview(post)}
             {#if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
               <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
@@ -253,6 +257,10 @@
   .feed-context{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;color:var(--muted,#66766c);font-size:.76rem;font-weight:650}
   .feed-context a{color:var(--accent,#575d3d);font-weight:800}
   .feed-context time{margin-left:auto;font-weight:500}
+  .buddy-like-context{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 12px;padding:8px 10px;border-radius:8px;background:var(--wash,#f0ece4);color:var(--muted,#66766c);font-size:.76rem}
+  .buddy-like-context::before{content:'♥';color:#a34945;font-size:.9rem}
+  .buddy-like-context a{color:var(--heading,#173d34);font-weight:750}
+  .buddy-like-context time{margin-left:auto;font-size:.7rem}
   .feed-title{margin:0 0 12px!important;font-size:1.45rem!important;line-height:1.15!important;overflow-wrap:anywhere}
   .feed-title a,.feed>article h3 a{overflow-wrap:anywhere}
   .feed-tabs{display:flex;gap:20px;margin:0 0 26px;border-bottom:1px solid var(--border,#dedfd7)}

@@ -23,7 +23,7 @@
         <a href="/about"><Icon name="info" />About</a>
         <a href="/communities"><Icon name="grid" />Communities</a>
         <a href="/history"><Icon name="clock" />History</a>
-        {#if handle}<a href="/bookmarks"><Icon name="bookmark" />Favorites</a>{/if}
+        {#if handle}<a href="/?feed=buddies"><Icon name="user" />Buddies</a><a href="/bookmarks"><Icon name="bookmark" />Favorites</a>{/if}
         <a href="/api/export" download="swartzit-export.json"><Icon name="download" />Export data</a>
         {#if isAdmin}<a href="/admin"><Icon name="admin" />Admin</a>{/if}
       </div>
@@ -37,7 +37,7 @@
     {/if}
   {:else}
     <a href="/about">About</a><a href="/communities">Communities</a><a href="/history">History</a>
-    {#if handle}<a href="/bookmarks">Favorites</a><a href={'/u/' + handle}>u/{handle}</a>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
+    {#if handle}<a href="/?feed=buddies">Buddies</a><a href="/bookmarks">Favorites</a><a href={'/u/' + handle}>u/{handle}</a>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
     {:else}<a href="/login">Sign in</a><a href="/signup">Create account</a>{/if}
   {/if}
 </nav>
