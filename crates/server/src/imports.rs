@@ -605,15 +605,15 @@ pub async fn cross_post(
         .bind(&source)
         .execute(&mut *tx)
         .await?;
-    let existing: Option<(String, String)> = sqlx::query_as(
-        "SELECT p.public_id,c.slug FROM external_posts e JOIN posts p ON p.id=e.post_id JOIN communities c ON c.id=p.community_id WHERE e.source_url=$1"
+    let existing: Option<(i64, String, String, String)> = sqlx::query_as(
+        "SELECT p.id,p.public_id,c.slug,p.moderation_status FROM external_posts e JOIN posts p ON p.id=e.post_id JOIN communities c ON c.id=p.community_id WHERE e.source_url=$1"
     ).bind(&source).fetch_optional(&mut *tx).await?;
-    if let Some((public_id, community)) = existing {
+    if let Some((id, public_id, community, status)) = existing {
         tx.rollback().await?;
         return Ok((
             StatusCode::OK,
             Json(serde_json::json!({
-                "already_shared": true, "public_id": public_id, "community": community
+                "id": id, "already_shared": true, "public_id": public_id, "community": community, "status": status
             })),
         ));
     }

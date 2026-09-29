@@ -2358,6 +2358,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/bookmarks", get(bookmarks::list))
         .route("/api/bookmarks/status", get(bookmarks::batch_status))
         .route(
+            "/api/bookmarks/import-x",
+            post_method(bookmarks::import_x_source),
+        )
+        .route(
             "/api/bookmark-folders",
             get(bookmarks::folders).post(bookmarks::create_folder),
         )
