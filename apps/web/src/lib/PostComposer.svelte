@@ -84,12 +84,8 @@
 {#if open && token}
   <section class="compose-panel" id="compose-panel" aria-labelledby="compose-title">
     <div class="compose-panel-heading">
-      <div><p class="eyebrow">ADD TO THE COMMONS</p><h2 id="compose-title">{mode === 'x' ? 'Cross-post from X' : 'Create a post'}</h2></div>
+      <div><p class="eyebrow">ADD TO THE COMMONS</p><h2 id="compose-title">{mode === 'x' ? 'Cross-post a link' : 'Create a post'}</h2></div>
       <button class="panel-close" type="button" aria-label="Close composer" title="Close composer" onclick={() => open = false}>×</button>
-    </div>
-    <div class="composer-modes" role="tablist" aria-label="Post type">
-      <button type="button" role="tab" aria-selected={mode === 'x'} class:active={mode === 'x'} onclick={() => selectMode('x')}>𝕏 Post</button>
-      <button type="button" role="tab" aria-selected={mode === 'post'} class:active={mode === 'post'} onclick={() => selectMode('post')}>＋ Post</button>
     </div>
     {#if mode === 'x'}
       <QuickCrossPost {communities} selectedCommunity="general" xOnly hideCommunity />
@@ -117,9 +113,6 @@
   .eyebrow{margin:0 0 4px;font-size:.64rem;letter-spacing:.13em;color:var(--accent,#9b5e38);font-weight:700}
   h2{margin:0;color:var(--heading,#173d34);font:500 1.4rem/1.1 Georgia,serif}
   .panel-close{width:32px;height:32px;border:0;border-radius:50%;background:var(--subtle,#e4e9df);color:var(--heading,#173d34);font-size:1.35rem;cursor:pointer}
-  .composer-modes{display:flex;gap:7px;margin:0 0 14px;padding:4px;border-radius:9px;background:var(--subtle,#eef0e9)}
-  .composer-modes button{flex:1;min-height:36px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--muted,#66766c);font:700 .8rem ui-sans-serif,system-ui,sans-serif;cursor:pointer}
-  .composer-modes button.active{background:var(--surface,#fff);border-color:var(--border,#d8d5ca);color:var(--heading,#173d34);box-shadow:0 1px 3px #0001}
   .post-form{display:grid;gap:10px}
   .post-form>label{display:grid;gap:5px;color:var(--muted,#66766c);font-size:.76rem;font-weight:700}
   .post-form input,.post-form textarea,.post-form select{width:100%;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:9px 10px;background:var(--page,#f6f4ee);font:inherit}
@@ -135,6 +128,10 @@
   :global(.compose-panel .crosspost-heading){display:none}
   :global(.compose-panel .crosspost-note){margin:8px 0 0}
   :global(.compose-panel .quick-crosspost form){grid-template-columns:1fr;gap:10px}
+  :global(.compose-panel .quick-crosspost form.x-only-form){grid-template-columns:minmax(0,1fr) auto;align-items:center}
+  :global(.compose-panel .quick-crosspost form.x-only-form .source-field){grid-column:1;grid-row:1}
+  :global(.compose-panel .quick-crosspost form.x-only-form .optional-rating){grid-column:1;grid-row:2}
+  :global(.compose-panel .quick-crosspost form.x-only-form button){grid-column:2;grid-row:1 / span 2;width:auto}
   :global(.compose-panel .quick-crosspost form button){width:100%}
   @media(max-width:700px){.composer-launcher{right:16px;bottom:126px}.composer-launcher button,.composer-launcher a{min-width:96px;height:40px}.compose-panel{right:12px;bottom:218px;width:min(430px,calc(100vw - 24px));max-height:calc(100dvh - 238px);padding:16px}}
 </style>
