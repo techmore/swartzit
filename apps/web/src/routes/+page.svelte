@@ -166,7 +166,6 @@
     <div class="feed-head">
       <div><p class="eyebrow">{data.community ? `c/${data.community}` : data.feed === 'buddies' ? 'YOUR PEOPLE' : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : data.feed === 'buddies' ? 'Buddies' : data.feed === 'rated' ? 'Rated posts' : 'Timeline'}</h1></div>
       <div class="feed-head-actions">
-        {#if token}<div class="compose-actions"><button class="start-x-post-button" type="button" aria-expanded={composeOpen && composeMode === 'x'} aria-controls="compose-panel" onclick={() => { composeOpen = true; composeMode = 'x'; }}>𝕏 Post</button><button class="start-discussion-button" type="button" aria-label="Create a post" aria-expanded={composeOpen && composeMode === 'post'} aria-controls="compose-panel" onclick={() => { composeOpen = true; composeMode = 'post'; }}><Icon name="plus" size={17} />Post</button></div>{:else}<a class="post-cta" href="/login">Sign in to post</a>{/if}
         {#if data.feed !== 'buddies'}<details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>{/if}
         {#if data.ratings}
           <form class="rated-filter" method="GET"><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="community" value={data.community} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label for="rated-selection">Show</label><select id="rated-selection" name="ratings" aria-label="Choose ratings to show" value={data.ratings}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select><button type="submit">Apply</button></form>
@@ -222,7 +221,7 @@
     {/if}
   </section>
 </div>
-{#if token}<PostComposer communities={data.communities} selectedCommunity={data.community || 'general'} bind:open={composeOpen} bind:mode={composeMode} showLauncher={false} />{/if}
+<PostComposer communities={data.communities} selectedCommunity={data.community || 'general'} bind:open={composeOpen} bind:mode={composeMode} />
 </main>
 <MediaDock />
 <style>
@@ -267,14 +266,6 @@
   .feed-head .eyebrow{margin:0 0 5px}
   .feed-head h1{margin:0;color:var(--heading,#173d34);font:500 clamp(2rem,3vw,2.7rem)/1.05 Georgia,serif;letter-spacing:-.04em}
   .feed-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
-  .compose-actions{display:grid;gap:6px}
-  .compose-actions button,.post-cta{height:38px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:1px solid var(--accent,#575d3d);border-radius:999px;font:750 .78rem ui-sans-serif,system-ui,sans-serif;white-space:nowrap;cursor:pointer}
-  .start-discussion-button{background:var(--button-bg,#575d3d);color:var(--button-text,#f7f8f4)}
-  .start-discussion-button:hover,.start-discussion-button:focus-visible{background:var(--heading,#1f2117);border-color:var(--heading,#1f2117)}
-  .start-x-post-button{background:var(--surface,#fff);color:var(--heading,#1f2117)}
-  .start-x-post-button:hover,.start-x-post-button:focus-visible{background:var(--subtle,#c4c9b0)}
-  .post-cta{background:transparent;color:var(--accent,#575d3d)}
-  .post-cta:hover,.post-cta:focus-visible{background:var(--subtle,#c4c9b0);color:var(--heading,#1f2117)}
   .feed-options{position:relative;flex:none}
   .feed-options>summary{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--border,#c7ccc3);border-radius:8px;color:var(--muted,#66766c);font-size:.78rem;font-weight:700;cursor:pointer;list-style:none}
   .feed-options>summary::-webkit-details-marker{display:none}

@@ -177,7 +177,7 @@
     </section>
   {/if}
 </main>
-<PostComposer selectedCommunity={data.post.community} />
+<PostComposer selectedCommunity="general" />
 <style>
   .post-page{max-width:780px;padding-top:32px;padding-bottom:80px}
   .article-page{max-width:1120px;display:grid;grid-template-columns:minmax(0,780px) 250px;column-gap:36px;align-items:start}
