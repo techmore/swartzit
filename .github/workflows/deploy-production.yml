@@ -147,11 +147,9 @@ jobs:
             --enable-github-backup --remote "$BACKUP_REMOTE"
 
       - name: Update the production worker X API token
-        # The stable updater path is already on the host's sudo allowlist. The
-        # release step above installs the version that understands this
-        # token-only mode, so the value can be sent on stdin without appearing
-        # in an argument list or workflow log.
-        if: ${{ success() && (steps.install-release.outcome == 'success' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'sync-x-token')) }}
+        # Keep ordinary releases from changing worker credentials. Sync only
+        # when the operator explicitly selects the token-only operation.
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.operation == 'sync-x-token' }}
         env:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
         run: |
