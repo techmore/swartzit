@@ -8,7 +8,6 @@
   export let selectedCommunity = 'general';
   export let open = false;
   export let mode = 'post';
-  export let showLauncher = true;
 
   let token = '';
   let community = 'general';
@@ -73,16 +72,14 @@
   }
 </script>
 
-{#if showLauncher}
-  <div class="composer-launcher" aria-label="Create a post">
-    {#if token}
-      <button type="button" class="launcher-x" onclick={() => { open = true; selectMode('x'); }} aria-label="Cross-post from X">𝕏 Post</button>
-      <button type="button" class="launcher-post" onclick={() => { open = true; selectMode('post'); }} aria-label="Create a post">＋ Post</button>
-    {:else}
-      <a class="launcher-post" href="/login">Sign in to post</a>
-    {/if}
-  </div>
-{/if}
+<div class="composer-launcher" aria-label="Create a post">
+  {#if token}
+    <button type="button" class="launcher-x" onclick={() => { open = true; selectMode('x'); }} aria-label="Cross-post from X" aria-controls="compose-panel" aria-expanded={open && mode === 'x'}>𝕏 Post</button>
+    <button type="button" class="launcher-post" onclick={() => { open = true; selectMode('post'); }} aria-label="Create a post" aria-controls="compose-panel" aria-expanded={open && mode === 'post'}>＋ Post</button>
+  {:else}
+    <a class="launcher-post" href="/login">Sign in to post</a>
+  {/if}
+</div>
 
 {#if open && token}
   <section class="compose-panel" id="compose-panel" aria-labelledby="compose-title">

@@ -48,12 +48,16 @@ test('new posts and cross-posts use the General community default', () => {
   assert.match(crossPostRoute, /crossPostCommunity\(input\.community\)/);
 });
 
-test('separate X and regular post actions are present on the feed and post pages', () => {
+test('the floating X and regular post actions are available on the feed and post pages', () => {
   const page = readFileSync(fileURLToPath(new URL('../routes/+page.svelte', import.meta.url)), 'utf8');
+  const composer = readFileSync(fileURLToPath(new URL('./PostComposer.svelte', import.meta.url)), 'utf8');
   const detail = readFileSync(fileURLToPath(new URL('../routes/post/[id]/+page.svelte', import.meta.url)), 'utf8');
 
-  assert.match(page, /start-x-post-button/);
-  assert.match(page, /start-discussion-button/);
+  assert.match(page, /<PostComposer communities=\{data\.communities\} selectedCommunity=\{data\.community \|\| 'general'\}/);
   assert.match(page, /bind:mode=\{composeMode\}/);
-  assert.match(detail, /<PostComposer selectedCommunity=\{data\.post\.community\}/);
+  assert.match(composer, /class="composer-launcher"/);
+  assert.match(composer, /class="launcher-x"/);
+  assert.match(composer, /class="launcher-post"/);
+  assert.match(composer, /aria-controls="compose-panel"/);
+  assert.match(detail, /<PostComposer selectedCommunity="general" \/>/);
 });
