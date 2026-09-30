@@ -12,19 +12,16 @@
   import MediaDock from '$lib/MediaDock.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
   import PostViews from '$lib/PostViews.svelte';
-  import QuickCrossPost from '$lib/QuickCrossPost.svelte';
-  import CommunityPicker from '$lib/CommunityPicker.svelte';
+  import PostComposer from '$lib/PostComposer.svelte';
   import Brand from '$lib/Brand.svelte';
-  import { preferredCommunity } from '$lib/community-picker-logic.mjs';
   let searchOpen = Boolean(data.q);
-  let composeOpen = false;
+  let composeOpen = false, composeMode = 'post';
   let searchInput;
   function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (['following', 'buddies'].includes(targetFeed) && ['following', 'buddies'].includes(data.feed) && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; if (data.hideR) params.set('hide_r', 'true'); if (!data.hideX) params.set('show_x', 'true'); return params; }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
   function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
-  const initialCommunity = preferredCommunity(data.communities);
-  let token = '', title = '', body = '', contentRating = 'general', community = initialCommunity, formError = '', formMessage = '';
+  let token = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedPage = data.page, feedLoading = false, feedError = '';
   let feedKey = '', activeFeedKey = '', feedRequestController, followingInitialKey = '', initialPosts = data.posts;
   $: feedKey = JSON.stringify([data.feed, data.community, data.q, data.sort, data.hideR, data.hideX, data.ratings, data.page]);
@@ -129,7 +126,6 @@
     observer.observe(node);
     return {destroy: () => observer.disconnect()};
   }
-  async function createPost() { formError = ''; formMessage = ''; const response = await fetch('/api/posts', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ community, title, body, content_rating: contentRating }) }); const result = await response.json(); if (!response.ok) { formError = result.error ?? 'Could not submit discussion'; return; } if (result.status === 'pending') { formMessage = result.message ?? 'Your discussion is waiting for moderator review.'; title = ''; body = ''; contentRating = 'general'; return; } window.location.assign(`/post/${result.public_id}`); }
 </script>
 
 <svelte:head><title>Swartzit — the commons</title></svelte:head>
@@ -170,7 +166,7 @@
     <div class="feed-head">
       <div><p class="eyebrow">{data.community ? `c/${data.community}` : data.feed === 'buddies' ? 'YOUR PEOPLE' : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : data.feed === 'buddies' ? 'Buddies' : data.feed === 'rated' ? 'Rated posts' : 'Timeline'}</h1></div>
       <div class="feed-head-actions">
-        {#if token}<button class="start-discussion-button" type="button" aria-label="Start a discussion" aria-expanded={composeOpen} aria-controls="compose-panel" onclick={() => composeOpen = true}><Icon name="plus" size={17} />Start discussion</button>{:else}<a class="post-cta" href="/login">Sign in to post</a>{/if}
+        {#if token}<div class="compose-actions"><button class="start-x-post-button" type="button" aria-expanded={composeOpen && composeMode === 'x'} aria-controls="compose-panel" onclick={() => { composeOpen = true; composeMode = 'x'; }}>𝕏 Post</button><button class="start-discussion-button" type="button" aria-label="Create a post" aria-expanded={composeOpen && composeMode === 'post'} aria-controls="compose-panel" onclick={() => { composeOpen = true; composeMode = 'post'; }}><Icon name="plus" size={17} />Post</button></div>{:else}<a class="post-cta" href="/login">Sign in to post</a>{/if}
         {#if data.feed !== 'buddies'}<details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>{/if}
         {#if data.ratings}
           <form class="rated-filter" method="GET"><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="community" value={data.community} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label for="rated-selection">Show</label><select id="rated-selection" name="ratings" aria-label="Choose ratings to show" value={data.ratings}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select><button type="submit">Apply</button></form>
@@ -226,7 +222,7 @@
     {/if}
   </section>
 </div>
-{#if token}<div class="compose-launcher"><button class="compose-fab" type="button" aria-label={composeOpen ? 'Close composer' : 'Start a discussion'} title={composeOpen ? 'Close composer' : 'Start a discussion'} aria-expanded={composeOpen} onclick={() => composeOpen = !composeOpen}><Icon name={composeOpen ? 'x' : 'plus'} size={20} /><span class="compose-label">{composeOpen ? 'Close' : 'Start discussion'}</span></button>{#if composeOpen}<section id="compose-panel" class="compose-panel" aria-labelledby="compose-title"><div class="compose-panel-heading"><div><p class="eyebrow">ADD TO THE COMMONS</p><h2 id="compose-title">Start a discussion</h2></div><button class="panel-close" type="button" aria-label="Close composer" title="Close composer" onclick={() => composeOpen = false}><Icon name="x" size={18} /></button></div><form onsubmit={(event) => { event.preventDefault(); createPost(); }}><CommunityPicker communities={data.communities} bind:value={community} id="discussion-community" /><label>Title<input bind:value={title} required maxlength="300" /></label><label>Body<textarea bind:value={body} maxlength="50000" rows="5" aria-describedby="discussion-body-help"></textarea><small id="discussion-body-help">Paste a YouTube video URL here and it will be embedded automatically.</small></label><label>Content rating<select bind:value={contentRating} aria-describedby="content-rating-help"><option value="general">General</option><option value="r">R — mature themes</option><option value="x">X — explicit content</option></select><small id="content-rating-help">Choose the highest rating that applies. Auto-tagging will build on this label later.</small></label><button class="publish-button" type="submit">Publish</button>{#if formError}<p class="form-error">{formError}</p>{/if}{#if formMessage}<p class="form-message">{formMessage}</p>{/if}</form><details class="source-import"><summary><Icon name="download" size={16} />Share a source post (X, Reddit, or YouTube)</summary><QuickCrossPost communities={data.communities} selectedCommunity={community} /></details></section>{/if}</div>{/if}
+{#if token}<PostComposer communities={data.communities} selectedCommunity={data.community || 'general'} bind:open={composeOpen} bind:mode={composeMode} showLauncher={false} />{/if}
 </main>
 <MediaDock />
 <style>
@@ -271,9 +267,12 @@
   .feed-head .eyebrow{margin:0 0 5px}
   .feed-head h1{margin:0;color:var(--heading,#173d34);font:500 clamp(2rem,3vw,2.7rem)/1.05 Georgia,serif;letter-spacing:-.04em}
   .feed-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
-  .start-discussion-button,.post-cta{height:38px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:1px solid var(--accent,#575d3d);border-radius:999px;font:750 .78rem ui-sans-serif,system-ui,sans-serif;white-space:nowrap;cursor:pointer}
+  .compose-actions{display:grid;gap:6px}
+  .compose-actions button,.post-cta{height:38px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:1px solid var(--accent,#575d3d);border-radius:999px;font:750 .78rem ui-sans-serif,system-ui,sans-serif;white-space:nowrap;cursor:pointer}
   .start-discussion-button{background:var(--button-bg,#575d3d);color:var(--button-text,#f7f8f4)}
   .start-discussion-button:hover,.start-discussion-button:focus-visible{background:var(--heading,#1f2117);border-color:var(--heading,#1f2117)}
+  .start-x-post-button{background:var(--surface,#fff);color:var(--heading,#1f2117)}
+  .start-x-post-button:hover,.start-x-post-button:focus-visible{background:var(--subtle,#c4c9b0)}
   .post-cta{background:transparent;color:var(--accent,#575d3d)}
   .post-cta:hover,.post-cta:focus-visible{background:var(--subtle,#c4c9b0);color:var(--heading,#1f2117)}
   .feed-options{position:relative;flex:none}
@@ -314,32 +313,6 @@
   .feed-load-more:hover,.feed-load-more:focus-visible{border-color:var(--accent,#9b5e38);background:var(--subtle,#e4e9df)}
   .feed-load-more:disabled{cursor:wait;opacity:.65}
   .mobile-community-nav{display:none}
-  .compose-launcher{position:fixed;right:30px;bottom:132px;z-index:40}
-  .compose-fab{min-width:54px;height:46px;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:0 17px;background:var(--accent,#9b5e38);color:#fff;box-shadow:0 8px 22px #0003;cursor:pointer;font-weight:750}
-  .compose-label{white-space:nowrap;font-size:.8rem}
-  .compose-fab:hover,.compose-fab:focus-visible{transform:translateY(-2px);box-shadow:0 11px 26px #0004}
-  .compose-panel{position:absolute;right:0;bottom:66px;width:min(390px,calc(100vw - 40px));padding:20px;border:1px solid var(--border,#c7ccc3);border-radius:14px;background:var(--surface,#fff);box-shadow:0 16px 45px #0003}
-  .compose-panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
-  .compose-panel-heading .eyebrow{margin:0 0 4px}
-  .compose-panel h2{margin:0;color:var(--heading,#173d34);font:500 1.45rem/1.1 Georgia,serif}
-  .panel-close{width:32px;height:32px;display:grid;place-items:center;padding:0;border-radius:8px;background:transparent;color:var(--muted,#66766c)}
-  .panel-close:hover{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
-  .compose-panel form{display:grid;gap:11px}
-  .compose-panel label{display:grid;gap:5px;color:var(--muted,#66766c);font-size:.77rem;font-weight:700}
-  .compose-panel input,.compose-panel textarea{width:100%;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:9px 10px;background:var(--page,#f6f4ee);font:inherit}
-  .compose-panel select{width:100%;height:40px;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:0 10px;background:var(--page,#f6f4ee);font:inherit}
-  .compose-panel label small{font-size:.68rem;font-weight:500;line-height:1.35;color:var(--muted,#66766c)}
-  .compose-panel textarea{resize:vertical;min-height:92px}
-  .publish-button{height:38px;border-radius:7px}
-  .form-error,.form-message{margin:0;font-size:.78rem}
-  .source-import{margin-top:16px;border-top:1px solid var(--border,#dedfd7);padding-top:12px}
-  .source-import>summary{display:flex;align-items:center;gap:7px;color:var(--muted,#66766c);font-size:.8rem;font-weight:700;cursor:pointer;list-style:none}
-  .source-import>summary::-webkit-details-marker{display:none}
-  .source-import :global(.quick-crosspost){margin:12px 0 0;padding:0;border:0;background:transparent}
-  .source-import :global(.crosspost-heading){display:block}
-  .source-import :global(.crosspost-heading>p),.source-import :global(.crosspost-note){display:none}
-  .source-import :global(form){display:grid;grid-template-columns:1fr;gap:9px}
-  .source-import :global(form button){width:100%}
   @media(max-width:900px){.header-context{display:none}.layout{grid-template-columns:180px minmax(0,720px);gap:28px}.community-nav{position:static;max-height:none;overflow:visible}}
   @media(max-width:700px){
     .home-header-inner{height:60px;padding:0 16px;gap:10px}
@@ -366,10 +339,5 @@
     .feed>article{border:0;border-top:1px solid var(--border,#dedfd7);border-radius:0;background:transparent;padding:20px 18px;margin:0}
     .feed>article:first-of-type{border-top:0}
     .feed-pagination{padding:22px 18px 34px}
-    .compose-launcher{right:18px;bottom:132px}
-    .compose-fab{width:54px;min-width:54px;height:54px;padding:0;border-radius:50%}
-    .compose-label{display:none}
-    .compose-panel{bottom:66px;width:min(390px,calc(100vw - 28px));max-height:calc(100dvh - 220px);overflow-y:auto;overscroll-behavior:contain;padding:17px}
-    .source-import :global(form button){grid-column:1;grid-row:auto}
   }
 </style>

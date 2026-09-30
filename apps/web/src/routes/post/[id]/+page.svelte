@@ -10,6 +10,7 @@
   import DrawThingsFeedback from '$lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '$lib/AuthorAvatar.svelte';
   import ShareButton from '$lib/ShareButton.svelte';
+  import PostComposer from '$lib/PostComposer.svelte';
   import ContentRatingControl from '$lib/ContentRatingControl.svelte';
   import { parseCommentDraft } from '$lib/comment-source.mjs';
   let commentOrder = 'oldest';
@@ -176,6 +177,7 @@
     </section>
   {/if}
 </main>
+<PostComposer selectedCommunity={data.post.community} />
 <style>
   .post-page{max-width:780px;padding-top:32px;padding-bottom:80px}
   .article-page{max-width:1120px;display:grid;grid-template-columns:minmax(0,780px) 250px;column-gap:36px;align-items:start}
