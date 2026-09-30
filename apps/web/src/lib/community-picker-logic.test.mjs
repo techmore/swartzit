@@ -36,10 +36,24 @@ test('handles an empty community list without inventing a selection', () => {
 
 test('new posts and cross-posts use the General community default', () => {
   const page = readFileSync(fileURLToPath(new URL('../routes/+page.svelte', import.meta.url)), 'utf8');
+  const postComposer = readFileSync(fileURLToPath(new URL('./PostComposer.svelte', import.meta.url)), 'utf8');
   const quickCrossPost = readFileSync(fileURLToPath(new URL('./QuickCrossPost.svelte', import.meta.url)), 'utf8');
   const crossPostRoute = readFileSync(fileURLToPath(new URL('../routes/api/cross-post/+server.js', import.meta.url)), 'utf8');
 
-  assert.match(page, /const initialCommunity = preferredCommunity\(data\.communities\)/);
-  assert.match(quickCrossPost, /community = preferredCommunity\(communities, selectedCommunity\)/);
+  assert.match(page, /selectedCommunity=\{data\.community \|\| 'general'\}/);
+  assert.match(postComposer, /community = preferredCommunity\(communities, selectedCommunity\)/);
+  assert.match(postComposer, /community: community \|\| 'general'/);
+  assert.match(quickCrossPost, /community = xOnly && hideCommunity \? 'general' : preferredCommunity\(communities, selectedCommunity\)/);
+  assert.match(quickCrossPost, /community: community \|\| 'general'/);
   assert.match(crossPostRoute, /crossPostCommunity\(input\.community\)/);
+});
+
+test('separate X and regular post actions are present on the feed and post pages', () => {
+  const page = readFileSync(fileURLToPath(new URL('../routes/+page.svelte', import.meta.url)), 'utf8');
+  const detail = readFileSync(fileURLToPath(new URL('../routes/post/[id]/+page.svelte', import.meta.url)), 'utf8');
+
+  assert.match(page, /start-x-post-button/);
+  assert.match(page, /start-discussion-button/);
+  assert.match(page, /bind:mode=\{composeMode\}/);
+  assert.match(detail, /<PostComposer selectedCommunity=\{data\.post\.community\}/);
 });
