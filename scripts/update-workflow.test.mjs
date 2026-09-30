@@ -152,15 +152,16 @@ test('an unattended deploy only installs the tag the operator pinned', () => {
   assert.match(workflow, /No approved deployment tag is pinned/);
 });
 
-test('the production X token travels over stdin and is applied after release install', () => {
+test('production X token sync runs only for an explicit token-only dispatch', () => {
   const workflow = read('.github/workflows/deploy-production.yml');
   const installer = workflow.indexOf('name: Install the release on this host');
   const tokenSync = workflow.indexOf('name: Update the production worker X API token');
   assert.ok(installer >= 0 && tokenSync > installer);
+  assert.match(workflow, /if: \$\{\{ success\(\) && github\.event_name == 'workflow_dispatch' && inputs\.operation == 'sync-x-token' \}\}/);
   assert.match(workflow, /X_BEARER_TOKEN: \$\{\{ secrets\.X_BEARER_TOKEN \}\}/);
   assert.match(workflow, /sync-x-token/);
   assert.match(workflow, /test-x-token/);
-  assert.match(workflow, /steps\.install-release\.outcome == 'success'/);
+  assert.doesNotMatch(workflow, /steps\.install-release\.outcome == 'success'/);
   assert.match(workflow, /printf '%s' "\$X_BEARER_TOKEN" \\\n\s*\| sudo -n \/var\/lib\/swartzit\/scripts\/swartzit-linux-update\.sh --sync-x-token-stdin/);
   assert.doesNotMatch(workflow, /--(?:token|x-token) "\$X_BEARER_TOKEN"/);
 
