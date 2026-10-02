@@ -341,6 +341,10 @@ struct LikeSharingRequest {
     non_rated_only: bool,
 }
 #[derive(Deserialize)]
+struct PostPreferencesRequest {
+    copy_link_after_post: bool,
+}
+#[derive(Deserialize)]
 struct XAuthorSubscriptionRequest {
     handle: String,
 }
@@ -982,13 +986,18 @@ async fn profile_payload(
                    WHERE cm.author_id = a.id
                      AND cm.moderation_status = 'approved'
                      AND p.moderation_status = 'approved') AS comment_count,
-                  (SELECT count(*)
+                      (SELECT count(*)
                    FROM posts p
                    JOIN external_posts e ON e.post_id = p.id
                    WHERE p.author_id = a.id
                      AND p.moderation_status = 'approved'
                      AND jsonb_typeof(e.media) = 'array'
-                     AND jsonb_array_length(e.media) > 0) AS media_count
+                     AND jsonb_array_length(e.media) > 0) AS media_count,
+                      (SELECT p.public_id
+                       FROM author_pinned_posts pin
+                       JOIN posts p ON p.id = pin.post_id
+                       WHERE pin.author_id = a.id
+                         AND p.moderation_status = 'approved') AS pinned_post_id
                FROM authors a
                WHERE a.handle = $1
              ) t",
@@ -1044,13 +1053,15 @@ async fn profile_payload(
                           c.slug AS community,
                           COALESCE(ps.comment_count, 0) AS comment_count,
                           COALESCE(ps.score, 0) AS score,
+                          (pin.post_id IS NOT NULL) AS pinned,
                           (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id = p.id) AS source
                    FROM posts p
                    JOIN communities c ON c.id = p.community_id
                    JOIN authors a ON a.id = p.author_id
                    LEFT JOIN post_stats ps ON ps.post_id = p.id
+                   LEFT JOIN author_pinned_posts pin ON pin.post_id = p.id
                    WHERE a.handle = $1 AND p.moderation_status = 'approved'
-                   ORDER BY p.created_at DESC, p.id DESC
+                   ORDER BY (pin.post_id IS NOT NULL) DESC, p.created_at DESC, p.id DESC
                    LIMIT 50
                  ) t",
             )
@@ -1095,10 +1106,12 @@ async fn profile_payload(
                           p.title,
                           p.created_at,
                           c.slug AS community,
+                          (pin.post_id IS NOT NULL) AS pinned,
                           (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id = p.id) AS source
                    FROM posts p
                    JOIN communities c ON c.id = p.community_id
                    JOIN authors a ON a.id = p.author_id
+                   LEFT JOIN author_pinned_posts pin ON pin.post_id = p.id
                    WHERE a.handle = $1
                      AND p.moderation_status = 'approved'
                      AND EXISTS (
@@ -1108,7 +1121,7 @@ async fn profile_payload(
                          AND jsonb_typeof(e.media) = 'array'
                          AND jsonb_array_length(e.media) > 0
                      )
-                   ORDER BY p.created_at DESC, p.id DESC
+                   ORDER BY (pin.post_id IS NOT NULL) DESC, p.created_at DESC, p.id DESC
                    LIMIT 50
                  ) t",
             )
@@ -1541,6 +1554,98 @@ async fn pin_buddy(
         following: true,
         pinned: input.pinned,
     }))
+}
+
+async fn pin_profile_post(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(public_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    let result = sqlx::query(
+        "INSERT INTO author_pinned_posts (author_id, post_id)
+         SELECT $1, p.id
+         FROM posts p
+         WHERE p.public_id = $2
+           AND p.author_id = $1
+           AND p.moderation_status = 'approved'
+         ON CONFLICT (author_id) DO UPDATE
+         SET post_id = EXCLUDED.post_id, pinned_at = now()",
+    )
+    .bind(author_id)
+    .bind(&public_id)
+    .execute(&db)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::Invalid(
+            "Only your published posts can be pinned to your profile",
+        ));
+    }
+    Ok(Json(serde_json::json!({
+        "public_id": public_id,
+        "pinned": true
+    })))
+}
+
+async fn unpin_profile_post(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Path(public_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    sqlx::query(
+        "DELETE FROM author_pinned_posts pin
+         USING posts p
+         WHERE pin.post_id = p.id
+           AND pin.author_id = $1
+           AND p.public_id = $2",
+    )
+    .bind(author_id)
+    .bind(&public_id)
+    .execute(&db)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "public_id": public_id,
+        "pinned": false
+    })))
+}
+
+async fn my_post_preferences(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let copy_link_after_post: Option<bool> = sqlx::query_scalar(
+        "SELECT copy_link_after_post FROM author_post_preferences WHERE author_id = $1",
+    )
+    .bind(author_id)
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "copy_link_after_post": copy_link_after_post.unwrap_or(true)
+    })))
+}
+
+async fn update_post_preferences(
+    State(db): State<PgPool>,
+    headers: HeaderMap,
+    Json(input): Json<PostPreferencesRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let author_id = active_author(&headers, &db).await?;
+    sqlx::query(
+        "INSERT INTO author_post_preferences (author_id, copy_link_after_post)
+         VALUES ($1, $2)
+         ON CONFLICT (author_id) DO UPDATE
+         SET copy_link_after_post = EXCLUDED.copy_link_after_post,
+             updated_at = now()",
+    )
+    .bind(author_id)
+    .bind(input.copy_link_after_post)
+    .execute(&db)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "copy_link_after_post": input.copy_link_after_post
+    })))
 }
 
 async fn my_like_sharing(
@@ -2716,6 +2821,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/sessions", post_method(login).delete(logout))
         .route("/api/me", get(me))
         .route("/api/me/profile", get(my_profile).post(update_profile))
+        .route(
+            "/api/me/post-preferences",
+            get(my_post_preferences).post(update_post_preferences),
+        )
         .route("/api/users/{handle}", get(user_profile))
         .route("/api/bookmarks", get(bookmarks::list))
         .route("/api/bookmarks/status", get(bookmarks::batch_status))
@@ -2940,6 +3049,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get(subscription_status),
         )
         .route("/api/posts/{id}", get(post))
+        .route(
+            "/api/posts/{id}/pin",
+            post_method(pin_profile_post).delete(unpin_profile_post),
+        )
         .route("/api/home", get(home_feed))
         .route("/api/posts/{id}/comments", post_method(create_comment))
         .route("/api/posts/{id}/vote", post_method(vote))

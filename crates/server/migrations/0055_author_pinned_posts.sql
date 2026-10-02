@@ -1,0 +1,5 @@
+CREATE TABLE author_pinned_posts (
+    author_id BIGINT PRIMARY KEY REFERENCES authors(id) ON DELETE CASCADE,
+    post_id BIGINT NOT NULL UNIQUE REFERENCES posts(id) ON DELETE CASCADE,
+    pinned_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

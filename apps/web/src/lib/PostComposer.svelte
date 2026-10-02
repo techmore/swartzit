@@ -3,6 +3,7 @@
   import CommunityPicker from '$lib/CommunityPicker.svelte';
   import QuickCrossPost from '$lib/QuickCrossPost.svelte';
   import { preferredCommunity } from '$lib/community-picker-logic.mjs';
+  import { copyPostLink, loadCopyLinkPreference } from '$lib/post-preferences.mjs';
 
   export let communities = [];
   export let selectedCommunity = 'general';
@@ -18,6 +19,9 @@
   let busy = false;
   let error = '';
   let notice = '';
+  let copyLinkAfterPost = true;
+  let preferencesLoaded = false;
+  let createdPostUrl = '';
 
   $: if (!communityInitialized && communities.length) {
     community = preferredCommunity(communities, selectedCommunity);
@@ -26,6 +30,8 @@
 
   onMount(async () => {
     token = localStorage.getItem('swartzit_session') || '';
+    copyLinkAfterPost = await loadCopyLinkPreference(fetch, token);
+    preferencesLoaded = true;
     if (!communities.length) {
       try {
         const response = await fetch('/api/communities');
@@ -48,6 +54,7 @@
     busy = true;
     error = '';
     notice = '';
+    createdPostUrl = '';
     try {
       const response = await fetch('/api/posts', {
         method: 'POST',
@@ -62,7 +69,19 @@
         contentRating = 'general';
         notice = result.message || 'Your post is waiting for moderator review.';
       } else {
-        window.location.assign(`/post/${result.public_id}`);
+        const postUrl = new URL(`/post/${encodeURIComponent(result.public_id)}`, window.location.origin).href;
+        if (copyLinkAfterPost) {
+          const copied = await copyPostLink(result.public_id, navigator, document, window.location.origin);
+          if (!copied) {
+            title = '';
+            body = '';
+            contentRating = 'general';
+            createdPostUrl = postUrl;
+            notice = 'Your post is published, but the browser blocked clipboard access. Open it to copy the link.';
+            return;
+          }
+        }
+        window.location.assign(`/post/${encodeURIComponent(result.public_id)}`);
       }
     } catch (cause) {
       error = cause.message || 'Could not reach Swartzit.';
@@ -95,9 +114,10 @@
         <label>Title<input bind:value={title} required maxlength="300" /></label>
         <label>Body<textarea bind:value={body} maxlength="50000" rows="5" aria-describedby="composer-body-help"></textarea><small id="composer-body-help">Paste a YouTube video URL here and it will be embedded automatically.</small></label>
         <label>Content rating<select bind:value={contentRating} aria-describedby="composer-rating-help"><option value="general">General</option><option value="r">R — mature themes</option><option value="x">X — explicit content</option></select><small id="composer-rating-help">Choose the highest rating that applies.</small></label>
-        <button class="publish-button" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish'}</button>
+        <button class="publish-button" type="submit" disabled={busy || !preferencesLoaded}>{busy ? 'Publishing…' : 'Publish'}</button>
         {#if error}<p class="form-error" role="alert">{error}</p>{/if}
         {#if notice}<p class="form-message" role="status">{notice}</p>{/if}
+        {#if createdPostUrl}<a class="created-post-link" href={createdPostUrl}>Open the published post →</a>{/if}
       </form>
     {/if}
   </section>
@@ -124,6 +144,7 @@
   .form-error,.form-message{margin:0;font-size:.78rem}
   .form-error{color:var(--error,#a33932)}
   .form-message{color:var(--link,#215e47)}
+  .created-post-link{color:var(--link,#215e47);font-size:.82rem;font-weight:700}
   :global(.compose-panel .quick-crosspost){margin:0;padding:0;border:0;background:transparent}
   :global(.compose-panel .crosspost-heading){display:none}
   :global(.compose-panel .crosspost-note){margin:8px 0 0}
