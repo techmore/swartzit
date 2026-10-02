@@ -126,8 +126,8 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          sudo -n env SWARTZIT_WEB_URL=http://192.168.3.251:4173 \
-            /var/lib/swartzit/scripts/swartzit-linux-update.sh --tag "$TAG" --yes
+          sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh \
+            --tag "$TAG" --yes
 
       - name: Prepare the GitHub database-backup deploy key
         if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.operation == 'prepare-github-backup' }}

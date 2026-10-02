@@ -118,9 +118,10 @@ test('production deployment is opt-in, tag-triggered, and serialized', () => {
   // A merge to main must not change a live host; only a published tag deploys.
   assert.match(workflow, /tags:\s*\n\s*- 'v\*'/);
   assert.doesNotMatch(workflow, /branches: \[main\]/);
-  assert.match(workflow, /sudo -n env SWARTZIT_WEB_URL=http:\/\/192\.168\.3\.251:4173/);
+  assert.match(workflow, /sudo -n \/var\/lib\/swartzit\/scripts\/swartzit-linux-update\.sh \\\n\s*--tag "\$TAG" --yes/);
+  assert.doesNotMatch(workflow, /sudo -n env SWARTZIT_WEB_URL/);
   // The deploy names the tag it is installing.
-  assert.match(workflow, /swartzit-linux-update\.sh --tag "\$TAG" --yes/);
+  assert.match(workflow, /swartzit-linux-update\.sh \\\n\s*--tag "\$TAG" --yes/);
 });
 
 test('the deploy runs on a self-hosted runner with no remote access', () => {
