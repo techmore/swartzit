@@ -934,7 +934,15 @@ fn flags_json(analysis: &moderation::Analysis) -> serde_json::Value {
 
 fn validate_profile_update(
     input: ProfileUpdateRequest,
-) -> Result<(String, String, Option<String>, Option<Vec<ProfileProjectUpdate>>), ApiError> {
+) -> Result<
+    (
+        String,
+        String,
+        Option<String>,
+        Option<Vec<ProfileProjectUpdate>>,
+    ),
+    ApiError,
+> {
     let display_name = input.display_name.trim().to_owned();
     let bio = input.bio.trim().to_owned();
     let avatar_url = input.avatar_url.as_deref().unwrap_or("").trim().to_owned();
@@ -961,34 +969,51 @@ fn validate_profile_update(
         }
         Some(avatar_url)
     };
-    let projects = input.projects.map(|projects| {
-        projects
-            .into_iter()
-            .map(|mut project| {
-                project.name = project.name.trim().to_owned();
-                if project.name.is_empty() || project.name.chars().count() > 80 {
-                    return Err(ApiError::Invalid("Project names must be between 1 and 80 characters"));
-                }
-                project.url = validate_profile_link(project.url, "Project URL")?;
-                project.favicon_url = validate_profile_link(project.favicon_url, "Project icon URL")?;
-                project.github_url = validate_github_link(project.github_url)?;
-                Ok(project)
-            })
-            .collect::<Result<Vec<_>, ApiError>>()
-    }).transpose()?;
+    let projects = input
+        .projects
+        .map(|projects| {
+            projects
+                .into_iter()
+                .map(|mut project| {
+                    project.name = project.name.trim().to_owned();
+                    if project.name.is_empty() || project.name.chars().count() > 80 {
+                        return Err(ApiError::Invalid(
+                            "Project names must be between 1 and 80 characters",
+                        ));
+                    }
+                    project.url = validate_profile_link(project.url, "Project URL")?;
+                    project.favicon_url =
+                        validate_profile_link(project.favicon_url, "Project icon URL")?;
+                    project.github_url = validate_github_link(project.github_url)?;
+                    Ok(project)
+                })
+                .collect::<Result<Vec<_>, ApiError>>()
+        })
+        .transpose()?;
     if projects.as_ref().is_some_and(|items| items.len() > 30) {
         return Err(ApiError::Invalid("A profile can list up to 30 projects"));
     }
     Ok((display_name, bio, avatar_url, projects))
 }
 
-fn validate_profile_link(value: Option<String>, label: &'static str) -> Result<Option<String>, ApiError> {
-    let Some(value) = value.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty()) else {
+fn validate_profile_link(
+    value: Option<String>,
+    label: &'static str,
+) -> Result<Option<String>, ApiError> {
+    let Some(value) = value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    else {
         return Ok(None);
     };
     let parsed = url::Url::parse(&value).map_err(|_| ApiError::Invalid(label))?;
-    if parsed.scheme() != "https" || parsed.host_str().is_none() || !parsed.username().is_empty()
-        || parsed.password().is_some() || parsed.port().is_some() || value.len() > 2048 {
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.port().is_some()
+        || value.len() > 2048
+    {
         return Err(ApiError::Invalid(label));
     }
     Ok(Some(value))
@@ -997,7 +1022,12 @@ fn validate_profile_link(value: Option<String>, label: &'static str) -> Result<O
 fn validate_github_link(value: Option<String>) -> Result<Option<String>, ApiError> {
     let value = validate_profile_link(value, "GitHub URL must be a valid HTTPS URL")?;
     if let Some(url) = &value {
-        if url::Url::parse(url).ok().and_then(|parsed| parsed.host_str().map(str::to_owned)).as_deref() != Some("github.com") {
+        if url::Url::parse(url)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_owned))
+            .as_deref()
+            != Some("github.com")
+        {
             return Err(ApiError::Invalid("GitHub URL must point to github.com"));
         }
     }
@@ -1006,12 +1036,13 @@ fn validate_github_link(value: Option<String>) -> Result<Option<String>, ApiErro
 
 async fn me(State(db): State<PgPool>, headers: HeaderMap) -> Result<Json<CurrentUser>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
-    let user =
-        sqlx::query_as::<_, CurrentUser>("SELECT handle, is_admin, avatar_url FROM authors WHERE id = $1")
-            .bind(author_id)
-            .fetch_optional(&db)
-            .await?
-            .ok_or(ApiError::Invalid("Authentication required"))?;
+    let user = sqlx::query_as::<_, CurrentUser>(
+        "SELECT handle, is_admin, avatar_url FROM authors WHERE id = $1",
+    )
+    .bind(author_id)
+    .fetch_optional(&db)
+    .await?
+    .ok_or(ApiError::Invalid("Authentication required"))?;
     Ok(Json(user))
 }
 
@@ -1260,7 +1291,9 @@ async fn update_profile(
     .await?;
     if let Some(projects) = projects {
         sqlx::query("DELETE FROM author_projects WHERE author_id = $1")
-            .bind(author_id).execute(&mut *tx).await?;
+            .bind(author_id)
+            .execute(&mut *tx)
+            .await?;
         for (sort_order, project) in projects.iter().enumerate() {
             sqlx::query("INSERT INTO author_projects(author_id, name, url, favicon_url, github_url, sort_order) VALUES($1,$2,$3,$4,$5,$6)")
                 .bind(author_id).bind(&project.name).bind(&project.url).bind(&project.favicon_url)
