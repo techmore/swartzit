@@ -1,18 +1,21 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import Icon from '$lib/Icon.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
   import AutoplayToggle from '$lib/AutoplayToggle.svelte';
   export let compact = false;
-  let handle = '', isAdmin = false;
+  let handle = '', avatarUrl = '', isAdmin = false;
+  const profileUpdated = event => { avatarUrl = event.detail?.avatar_url ?? ''; };
   onMount(async () => {
+    window.addEventListener('swartzit:profile-updated', profileUpdated);
     const token = localStorage.getItem('swartzit_session');
     if (!token) return;
     try {
       const response = await fetch('/api/me', { headers: { authorization: `Bearer ${token}` } });
-      if (response.ok) { const user = await response.json(); handle = user.handle; isAdmin = user.is_admin; }
+      if (response.ok) { const user = await response.json(); handle = user.handle; avatarUrl = user.avatar_url ?? ''; isAdmin = user.is_admin; }
     } catch { /* Public navigation stays usable when the API is unavailable. */ }
   });
+  onDestroy(() => window.removeEventListener('swartzit:profile-updated', profileUpdated));
 </script>
 <nav class:compact class="session-nav" aria-label="Account and navigation">
   <span class="preferences" aria-label="Display preferences"><ThemeToggle compact /><AutoplayToggle compact /></span>
@@ -29,7 +32,7 @@
       </div>
     </details>
     {#if handle}
-      <a href={'/u/' + handle} aria-label={'Profile for u/' + handle} title={'u/' + handle}><Icon name="user" /></a>
+      <a class="profile-link" href={'/u/' + handle} aria-label={'Profile for u/' + handle} title={'u/' + handle}>{#if avatarUrl}<img src={avatarUrl} alt="" />{:else}<Icon name="user" />{/if}</a>
       <a href="/logout" aria-label="Sign out" title="Sign out"><Icon name="login" /></a>
     {:else}
       <a href="/login" aria-label="Sign in" title="Sign in"><Icon name="login" /></a>
@@ -37,12 +40,13 @@
     {/if}
   {:else}
     <a href="/about">About</a><a href="/communities">Communities</a><a href="/history">History</a>
-    {#if handle}<a href="/?feed=buddies">Buddies</a><a href="/bookmarks">Favorites</a><a href={'/u/' + handle}>u/{handle}</a>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
+    {#if handle}<a href="/?feed=buddies">Buddies</a><a href="/bookmarks">Favorites</a><a class="profile-link" href={'/u/' + handle}>{#if avatarUrl}<img src={avatarUrl} alt="" />{/if}u/{handle}</a>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
     {:else}<a href="/login">Sign in</a><a href="/signup">Create account</a>{/if}
   {/if}
 </nav>
 <style>
   .preferences{display:flex;align-items:center;gap:2px;margin-right:2px}
+  .profile-link{display:inline-flex!important;align-items:center;gap:7px}.profile-link img{width:25px;height:25px;border-radius:50%;object-fit:cover}
   :global(.preferences button){color:var(--muted,#66766c)}
   .session-nav.compact{display:flex;align-items:center;gap:3px;margin-left:4px}
   .compact-menu{position:relative}
