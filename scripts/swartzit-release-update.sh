@@ -11,10 +11,10 @@ APP_DIR=${SWARTZIT_APP_DIR:-/var/lib/swartzit}
 SCRIPT_HOME=$(cd "$(dirname "$0")" && pwd)
 BACKUP_DIR=${SWARTZIT_RELEASE_BACKUP_DIR:-/var/backups/swartzit/releases}
 # Production defaults: the API binds loopback 18080 and the SvelteKit Node
-# build serves 3000. Caddy publishes 192.168.3.251:4173 -> 3000 over WireGuard,
-# so the loopback web port is the reliable post-swap health target.
+# build binds 192.168.3.251:4173. Check the address and port the service
+# actually listens on; the public Caddy listener is not the local web port.
 API_URL=${SWARTZIT_API_URL:-http://127.0.0.1:18080}
-WEB_URL=${SWARTZIT_WEB_URL:-http://127.0.0.1:3000}
+WEB_URL=${SWARTZIT_WEB_URL:-http://192.168.3.251:4173}
 HEALTH_ATTEMPTS=${SWARTZIT_HEALTH_ATTEMPTS:-60}
 GITHUB_TOKEN=${GITHUB_TOKEN:-${GH_TOKEN:-}}
 TAG=""

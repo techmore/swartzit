@@ -33,6 +33,7 @@ test('Linux updater gates the update on a backup, a rehearsal, and health checks
   // The health gate covers readiness, database health, and the web build.
   assert.match(updater, /\/ready/);
   assert.match(updater, /\/health/);
+  assert.match(updater, /WEB_URL=\$\{SWARTZIT_WEB_URL:-http:\/\/192\.168\.3\.251:4173\}/);
 
   // Rollback restores the previous commit instead of discarding history.
   assert.match(updater, /checkout --detach "\$PREVIOUS_COMMIT"/);
@@ -117,6 +118,7 @@ test('production deployment is opt-in, tag-triggered, and serialized', () => {
   // A merge to main must not change a live host; only a published tag deploys.
   assert.match(workflow, /tags:\s*\n\s*- 'v\*'/);
   assert.doesNotMatch(workflow, /branches: \[main\]/);
+  assert.match(workflow, /sudo -n env SWARTZIT_WEB_URL=http:\/\/192\.168\.3\.251:4173/);
   // The deploy names the tag it is installing.
   assert.match(workflow, /swartzit-linux-update\.sh --tag "\$TAG" --yes/);
 });
