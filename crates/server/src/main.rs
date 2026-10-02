@@ -250,6 +250,12 @@ struct ProfileProjectUpdate {
     favicon_url: Option<String>,
     github_url: Option<String>,
 }
+type ValidatedProfileUpdate = (
+    String,
+    String,
+    Option<String>,
+    Option<Vec<ProfileProjectUpdate>>,
+);
 #[derive(Serialize, FromRow)]
 struct CreatedComment {
     id: i64,
@@ -934,15 +940,7 @@ fn flags_json(analysis: &moderation::Analysis) -> serde_json::Value {
 
 fn validate_profile_update(
     input: ProfileUpdateRequest,
-) -> Result<
-    (
-        String,
-        String,
-        Option<String>,
-        Option<Vec<ProfileProjectUpdate>>,
-    ),
-    ApiError,
-> {
+) -> Result<ValidatedProfileUpdate, ApiError> {
     let display_name = input.display_name.trim().to_owned();
     let bio = input.bio.trim().to_owned();
     let avatar_url = input.avatar_url.as_deref().unwrap_or("").trim().to_owned();
@@ -1021,15 +1019,16 @@ fn validate_profile_link(
 
 fn validate_github_link(value: Option<String>) -> Result<Option<String>, ApiError> {
     let value = validate_profile_link(value, "GitHub URL must be a valid HTTPS URL")?;
-    if let Some(url) = &value {
-        if url::Url::parse(url)
-            .ok()
-            .and_then(|parsed| parsed.host_str().map(str::to_owned))
-            .as_deref()
-            != Some("github.com")
-        {
-            return Err(ApiError::Invalid("GitHub URL must point to github.com"));
-        }
+    let Some(url) = &value else {
+        return Ok(value);
+    };
+    if url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_owned))
+        .as_deref()
+        != Some("github.com")
+    {
+        return Err(ApiError::Invalid("GitHub URL must point to github.com"));
     }
     Ok(value)
 }
