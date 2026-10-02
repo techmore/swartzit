@@ -1,13 +1,16 @@
 <script>
-  import { onDestroy, onMount } from 'svelte';
+  import { onMount } from 'svelte';
   import Icon from '$lib/Icon.svelte';
   import ThemeToggle from '$lib/ThemeToggle.svelte';
   import AutoplayToggle from '$lib/AutoplayToggle.svelte';
   export let compact = false;
   let handle = '', avatarUrl = '', isAdmin = false;
   const profileUpdated = event => { avatarUrl = event.detail?.avatar_url ?? ''; };
-  onMount(async () => {
+  onMount(() => {
     window.addEventListener('swartzit:profile-updated', profileUpdated);
+    return () => window.removeEventListener('swartzit:profile-updated', profileUpdated);
+  });
+  onMount(async () => {
     const token = localStorage.getItem('swartzit_session');
     if (!token) return;
     try {
@@ -15,7 +18,6 @@
       if (response.ok) { const user = await response.json(); handle = user.handle; avatarUrl = user.avatar_url ?? ''; isAdmin = user.is_admin; }
     } catch { /* Public navigation stays usable when the API is unavailable. */ }
   });
-  onDestroy(() => window.removeEventListener('swartzit:profile-updated', profileUpdated));
 </script>
 <nav class:compact class="session-nav" aria-label="Account and navigation">
   <span class="preferences" aria-label="Display preferences"><ThemeToggle compact /><AutoplayToggle compact /></span>
