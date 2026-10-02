@@ -104,11 +104,12 @@ Service endpoints are configurable if the layout changes:
 
 ```text
 SWARTZIT_API_URL   defaults to http://127.0.0.1:18080
-SWARTZIT_WEB_URL   defaults to http://127.0.0.1:3000
+SWARTZIT_WEB_URL   defaults to http://192.168.3.251:4173
 ```
 
-The public Caddy listener is WireGuard-bound, so the loopback web port is the
-reliable post-swap health target.
+The web health check targets the address and port configured for the SER8
+SvelteKit service. The public Caddy listener is WireGuard-bound and is not the
+local web service endpoint.
 
 ## Upgrading a host whose checkout is still on an old commit
 

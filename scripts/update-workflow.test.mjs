@@ -33,6 +33,7 @@ test('Linux updater gates the update on a backup, a rehearsal, and health checks
   // The health gate covers readiness, database health, and the web build.
   assert.match(updater, /\/ready/);
   assert.match(updater, /\/health/);
+  assert.match(updater, /WEB_URL=\$\{SWARTZIT_WEB_URL:-http:\/\/192\.168\.3\.251:4173\}/);
 
   // Rollback restores the previous commit instead of discarding history.
   assert.match(updater, /checkout --detach "\$PREVIOUS_COMMIT"/);
