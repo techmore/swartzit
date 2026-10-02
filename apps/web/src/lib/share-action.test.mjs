@@ -1,24 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { requestNativeShare } from './share-action.mjs';
+import { copyTextToClipboard } from './post-preferences.mjs';
 
-test('native share calls the operating-system share target chooser with the supplied data', async () => {
-  const expected = { title: 'Swartzit', text: 'Join the discussion', url: 'https://stoverparc.org/post/abc' };
-  let received;
-  const navigatorObject = { share(data) { received = data; return Promise.resolve(); } };
+test('share copies the full post URL using the clipboard API', async () => {
+  const expected = 'https://swartzit.stoverparc.org/post/abc';
+  let copied;
+  const navigatorObject = { clipboard: { async writeText(value) { copied = value; } } };
 
-  const pending = requestNativeShare(navigatorObject, expected);
-  assert.equal(received, expected, 'the chooser is invoked synchronously within the click handler call');
-  assert.equal(await pending, 'shared');
+  assert.equal(await copyTextToClipboard(expected, navigatorObject, {}), true);
+  assert.equal(copied, expected);
 });
 
-test('native share reports unsupported browsers for the clipboard fallback', async () => {
-  assert.equal(await requestNativeShare({}, { url: 'https://stoverparc.org/post/abc' }), 'unavailable');
+test('share falls back to the legacy clipboard command when clipboard API is unavailable', async () => {
+  let copied = '';
+  const input = {
+    value: '',
+    style: {},
+    setAttribute() {},
+    select() {},
+    setSelectionRange() {},
+    remove() {}
+  };
+  const documentObject = {
+    createElement: () => input,
+    body: { appendChild(element) { copied = element.value; } },
+    execCommand: () => true
+  };
+
+  assert.equal(await copyTextToClipboard('https://swartzit.stoverparc.org/post/abc', {}, documentObject), true);
+  assert.equal(copied, 'https://swartzit.stoverparc.org/post/abc');
 });
 
-test('native share distinguishes a user dismissing the chooser from an error', async () => {
-  const cancelled = new Error('dismissed');
-  cancelled.name = 'AbortError';
-  assert.equal(await requestNativeShare({ share: () => Promise.reject(cancelled) }, {}), 'cancelled');
-  assert.equal(await requestNativeShare({ share: () => Promise.reject(new Error('failed')) }, {}), 'failed');
+test('share reports failure when neither clipboard path succeeds', async () => {
+  const documentObject = {
+    createElement: () => ({ setAttribute() {}, select() {}, setSelectionRange() {}, remove() {} }),
+    body: { appendChild() {} },
+    execCommand: () => false
+  };
+
+  assert.equal(await copyTextToClipboard('https://swartzit.stoverparc.org/post/abc', {}, documentObject), false);
 });
