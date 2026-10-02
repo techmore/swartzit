@@ -88,7 +88,7 @@ trap cleanup EXIT
 
 echo "Preflighting against ${SCHEME}://${PG_HOST}:${PG_PORT} using restored database ${BACKUP}."
 swartzit_pg_admin psql -d postgres -v ON_ERROR_STOP=1 -q -c \
-  "create role \"$TEST_ROLE\" login password '$TEST_PASSWORD'" >/dev/null
+  "create role \"$TEST_ROLE\" login password '$TEST_PASSWORD'; grant \"$TEST_ROLE\" to \"$SWARTZIT_PG_ADMIN_USER\" with admin option" >/dev/null
 # The rehearsal role owns the copy, so a --no-owner restore needs no superuser
 # and cannot reach any production object.
 swartzit_pg_admin createdb -O "$TEST_ROLE" "$TEST_DB"
