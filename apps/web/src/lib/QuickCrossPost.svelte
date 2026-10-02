@@ -4,20 +4,26 @@
   import { preferredCommunity } from '$lib/community-picker-logic.mjs';
   import { parseXStatusUrl } from '$lib/x-source.mjs';
   import { parseYouTubeUrl } from '$lib/youtube-source.mjs';
+  import { copyPostLink, loadCopyLinkPreference } from '$lib/post-preferences.mjs';
   export let communities = [];
   export let selectedCommunity = '';
   export let xOnly = false;
   export let hideCommunity = false;
-  let url = '', community = '', contentRating = 'general', busy = false, error = '', notice = '', existingPost = '';
+  let url = '', community = '', contentRating = 'general', busy = false, error = '', notice = '', existingPost = '', createdPostUrl = '';
   let sourceInput;
   let communityInitialized = false;
+  let copyLinkAfterPost = true;
+  let preferencesLoaded = false;
   $: if (!communityInitialized && communities.length) {
     community = xOnly && hideCommunity ? 'general' : preferredCommunity(communities, selectedCommunity);
     communityInitialized = true;
   }
 
-  onMount(() => {
+  onMount(async () => {
     if (xOnly) sourceInput?.focus();
+    const token = localStorage.getItem('swartzit_session') || '';
+    copyLinkAfterPost = await loadCopyLinkPreference(fetch, token);
+    preferencesLoaded = true;
   });
 
   function validateLink() {
@@ -28,7 +34,7 @@
 
   async function submit(event) {
     event.preventDefault();
-    busy = true; error = ''; notice = ''; existingPost = '';
+    busy = true; error = ''; notice = ''; existingPost = ''; createdPostUrl = '';
     try {
       if (xOnly) {
         validateLink();
@@ -48,7 +54,17 @@
         url = '';
         notice = result.message || 'The shared post is waiting for moderator review.';
       } else {
-        window.location.assign(`/post/${result.public_id}`);
+        const postUrl = new URL(`/post/${encodeURIComponent(result.public_id)}`, window.location.origin).href;
+        if (copyLinkAfterPost) {
+          const copied = await copyPostLink(result.public_id, navigator, document, window.location.origin);
+          if (!copied) {
+            url = '';
+            createdPostUrl = postUrl;
+            notice = 'The post is published, but the browser blocked clipboard access. Open it to copy the link.';
+            return;
+          }
+        }
+        window.location.assign(`/post/${encodeURIComponent(result.public_id)}`);
       }
     } catch (cause) {
       error = cause.message || 'Could not reach Swartzit.';
@@ -88,11 +104,11 @@
         </select>
       </label>
     {/if}
-    <button type="submit" disabled={busy || (!hideCommunity && !community)}>{busy ? 'Sharing…' : xOnly ? 'Cross-post link' : 'Share link'}</button>
+    <button type="submit" disabled={busy || !preferencesLoaded || (!hideCommunity && !community)}>{busy ? 'Sharing…' : xOnly ? 'Cross-post link' : 'Share link'}</button>
   </form>
   <p class="crosspost-note" id="crosspost-rating-help">{xOnly ? 'Defaults to General. Duplicate links open the existing post.' : 'Choose the highest rating that applies before sharing. Original author and source link stay attached. Duplicate links open the existing discussion.'}</p>
   {#if error}<p class="crosspost-feedback error" role="alert">{error}</p>{/if}
-  {#if notice}<p class="crosspost-feedback" role="status">{notice}{#if existingPost} <a href={'/post/' + existingPost}>Open it →</a>{/if}</p>{/if}
+  {#if notice}<p class="crosspost-feedback" role="status">{notice}{#if existingPost} <a href={'/post/' + existingPost}>Open it →</a>{:else if createdPostUrl} <a href={createdPostUrl}>Open it →</a>{/if}</p>{/if}
 </section>
 
 <style>

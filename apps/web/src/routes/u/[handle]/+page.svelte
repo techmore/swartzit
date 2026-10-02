@@ -6,10 +6,12 @@
   import PostBody from '$lib/PostBody.svelte';
   import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
   import LikeSharingSettings from '$lib/LikeSharingSettings.svelte';
+  import PostPreferences from '$lib/PostPreferences.svelte';
 
   export let data;
-  let token = '', viewer = null, buddyFollowing = false, buddyPinned = false, buddyBusy = false, buddyError = '', displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
+  let token = '', viewer = null, buddyFollowing = false, buddyPinned = false, buddyBusy = false, buddyError = '', postPinBusyId = '', postPinError = '', postPinNotice = '', displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', formError = '', formMessage = '', saving = false;
   let activeTab = data.tab ?? 'posts';
+  let pinnedPostId = data.profile.pinned_post_id ?? null;
   let videoLoops = {};
   const date = value => value ? new Date(value).toLocaleDateString() : '—';
   const attachment = value => {
@@ -74,6 +76,35 @@
     finally { buddyBusy = false; }
   }
 
+  async function togglePostPin(item) {
+    const shouldPin = pinnedPostId !== item.public_id;
+    if (shouldPin && pinnedPostId && !window.confirm('Pinning this post will replace your current pinned post. Continue?')) return;
+    postPinBusyId = item.public_id;
+    postPinError = '';
+    postPinNotice = '';
+    try {
+      const response = await fetch(`/api/posts/${encodeURIComponent(item.public_id)}/pin`, {
+        method: shouldPin ? 'POST' : 'DELETE',
+        headers: { authorization: 'Bearer ' + token }
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not update your pinned post.');
+      pinnedPostId = result.pinned ? result.public_id : null;
+      data = {
+        ...data,
+        profile: { ...data.profile, pinned_post_id: pinnedPostId },
+        posts: (data.posts ?? [])
+          .map(post => ({ ...post, pinned: post.public_id === pinnedPostId }))
+          .sort((a, b) => Number(b.pinned) - Number(a.pinned) || Date.parse(b.created_at) - Date.parse(a.created_at))
+      };
+      postPinNotice = result.pinned ? 'Post pinned to the top of your profile.' : 'Post unpinned from your profile.';
+    } catch (cause) {
+      postPinError = cause.message || 'Could not reach Swartzit.';
+    } finally {
+      postPinBusyId = '';
+    }
+  }
+
   async function saveProfile() {
     formError = ''; formMessage = ''; saving = true;
     try {
@@ -132,6 +163,7 @@
       {#if formMessage}<p class="form-message" role="status">{formMessage}</p>{/if}
       {#if formError}<p class="form-error" role="alert">{formError}</p>{/if}
     </section>
+    <PostPreferences />
     <LikeSharingSettings />
   {/if}
 
@@ -147,14 +179,17 @@
       <div id="profile-posts" role="tabpanel" aria-label="Posts">
         {#if posts.length}
           {#each posts as item}
-            <article class="activity-item">
-              <div><span class="badge">Post</span><span class="muted"> · {date(item.created_at)} · c/{item.community}</span></div>
+            <article class="activity-item" class:pinned-post={item.pinned}>
+              <div class="post-card-heading"><div><span class="badge">Post</span><span class="muted"> · {date(item.created_at)} · c/{item.community}</span></div>{#if item.pinned}<span class="pinned-badge">📌 Pinned</span>{/if}</div>
               <h3><a href="/post/{item.public_id}">{item.title}</a></h3>
               {#if item.body}<PostBody body={item.body} />{/if}
               <div class="timeline-meta"><span>{item.score ?? 0} points</span><span>{item.comment_count ?? 0} replies</span>{#if item.source?.media?.length}<span>{item.source.media.length} media</span>{/if}</div>
+              {#if viewer?.handle === data.profile.handle}<button type="button" class="post-pin-button" class:active={item.pinned} disabled={postPinBusyId !== ''} aria-pressed={item.pinned === true} onclick={() => togglePostPin(item)}>{postPinBusyId === item.public_id ? 'Saving…' : item.pinned ? 'Unpin from profile' : 'Pin to profile'}</button>{/if}
             </article>
           {/each}
         {:else}<p class="muted empty-tab">No approved posts yet.</p>{/if}
+        {#if postPinNotice}<p class="pin-feedback" role="status">{postPinNotice}</p>{/if}
+        {#if postPinError}<p class="pin-error" role="alert">{postPinError}</p>{/if}
       </div>
     {:else if activeTab === 'replies'}
       <div id="profile-replies" role="tabpanel" aria-label="Replies">
@@ -181,7 +216,7 @@
                     <video controls playsinline preload="metadata" loop={videoLoops[item.src] === true} src={item.src} poster={item.poster || undefined} aria-label={item.alt || 'Video shared in '+item.post.title}></video>
                   {:else}<a href={item.src} target="_blank" rel="noopener noreferrer"><img src={item.src} alt={item.alt || item.post.title} loading="lazy" referrerpolicy="no-referrer" /></a>{/if}
                 </div>
-                <div class="media-caption"><a href="/post/{item.post.public_id}">{item.post.title}</a><small>{date(item.post.created_at)} · c/{item.post.community}</small>{#if item.kind === 'video'}<div class="media-video-tools"><VideoLoopToggle enabled={videoLoops[item.src] === true} on:change={(event) => setVideoLoop(item.src, event.detail.enabled)} /><a href={item.src} target="_blank" rel="noopener noreferrer">Open video ↗</a></div>{/if}</div>
+              <div class="media-caption"><a href="/post/{item.post.public_id}">{item.post.title}</a>{#if item.post.pinned}<span class="pinned-badge">📌 Pinned on profile</span>{/if}<small>{date(item.post.created_at)} · c/{item.post.community}</small>{#if item.kind === 'video'}<div class="media-video-tools"><VideoLoopToggle enabled={videoLoops[item.src] === true} on:change={(event) => setVideoLoop(item.src, event.detail.enabled)} /><a href={item.src} target="_blank" rel="noopener noreferrer">Open video ↗</a></div>{/if}</div>
               </article>
             {/each}
           </div>
@@ -202,6 +237,7 @@
   .activity{margin-top:40px}.section-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border,#dedfd7);padding-bottom:12px}.section-heading h2{margin:0;font:500 1.7rem/1.1 Georgia,serif;color:var(--heading,#173d34)}.section-heading a{color:var(--accent,#9b5e38);font-weight:700;font-size:.84rem}
   .profile-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#dedfd7);margin-top:16px;overflow-x:auto}.profile-tabs a{position:relative;padding:13px 15px;color:var(--muted,#66766c);font:600 .82rem/1 inherit;white-space:nowrap;text-decoration:none}.profile-tabs a span{margin-left:4px;font-size:.72rem;opacity:.75}.profile-tabs a:hover{color:var(--heading,#173d34)}.profile-tabs a.active{color:var(--heading,#173d34)}.profile-tabs a.active::after{content:'';position:absolute;right:12px;bottom:-1px;left:12px;height:3px;border-radius:3px 3px 0 0;background:var(--accent,#9b5e38)}
   .activity-item{padding:17px 0;border-bottom:1px solid var(--border,#dedfd7)}.activity-item h3{margin:8px 0 0;font:600 1.1rem/1.25 Georgia,serif}.activity-item h3 a{color:var(--heading,#173d34)}.activity-item p{margin:10px 0;white-space:pre-wrap}.timeline-body{line-height:1.5}.timeline-meta{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;color:var(--muted,#77827d);font-size:.76rem}.badge{display:inline-block;padding:3px 7px;border-radius:999px;background:var(--wash,#f0ece4);color:var(--muted,#66766c);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em}.context-link{font-size:.8rem;color:var(--accent,#9b5e38);font-weight:700}.empty-tab{padding:28px 0;border-bottom:1px solid var(--border,#dedfd7)}
+  .activity-item.pinned-post{padding-left:12px;border-left:3px solid var(--accent,#9b5e38)}.post-card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.pinned-badge{color:var(--accent,#9b5e38);font-size:.72rem;font-weight:750;white-space:nowrap}.post-pin-button{margin-top:12px;padding:6px 10px;border:1px solid var(--border,#c7ccc3);border-radius:999px;background:var(--surface,#fff);color:var(--heading,#173d34);font:650 .74rem/1.2 ui-sans-serif,system-ui,sans-serif;cursor:pointer}.post-pin-button.active{border-color:var(--accent,#9b5e38);color:var(--accent,#9b5e38)}.post-pin-button:disabled{opacity:.6;cursor:wait}.pin-feedback,.pin-error{font-size:.82rem}.pin-feedback{color:var(--accent,#575d3d)}.pin-error{color:var(--error,#973c35)}
   .media-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding-top:18px}.media-card{overflow:hidden;border:1px solid var(--border,#dedfd7);border-radius:10px;background:var(--surface,#fff)}.media-preview{background:var(--subtle,#f0f3ec);aspect-ratio:1/1;display:grid;place-items:center}.media-preview img,.media-preview video{width:100%;height:100%;object-fit:cover;display:block}.media-caption{padding:10px 12px}.media-caption>a{display:block;color:var(--heading,#173d34);font-weight:700;font-size:.84rem;line-height:1.3;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.media-caption small{display:block;margin-top:5px;color:var(--muted,#77827d);font-size:.72rem}.media-video-tools{display:flex;align-items:center;gap:10px;margin-top:8px}.media-video-tools a{color:var(--accent,#9b5e38);font-size:.76rem;font-weight:700}
   @media(max-width:600px){.profile-page{padding-top:20px}.profile-card{padding:20px}.profile-card h1{font-size:1.6rem}.profile-stats{gap:18px}.section-heading{align-items:start;flex-direction:column;gap:8px}}
   @media(max-width:460px){.media-grid{grid-template-columns:1fr}.profile-tabs a{padding-inline:10px}}
