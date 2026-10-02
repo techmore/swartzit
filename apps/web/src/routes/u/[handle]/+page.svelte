@@ -19,6 +19,7 @@
     const src = String(media.src ?? '').trim();
     return /^(?:https?:\/\/|\/media\/\d+(?:\?|$))/i.test(src) ? { ...media, src, kind: media.kind === 'video' ? 'video' : 'image' } : null;
   };
+  const postAttachments = post => (post.source?.media ?? []).map(attachment).filter(Boolean);
   $: posts = data.posts ?? [];
   $: replies = data.replies ?? [];
   $: media = (data.media ?? []).flatMap(post => (post.source?.media ?? []).map(attachment).filter(Boolean).map(item => ({ ...item, post })));
@@ -183,6 +184,22 @@
               <div class="post-card-heading"><div><span class="badge">Post</span><span class="muted"> · {date(item.created_at)} · c/{item.community}</span></div>{#if item.pinned}<span class="pinned-badge">📌 Pinned</span>{/if}</div>
               <h3><a href="/post/{item.public_id}">{item.title}</a></h3>
               {#if item.body}<PostBody body={item.body} />{/if}
+              {#if postAttachments(item).length}
+                <div class="post-media" aria-label="Media attached to this post">
+                  {#each postAttachments(item) as asset}
+                    <div class="post-media-item">
+                      {#if asset.kind === 'video'}
+                        <!-- Profile timelines do not have caption tracks for attached video. -->
+                        <!-- svelte-ignore a11y_media_has_caption -->
+                        <video controls playsinline preload="metadata" loop={videoLoops[asset.src] === true} src={asset.src} poster={asset.poster || undefined} aria-label={asset.alt || 'Video shared in '+item.title}></video>
+                        <VideoLoopToggle enabled={videoLoops[asset.src] === true} on:change={(event) => setVideoLoop(asset.src, event.detail.enabled)} />
+                      {:else}
+                        <a href={asset.src} target="_blank" rel="noopener noreferrer"><img src={asset.src} alt={asset.alt || item.title} loading="lazy" referrerpolicy="no-referrer" /></a>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
               <div class="timeline-meta"><span>{item.score ?? 0} points</span><span>{item.comment_count ?? 0} replies</span>{#if item.source?.media?.length}<span>{item.source.media.length} media</span>{/if}</div>
               {#if viewer?.handle === data.profile.handle}<button type="button" class="post-pin-button" class:active={item.pinned} disabled={postPinBusyId !== ''} aria-pressed={item.pinned === true} onclick={() => togglePostPin(item)}>{postPinBusyId === item.public_id ? 'Saving…' : item.pinned ? 'Unpin from profile' : 'Pin to profile'}</button>{/if}
             </article>
@@ -238,6 +255,7 @@
   .profile-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border,#dedfd7);margin-top:16px;overflow-x:auto}.profile-tabs a{position:relative;padding:13px 15px;color:var(--muted,#66766c);font:600 .82rem/1 inherit;white-space:nowrap;text-decoration:none}.profile-tabs a span{margin-left:4px;font-size:.72rem;opacity:.75}.profile-tabs a:hover{color:var(--heading,#173d34)}.profile-tabs a.active{color:var(--heading,#173d34)}.profile-tabs a.active::after{content:'';position:absolute;right:12px;bottom:-1px;left:12px;height:3px;border-radius:3px 3px 0 0;background:var(--accent,#9b5e38)}
   .activity-item{padding:17px 0;border-bottom:1px solid var(--border,#dedfd7)}.activity-item h3{margin:8px 0 0;font:600 1.1rem/1.25 Georgia,serif}.activity-item h3 a{color:var(--heading,#173d34)}.activity-item p{margin:10px 0;white-space:pre-wrap}.timeline-body{line-height:1.5}.timeline-meta{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;color:var(--muted,#77827d);font-size:.76rem}.badge{display:inline-block;padding:3px 7px;border-radius:999px;background:var(--wash,#f0ece4);color:var(--muted,#66766c);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em}.context-link{font-size:.8rem;color:var(--accent,#9b5e38);font-weight:700}.empty-tab{padding:28px 0;border-bottom:1px solid var(--border,#dedfd7)}
   .activity-item.pinned-post{padding-left:12px;border-left:3px solid var(--accent,#9b5e38)}.post-card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.pinned-badge{color:var(--accent,#9b5e38);font-size:.72rem;font-weight:750;white-space:nowrap}.post-pin-button{margin-top:12px;padding:6px 10px;border:1px solid var(--border,#c7ccc3);border-radius:999px;background:var(--surface,#fff);color:var(--heading,#173d34);font:650 .74rem/1.2 ui-sans-serif,system-ui,sans-serif;cursor:pointer}.post-pin-button.active{border-color:var(--accent,#9b5e38);color:var(--accent,#9b5e38)}.post-pin-button:disabled{opacity:.6;cursor:wait}.pin-feedback,.pin-error{font-size:.82rem}.pin-feedback{color:var(--accent,#575d3d)}.pin-error{color:var(--error,#973c35)}
+  .post-media{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px;margin-top:14px}.post-media-item{min-width:0;overflow:hidden;border:1px solid var(--border,#dedfd7);border-radius:10px;background:#151815}.post-media-item img,.post-media-item video{display:block;width:100%;max-height:480px;aspect-ratio:4/3;object-fit:contain}.post-media-item a{display:block}.post-media-item :global(button){margin:6px 8px}
   .media-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding-top:18px}.media-card{overflow:hidden;border:1px solid var(--border,#dedfd7);border-radius:10px;background:var(--surface,#fff)}.media-preview{background:var(--subtle,#f0f3ec);aspect-ratio:1/1;display:grid;place-items:center}.media-preview img,.media-preview video{width:100%;height:100%;object-fit:cover;display:block}.media-caption{padding:10px 12px}.media-caption>a{display:block;color:var(--heading,#173d34);font-weight:700;font-size:.84rem;line-height:1.3;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.media-caption small{display:block;margin-top:5px;color:var(--muted,#77827d);font-size:.72rem}.media-video-tools{display:flex;align-items:center;gap:10px;margin-top:8px}.media-video-tools a{color:var(--accent,#9b5e38);font-size:.76rem;font-weight:700}
   @media(max-width:600px){.profile-page{padding-top:20px}.profile-card{padding:20px}.profile-card h1{font-size:1.6rem}.profile-stats{gap:18px}.section-heading{align-items:start;flex-direction:column;gap:8px}}
   @media(max-width:460px){.media-grid{grid-template-columns:1fr}.profile-tabs a{padding-inline:10px}}
