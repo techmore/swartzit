@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import Brand from '$lib/Brand.svelte';
+  import Brand from '#lib/Brand.svelte';
   let message = 'Signing out…';
   onMount(async () => { const token = localStorage.getItem('swartzit_session'); if (token) await fetch('/api/sessions', { method: 'DELETE', headers: { authorization: `Bearer ${token}` } }); localStorage.removeItem('swartzit_session'); message = 'You are signed out.'; });
 </script>

@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import Brand from '$lib/Brand.svelte';
+  import Brand from '#lib/Brand.svelte';
   onMount(() => { if (new URLSearchParams(location.search).has('created')) message = 'Account created. Sign in with your new password.'; });
   let handle = '', password = '', message = '', error = '';
   function destinationAfterSignIn() { const next = new URLSearchParams(location.search).get('next'); return next && next.startsWith('/') && !next.startsWith('//') ? next : '/'; }

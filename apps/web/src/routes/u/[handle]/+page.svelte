@@ -1,12 +1,12 @@
 <script>
   import { onMount } from 'svelte';
-  import SessionNav from '$lib/SessionNav.svelte';
-  import Brand from '$lib/Brand.svelte';
-  import AuthorAvatar from '$lib/AuthorAvatar.svelte';
-  import PostBody from '$lib/PostBody.svelte';
-  import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
-  import LikeSharingSettings from '$lib/LikeSharingSettings.svelte';
-  import PostPreferences from '$lib/PostPreferences.svelte';
+  import SessionNav from '#lib/SessionNav.svelte';
+  import Brand from '#lib/Brand.svelte';
+  import AuthorAvatar from '#lib/AuthorAvatar.svelte';
+  import PostBody from '#lib/PostBody.svelte';
+  import VideoLoopToggle from '#lib/VideoLoopToggle.svelte';
+  import LikeSharingSettings from '#lib/LikeSharingSettings.svelte';
+  import PostPreferences from '#lib/PostPreferences.svelte';
 
   export let data;
   let token = '', viewer = null, buddyFollowing = false, buddyPinned = false, buddyBusy = false, buddyError = '', postPinBusyId = '', postPinError = '', postPinNotice = '', displayName = data.profile.display_name ?? '', bio = data.profile.bio ?? '', avatarUrl = data.profile.avatar_url ?? '', xHandle = 'techmore_edu', fetchingXAvatar = false, projects = (data.profile.projects ?? []).map(project => ({ ...project })), formError = '', formMessage = '', saving = false;

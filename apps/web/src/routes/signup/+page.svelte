@@ -1,6 +1,6 @@
 <script>
   export let form;
-  import Brand from '$lib/Brand.svelte';
+  import Brand from '#lib/Brand.svelte';
   let password = '', visible = false, generated = false;
   function generate() {
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';

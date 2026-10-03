@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getBookmarkFolders, getBookmarkStatus, setBookmarkStatus } from '$lib/bookmark-state.js';
+  import { getBookmarkFolders, getBookmarkStatus, setBookmarkStatus } from '#lib/bookmark-state.js';
   export let id;
   let token = '', saved = false, folder = '', folders = [], busy = false, ready = false, error = '';
   async function request(path, method = 'GET', body) {

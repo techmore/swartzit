@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import SessionNav from '$lib/SessionNav.svelte';
-  import Brand from '$lib/Brand.svelte';
+  import SessionNav from '#lib/SessionNav.svelte';
+  import Brand from '#lib/Brand.svelte';
   export let data;
   let token = '', slug = '', name = '', description = '', error = '', busy = false, busySlug = '', following = {};
   onMount(async () => {

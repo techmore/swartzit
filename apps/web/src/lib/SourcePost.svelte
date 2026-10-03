@@ -1,10 +1,10 @@
 <script>
   import { onMount } from 'svelte';
-  import PostActions from '$lib/PostActions.svelte';
-  import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
-  import XAuthorFollowButton from '$lib/XAuthorFollowButton.svelte';
-  import { youtubeEmbedUrl } from '$lib/youtube-source.mjs';
-  import { cleanXSourceText, splitXPost } from '$lib/x-post-display.mjs';
+  import PostActions from '#lib/PostActions.svelte';
+  import VideoLoopToggle from '#lib/VideoLoopToggle.svelte';
+  import XAuthorFollowButton from '#lib/XAuthorFollowButton.svelte';
+  import { youtubeEmbedUrl } from '#lib/youtube-source.mjs';
+  import { cleanXSourceText, splitXPost } from '#lib/x-post-display.mjs';
   export let source;
   export let text = '';
   export let post = null;

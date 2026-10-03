@@ -1,8 +1,8 @@
 <script>
-  import BookmarkButton from '$lib/BookmarkButton.svelte';
-  import { mediaShareUrl } from '$lib/media-share.js';
-  import ShareButton from '$lib/ShareButton.svelte';
-  import VoteButtons from '$lib/VoteButtons.svelte';
+  import BookmarkButton from '#lib/BookmarkButton.svelte';
+  import { mediaShareUrl } from '#lib/media-share.js';
+  import ShareButton from '#lib/ShareButton.svelte';
+  import VoteButtons from '#lib/VoteButtons.svelte';
 
   export let post;
   $: shareUrl = mediaShareUrl(post?.source?.media);

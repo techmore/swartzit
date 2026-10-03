@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte';
-  import Icon from '$lib/Icon.svelte';
-  import ThemeToggle from '$lib/ThemeToggle.svelte';
-  import AutoplayToggle from '$lib/AutoplayToggle.svelte';
+  import Icon from '#lib/Icon.svelte';
+  import ThemeToggle from '#lib/ThemeToggle.svelte';
+  import AutoplayToggle from '#lib/AutoplayToggle.svelte';
   export let compact = false;
   let handle = '', avatarUrl = '', isAdmin = false;
   const profileUpdated = event => { avatarUrl = event.detail?.avatar_url ?? ''; };

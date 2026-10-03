@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import SessionNav from '$lib/SessionNav.svelte';
-  import Brand from '$lib/Brand.svelte';
+  import SessionNav from '#lib/SessionNav.svelte';
+  import Brand from '#lib/Brand.svelte';
   let items = [], ready = false;
   function load() {
     try { items = JSON.parse(localStorage.getItem('swartzit_reading_history') || '[]'); }

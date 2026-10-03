@@ -1,5 +1,5 @@
 <script>
-  import { selectedCommunityState } from '$lib/community-picker-logic.mjs';
+  import { selectedCommunityState } from '#lib/community-picker-logic.mjs';
 
   export let communities = [];
   export let value = '';
