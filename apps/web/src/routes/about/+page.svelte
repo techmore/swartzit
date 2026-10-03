@@ -1,6 +1,6 @@
 <script>
-  import SessionNav from '$lib/SessionNav.svelte';
-  import Brand from '$lib/Brand.svelte';
+  import SessionNav from '#lib/SessionNav.svelte';
+  import Brand from '#lib/Brand.svelte';
 </script>
 
 <svelte:head><title>About Swartzit</title></svelte:head>

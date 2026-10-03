@@ -1,8 +1,8 @@
 import { env } from '$env/dynamic/private';
-import { crossPostCommunity } from '$lib/community-picker-logic.mjs';
-import { parseXStatusUrl, resolveXPost } from '$lib/x-source.mjs';
-import { parseRedditPostUrl, resolveRedditPost } from '$lib/reddit-source.mjs';
-import { parseYouTubeUrl, resolveYouTubePost } from '$lib/youtube-source.mjs';
+import { crossPostCommunity } from '#lib/community-picker-logic.mjs';
+import { parseXStatusUrl, resolveXPost } from '#lib/x-source.mjs';
+import { parseRedditPostUrl, resolveRedditPost } from '#lib/reddit-source.mjs';
+import { parseYouTubeUrl, resolveYouTubePost } from '#lib/youtube-source.mjs';
 
 const api = (env.API_URL || 'http://127.0.0.1:8080').replace(/\/+$/, '');
 const json = (body, status = 200) => Response.json(body, { status });

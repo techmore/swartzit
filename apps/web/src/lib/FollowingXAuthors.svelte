@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { loadXAuthorFollowState, xAuthorFollowState } from '$lib/x-author-follow-state.js';
-  import XAuthorFollowButton from '$lib/XAuthorFollowButton.svelte';
+  import { loadXAuthorFollowState, xAuthorFollowState } from '#lib/x-author-follow-state.js';
+  import XAuthorFollowButton from '#lib/XAuthorFollowButton.svelte';
 
   let token = '';
   let ready = false;

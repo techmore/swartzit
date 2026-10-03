@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import VideoLoopToggle from '$lib/VideoLoopToggle.svelte';
+  import VideoLoopToggle from '#lib/VideoLoopToggle.svelte';
 
   let active = null;
   let expanded = false;

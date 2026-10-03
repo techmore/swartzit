@@ -1,9 +1,9 @@
 <script>
   import { onMount } from 'svelte';
-  import CommunityPicker from '$lib/CommunityPicker.svelte';
-  import QuickCrossPost from '$lib/QuickCrossPost.svelte';
-  import { preferredCommunity } from '$lib/community-picker-logic.mjs';
-  import { copyPostLink, loadCopyLinkPreference } from '$lib/post-preferences.mjs';
+  import CommunityPicker from '#lib/CommunityPicker.svelte';
+  import QuickCrossPost from '#lib/QuickCrossPost.svelte';
+  import { preferredCommunity } from '#lib/community-picker-logic.mjs';
+  import { copyPostLink, loadCopyLinkPreference } from '#lib/post-preferences.mjs';
 
   export let communities = [];
   export let selectedCommunity = 'general';

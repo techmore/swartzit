@@ -1,9 +1,9 @@
 <script>
   import { onMount } from 'svelte';
-  import SessionNav from '$lib/SessionNav.svelte';
-  import Brand from '$lib/Brand.svelte';
-  import { parseXBookmarkImport, mergeXBookmarkImports } from '$lib/x-bookmarks.mjs';
-  import { runXBookmarkImport, createBookmarkRequest } from '$lib/bookmark-import.mjs';
+  import SessionNav from '#lib/SessionNav.svelte';
+  import Brand from '#lib/Brand.svelte';
+  import { parseXBookmarkImport, mergeXBookmarkImports } from '#lib/x-bookmarks.mjs';
+  import { runXBookmarkImport, createBookmarkRequest } from '#lib/bookmark-import.mjs';
   let token = '', loaded = false, busy = false, error = '', folders = [], items = [], filter = 'all', page = 1, hasMore = false, name = '', rename = '', message = '';
   let newParentId = '', moveParentId = '', importFolderId = '', importRating = 'general';
   let importProgress = null, importSummary = '', importFailures = [], importPlan = null, previewLoading = false, ownerHandle = '';

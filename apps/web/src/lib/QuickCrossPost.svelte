@@ -1,10 +1,10 @@
 <script>
   import { onMount } from 'svelte';
-  import CommunityPicker from '$lib/CommunityPicker.svelte';
-  import { preferredCommunity } from '$lib/community-picker-logic.mjs';
-  import { parseXStatusUrl } from '$lib/x-source.mjs';
-  import { parseYouTubeUrl } from '$lib/youtube-source.mjs';
-  import { copyPostLink, loadCopyLinkPreference } from '$lib/post-preferences.mjs';
+  import CommunityPicker from '#lib/CommunityPicker.svelte';
+  import { preferredCommunity } from '#lib/community-picker-logic.mjs';
+  import { parseXStatusUrl } from '#lib/x-source.mjs';
+  import { parseYouTubeUrl } from '#lib/youtube-source.mjs';
+  import { copyPostLink, loadCopyLinkPreference } from '#lib/post-preferences.mjs';
   export let communities = [];
   export let selectedCommunity = '';
   export let xOnly = false;

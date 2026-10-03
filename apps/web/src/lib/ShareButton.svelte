@@ -1,5 +1,5 @@
 <script>
-  import { copyTextToClipboard } from '$lib/post-preferences.mjs';
+  import { copyTextToClipboard } from '#lib/post-preferences.mjs';
 
   export let id;
   export let url = '';

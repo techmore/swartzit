@@ -1,10 +1,10 @@
 <script>
   import { onMount, tick } from 'svelte';
-  import SessionNav from '$lib/SessionNav.svelte';
-  import ImportPanel from '$lib/ImportPanel.svelte';
-  import Brand from '$lib/Brand.svelte';
-  import AdminMediaPreview from '$lib/AdminMediaPreview.svelte';
-  import { isFailedRunnerRun, nextRunnerCopyName, runnerFailureHint } from '$lib/content-runner-editor.mjs';
+  import SessionNav from '#lib/SessionNav.svelte';
+  import ImportPanel from '#lib/ImportPanel.svelte';
+  import Brand from '#lib/Brand.svelte';
+  import AdminMediaPreview from '#lib/AdminMediaPreview.svelte';
+  import { isFailedRunnerRun, nextRunnerCopyName, runnerFailureHint } from '#lib/content-runner-editor.mjs';
   const tabs = ['Overview', 'Users', 'Content', 'Comments', 'Reports', 'Moderation', 'Security', 'Settings', 'Server', 'Analytics', 'Logs', 'Imports', 'Crawler Jobs', 'Content Runners'];
   let tab = 'Overview', overview = null, storage = null, rows = [], trend = [], jobs = [], runs = [], runners = [], runnerRuns = [], moderationHistory = [], uptime = null, settings = null, loading = true, error = '', notice = '';
   let jobName = '', jobProvider = 'reddit', jobSource = '', jobCommunity = '', jobInterval = 900, jobMax = 10, jobMode = 'review';

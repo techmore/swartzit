@@ -7,7 +7,7 @@
    * instead of doing nothing.
    */
   import { onMount } from 'svelte';
-  import { nextVote, optimisticScore } from '$lib/vote-toggle.mjs';
+  import { nextVote, optimisticScore } from '#lib/vote-toggle.mjs';
   export let id;
   export let score = 0;
   export let yourVote = null;

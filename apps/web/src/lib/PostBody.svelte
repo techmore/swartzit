@@ -1,5 +1,5 @@
 <script>
-  import { parsePostBody } from '$lib/post-body.mjs';
+  import { parsePostBody } from '#lib/post-body.mjs';
   export let body = '';
   $: parsed = parsePostBody(body);
 </script>

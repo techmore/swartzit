@@ -62,7 +62,7 @@ test('the database makes one vote per person per post a hard constraint', () => 
 
 test('the component toggles through the tested rules and shows which vote is held', () => {
   const component = repoFile('./VoteButtons.svelte');
-  assert.match(component, /from '\$lib\/vote-toggle\.mjs'/);
+  assert.match(component, /from '#lib\/vote-toggle\.mjs'/);
   assert.match(component, /nextVote\(currentVote, direction\)/);
   // The active direction is exposed to assistive technology, not just colour.
   assert.match(component, /aria-pressed=\{upvoted\}/);

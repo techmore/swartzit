@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import AuthorAvatar from '$lib/AuthorAvatar.svelte';
+  import AuthorAvatar from '#lib/AuthorAvatar.svelte';
 
   let token = '', buddies = [], loading = true, error = '', busyHandle = '';
 

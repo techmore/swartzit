@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.91-20261003T2304
+
+- Upgrade the web build to SvelteKit 3 and adapter-node 6, and migrate the
+  configuration, TypeScript setup, and library imports to the current SvelteKit
+  conventions.
+- Update Svelte, Vite, and the Svelte Vite plugin to current compatible patch
+  releases.
+- Refresh the GitHub Actions runtimes used by CI and release builds.
+- Resolve the high-severity `devalue` advisory; `npm audit` reports no remaining
+  vulnerabilities.
+
 ## 0.1.47-20260926T10
 
 - Fixes a release-blocking bug in the migration preflight. The rehearsal

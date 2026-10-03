@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { normalizeXAuthorHandle } from '$lib/x-author-follow.mjs';
-  import { loadXAuthorFollowState, setXAuthorFollow, xAuthorFollowState } from '$lib/x-author-follow-state.js';
+  import { normalizeXAuthorHandle } from '#lib/x-author-follow.mjs';
+  import { loadXAuthorFollowState, setXAuthorFollow, xAuthorFollowState } from '#lib/x-author-follow-state.js';
 
   export let handle = '';
   let token = '';
