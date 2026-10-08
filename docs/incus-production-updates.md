@@ -7,8 +7,10 @@ runs separately in `swartzit-db`. The checkout, services, and receipts under
 The production workflow invokes the root-owned host entry point
 `/usr/local/sbin/swartzit-incus-update`. It targets only `swartzit` and starts the
 root-owned guest tools through `systemd-run --wait --pipe --collect`. The guest
-manager reads `/etc/swartzit/upgrade.env`; database credentials stay inside the
-guest and do not appear in command arguments or workflow output.
+manager reads `/etc/swartzit/upgrade.env`; the host adapter does not forward
+database credentials in its arguments. Existing guest PostgreSQL helpers still
+pass the service database URL to some child clients; moving those URLs out of
+process arguments is a separate credential-handling improvement.
 
 ## Install reviewed deployment tools
 
