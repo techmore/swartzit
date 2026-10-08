@@ -36,6 +36,8 @@ runuser -u swartzit -- bash -lc "cd '$APP_DIR' && cargo build --release --locked
 # under the worker state directory after an administrator signs into X.
 PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/.cache/ms-playwright" npx --prefix "$APP_DIR" playwright install --with-deps chromium
 chown -R swartzit:swartzit "$APP_DIR/.cache"
+# Services can write their runtime directories, but never replace root tools.
+python3 "$APP_DIR/scripts/swartzit-protect-code.py" "$APP_DIR"
 install -o root -g root -m 0755 "$APP_DIR/target/release/swartzit-server" /usr/local/bin/swartzit-server
 
 if [[ -z "$DATABASE_URL" || -z "$SCHEDULER_HANDLE" || -z "$SCHEDULER_PASSWORD" || -z "$ORIGIN" ]]; then

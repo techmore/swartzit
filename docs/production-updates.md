@@ -68,6 +68,12 @@ deployed by hand with `workflow_dispatch` and the `tag` input.
 
 ## 3. Opt the Ubuntu host into production deploys
 
+For the live SER8 deployment in Incus, follow
+[`incus-production-updates.md`](incus-production-updates.md). Its root-owned
+adapter targets the application guest and reads the guest deployment receipt.
+The native host setup below describes installations that run the application
+directly on the host.
+
 The repository includes a guarded GitHub Actions workflow at
 `.github/workflows/deploy-production.yml`. It does nothing until the repository
 variable `SWARTZIT_DEPLOY_ENABLED=true` is set.

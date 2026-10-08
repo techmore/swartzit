@@ -81,8 +81,30 @@ mkdir -p "$BACKUP_DIR"
 exec 9>"$BACKUP_DIR/.release.lock"
 flock -n 9 || { echo 'Another Swartzit release update is already running.' >&2; exit 75; }
 WORK=$(mktemp -d /var/tmp/swartzit-release.XXXXXX)
-cleanup() { rm -rf "$WORK"; }
+# Once the checkout or services change, every unsuccessful exit must recover.
+# EXIT covers explicit exits and set -e failures; signals use the same path.
+RECOVERY_REQUIRED=0
+SERVICES_STOP_REQUESTED=0
+WEB_SWAP_STARTED=0
+STAGED_WEB_DIR=""
+STAGED_RECOVERY_DIR=""
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  set +e
+  if (( RECOVERY_REQUIRED )); then
+    [[ "$status" -ne 0 ]] || status=1
+    rollback || echo "Recovery needs operator attention. Bundle: $BACKUP_TAG" >&2
+  fi
+  [[ -z "$STAGED_WEB_DIR" ]] || rm -rf "$STAGED_WEB_DIR"
+  [[ -z "$STAGED_RECOVERY_DIR" ]] || rm -rf "$STAGED_RECOVERY_DIR"
+  rm -f /usr/local/bin/swartzit-server.new
+  rm -rf "$WORK"
+  exit "$status"
+}
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 STAMP=$(date -u '+%Y%m%dT%H%M%SZ')
 BACKUP_TAG="$BACKUP_DIR/$STAMP"
 mkdir -p "$BACKUP_TAG"
@@ -171,62 +193,79 @@ fi
 # Prove the candidate release can migrate a restored copy of the real data
 # before any live service is stopped.
 bash "$SCRIPT_HOME/preflight-release.sh" "$SERVER_ASSET" "$DB_DUMP"
-tar -C "$APP_DIR/apps/web" -czf "$BACKUP_TAG/web-build.tgz" build 2>/dev/null || true
-cp /usr/local/bin/swartzit-server "$BACKUP_TAG/swartzit-server.previous" 2>/dev/null || true
+# Recovery assets are required. Do not stop a healthy service without them.
+tar -C "$APP_DIR/apps/web" -czf "$BACKUP_TAG/web-build.tgz" build
+cp /usr/local/bin/swartzit-server "$BACKUP_TAG/swartzit-server.previous"
+
+# Expand, validate and set ownership before downtime. Staging alongside build/
+# keeps activation a rename even when /var/tmp uses a different filesystem.
+STAGED_WEB_DIR=$(mktemp -d "$APP_DIR/apps/web/.swartzit-release.XXXXXX")
+tar -xzf "$WEB_ASSET" -C "$STAGED_WEB_DIR"
+if [[ ! -f "$STAGED_WEB_DIR/build/index.js" || ! -f "$STAGED_WEB_DIR/build/handler.js" || ! -d "$STAGED_WEB_DIR/build/client" || ! -d "$STAGED_WEB_DIR/build/server" ]]; then
+  echo 'Web release archive is not a complete adapter-node build (index.js, handler.js, client, server).' >&2
+  exit 1
+fi
+chown -R "$REPO_USER" "$STAGED_WEB_DIR/build"
+STAGED_RECOVERY_DIR=$(mktemp -d "$APP_DIR/apps/web/.swartzit-recovery.XXXXXX")
+tar -xzf "$BACKUP_TAG/web-build.tgz" -C "$STAGED_RECOVERY_DIR"
+chown -R "$REPO_USER" "$STAGED_RECOVERY_DIR/build"
+install -m 0755 "$SERVER_ASSET" /usr/local/bin/swartzit-server.new
 "${GIT[@]}" fetch --tags origin "$TAG"
-"${GIT[@]}" checkout --detach "$TAG"
 printf '%s\n' "$PREVIOUS_COMMIT" > "$BACKUP_TAG/previous-commit"
 printf '%s\n' "$PREVIOUS_VERSION" > "$BACKUP_TAG/previous-version"
 SERVICES=(swartzit swartzit-web)
-# The crawler worker must not claim a job while the API and web build are being
-# swapped underneath it.
+WORKER_TIMER_WAS_ACTIVE=0
 if systemctl is-enabled --quiet swartzit-worker.timer 2>/dev/null || systemctl is-active --quiet swartzit-worker.timer 2>/dev/null; then
   WORKER_TIMER_WAS_ACTIVE=1
-  systemctl stop swartzit-worker.timer swartzit-worker.service 2>/dev/null || true
 fi
 resume_services() {
-  systemctl start "${SERVICES[@]}" || true
-  if [[ "${WORKER_TIMER_WAS_ACTIVE:-0}" -eq 1 ]]; then
-    systemctl start swartzit-worker.timer || true
+  local result=0
+  systemctl start "${SERVICES[@]}" || result=1
+  if (( WORKER_TIMER_WAS_ACTIVE )); then
+    systemctl start swartzit-worker.timer || result=1
   fi
+  return "$result"
 }
 rollback() {
-  echo 'Rolling back Swartzit after failed health checks.' >&2
-  systemctl stop "${SERVICES[@]}" || true
-  if [[ -f "$BACKUP_TAG/swartzit-server.previous" ]]; then
-    install -m 0755 "$BACKUP_TAG/swartzit-server.previous" /usr/local/bin/swartzit-server.new
-    mv -f /usr/local/bin/swartzit-server.new /usr/local/bin/swartzit-server
+  local result=0
+  RECOVERY_REQUIRED=0
+  echo 'Recovering the previous Swartzit release after an interrupted or failed update.' >&2
+  if (( SERVICES_STOP_REQUESTED )); then
+    systemctl stop "${SERVICES[@]}" || result=1
+    if ! install -m 0755 "$BACKUP_TAG/swartzit-server.previous" /usr/local/bin/swartzit-server.new \
+      || ! mv -f /usr/local/bin/swartzit-server.new /usr/local/bin/swartzit-server; then
+      echo 'Could not restore the previous server binary.' >&2
+      result=1
+    fi
+    if (( WEB_SWAP_STARTED )); then
+      if ! rm -rf "$APP_DIR/apps/web/build" \
+        || ! mv "$STAGED_RECOVERY_DIR/build" "$APP_DIR/apps/web/build"; then
+        echo 'Could not restore the previous web build.' >&2
+        result=1
+      fi
+    fi
   fi
-  if [[ -f "$BACKUP_TAG/web-build.tgz" ]]; then
-    rm -rf "$WORK/web-rollback"
-    mkdir -p "$WORK/web-rollback"
-    tar -xzf "$BACKUP_TAG/web-build.tgz" -C "$WORK/web-rollback"
-    rm -rf "$APP_DIR/apps/web/build"
-    mv "$WORK/web-rollback/build" "$APP_DIR/apps/web/build"
-    chown -R "$REPO_USER" "$APP_DIR/apps/web/build"
-  fi
-  "${GIT[@]}" checkout --detach "$PREVIOUS_COMMIT" >/dev/null 2>&1 || true
-  resume_services
+  "${GIT[@]}" checkout --detach "$PREVIOUS_COMMIT" || result=1
+  # Try to restart even if an earlier recovery operation failed.
+  resume_services || result=1
+  return "$result"
 }
-systemctl stop "${SERVICES[@]}" || { echo 'Could not stop Swartzit services.' >&2; exit 1; }
-# Stage then rename so a running process never observes a truncated binary.
-install -m 0755 "$SERVER_ASSET" /usr/local/bin/swartzit-server.new
-mv -f /usr/local/bin/swartzit-server.new /usr/local/bin/swartzit-server
-rm -rf "$WORK/web-build"
-mkdir -p "$WORK/web-build"
-tar -xzf "$WEB_ASSET" -C "$WORK/web-build"
-# adapter-node emits an SSR build. Checking the entry point and the client and
-# server bundles keeps a truncated or mis-built archive from being installed.
-if [[ ! -f "$WORK/web-build/build/index.js" || ! -f "$WORK/web-build/build/handler.js" || ! -d "$WORK/web-build/build/client" || ! -d "$WORK/web-build/build/server" ]]; then
-  echo 'Web release archive is not a complete adapter-node build (index.js, handler.js, client, server).' >&2
-  rollback
-  exit 1
+
+# Arm recovery before stopping the worker or changing the checkout. A failed
+# stop, checkout, install, rename, health gate or receipt write now recovers.
+RECOVERY_REQUIRED=1
+if (( WORKER_TIMER_WAS_ACTIVE )); then
+  systemctl stop swartzit-worker.timer swartzit-worker.service
 fi
+"${GIT[@]}" checkout --detach "$TAG"
+SERVICES_STOP_REQUESTED=1
+systemctl stop "${SERVICES[@]}"
+mv -f /usr/local/bin/swartzit-server.new /usr/local/bin/swartzit-server
 rm -rf "$APP_DIR/apps/web/build.previous"
+WEB_SWAP_STARTED=1
 mv "$APP_DIR/apps/web/build" "$APP_DIR/apps/web/build.previous"
-mv "$WORK/web-build/build" "$APP_DIR/apps/web/build"
-chown -R "$REPO_USER" "$APP_DIR/apps/web/build"
-systemctl start swartzit swartzit-web || { rollback; exit 1; }
+mv "$STAGED_WEB_DIR/build" "$APP_DIR/apps/web/build"
+systemctl start "${SERVICES[@]}"
 healthy=0
 for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
   # /ready proves the server finished its startup work, /health proves the
@@ -237,22 +276,46 @@ for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
   sleep 1
 done
 if [[ "$healthy" -ne 1 ]]; then
-  rollback
   echo "Updated release failed API/web health checks. Database backup: $DB_DUMP" >&2
   exit 1
 fi
 if ! install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.service" /etc/systemd/system/swartzit-github-backup.service \
   || ! install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.timer" /etc/systemd/system/swartzit-github-backup.timer \
   || ! systemctl daemon-reload; then
-  rollback
-  echo 'Could not install the GitHub database backup service units; the previous release was restored.' >&2
+  echo 'Could not install the GitHub database backup service units; restoring the previous release.' >&2
   exit 1
 fi
 resume_services
 mkdir -p "$APP_DIR/state"
-printf '{"tag":"%s","version":"%s","commit":"%s","previous_commit":"%s","previous_version":"%s","backup":"%s","recovery_bundle":"%s","installed_at":"%s"}\n' \
-  "$TAG" "$RELEASE_VERSION" "$("${GIT[@]}" rev-parse HEAD)" "$PREVIOUS_COMMIT" "$PREVIOUS_VERSION" "$DB_DUMP" "$BACKUP_TAG" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$APP_DIR/state/release-$STAMP.json"
-ln -sfn "$APP_DIR/state/release-$STAMP.json" "$APP_DIR/state/current-release.json"
-rm -rf "$APP_DIR/apps/web/build.previous"
+# The runtime state directory is service-owned. Never follow pre-existing
+# receipt symlinks while writing as root; replace both names atomically.
+python3 - "$APP_DIR/state" "$STAMP" "$TAG" "$RELEASE_VERSION" "$("${GIT[@]}" rev-parse HEAD)" "$PREVIOUS_COMMIT" "$PREVIOUS_VERSION" "$DB_DUMP" "$BACKUP_TAG" <<'PY_RECEIPT'
+import datetime, json, os, pathlib, sys, tempfile
+state = pathlib.Path(sys.argv[1])
+path = state / ("release-" + sys.argv[2] + ".json")
+name = None
+link = None
+try:
+    with tempfile.NamedTemporaryFile(mode="w", dir=state, prefix=".release-receipt.", delete=False) as output:
+        name = output.name
+        os.fchmod(output.fileno(), 0o644)
+        json.dump(dict(zip(["tag", "version", "commit", "previous_commit", "previous_version", "backup", "recovery_bundle"], sys.argv[3:10])) |
+                  {"installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, output)
+        output.write("\n")
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(name, path)
+    fd, link = tempfile.mkstemp(dir=state, prefix=".current-release.")
+    os.close(fd)
+    os.unlink(link)
+    os.symlink(str(path), link)
+    os.replace(link, state / "current-release.json")
+finally:
+    for temporary in (name, link):
+        if temporary and os.path.lexists(temporary):
+            os.unlink(temporary)
+PY_RECEIPT
+RECOVERY_REQUIRED=0
+rm -rf "$APP_DIR/apps/web/build.previous" || echo 'The previous build directory could not be removed.' >&2
 echo "Swartzit updated to $TAG ($RELEASE_VERSION) and passed API/web health checks."
 echo "Recovery bundle: $BACKUP_TAG"

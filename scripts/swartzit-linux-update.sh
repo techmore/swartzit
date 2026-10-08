@@ -97,10 +97,27 @@ fi
 # be diagnosed from the workflow log alone.
 write_receipt() {
   local state="$1" detail="$2"
-  mkdir -p "$(dirname "$RECEIPT_PATH")" 2>/dev/null || return 0
-  printf '{"state":"%s","tag":"%s","detail":"%s","host":"%s","updated_at":"%s"}\n' \
-    "$state" "$TAG" "$detail" "$(hostname 2>/dev/null || echo unknown)" \
-    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$RECEIPT_PATH" 2>/dev/null || true
+  # The state directory is service-owned. Write through a new file descriptor
+  # and replace the name so an existing symlink cannot redirect root writes.
+  python3 - "$RECEIPT_PATH" "$state" "$TAG" "$detail" <<'PY_RECEIPT' || true
+import datetime, json, os, pathlib, socket, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+name = None
+try:
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=".update-receipt.", delete=False) as output:
+        name = output.name
+        os.fchmod(output.fileno(), 0o644)
+        json.dump({"state": sys.argv[2], "tag": sys.argv[3], "detail": sys.argv[4],
+                   "host": socket.gethostname(), "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, output)
+        output.write("\n")
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(name, path)
+finally:
+    if name and os.path.lexists(name):
+        os.unlink(name)
+PY_RECEIPT
 }
 
 export SWARTZIT_UPDATE_RECEIPT="$RECEIPT_PATH"

@@ -106,7 +106,7 @@ jobs:
               -H "Authorization: Bearer $GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
               "https://api.github.com/repos/$repo/releases/tags/$TAG" \
-              | grep -q '"name": *"swartzit-server-linux-amd64"'; then
+              | python3 -c 'import json,sys; assets=json.load(sys.stdin).get("assets",[]); required={"swartzit-server-linux-amd64","swartzit-web-linux-amd64.tar.gz","VERSION","SHA256SUMS"}; sys.exit(not required.issubset({a.get("name") for a in assets if a.get("size",0)>0}))'; then
               echo "Release $TAG is published."
               exit 0
             fi
@@ -117,16 +117,16 @@ jobs:
           exit 1
 
       - name: Install the release on this host
-        # The deploy account may run exactly this one script as root. The script
-        # is the copy installed under /var/lib/swartzit, not the one in this
-        # checkout, so the code being deployed cannot rewrite its own installer.
+        # The root-owned SER8 adapter targets the live Incus guest and invokes
+        # separately installed, root-owned release tools inside that guest.
+        # The workflow checkout is never used as a privileged installer.
         id: install-release
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.operation == 'deploy' }}
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh \
+          sudo -n /usr/local/sbin/swartzit-incus-update \
             --tag "$TAG" --yes
 
       - name: Prepare the GitHub database-backup deploy key
@@ -160,7 +160,7 @@ jobs:
             exit 0
           fi
           printf '%s' "$X_BEARER_TOKEN" \
-            | sudo -n /var/lib/swartzit/scripts/swartzit-linux-update.sh --sync-x-token-stdin
+            | sudo -n /usr/local/sbin/swartzit-incus-update --sync-x-token-stdin
 
       - name: Test X API access from SER8
         if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.operation == 'test-x-token' }}
@@ -261,5 +261,5 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          sudo -n /bin/cat /var/lib/swartzit/state/update-receipt.json \
+          sudo -n /usr/local/sbin/swartzit-incus-update --receipt \
             || echo 'No deployment receipt was available.'
