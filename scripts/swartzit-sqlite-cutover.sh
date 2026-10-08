@@ -24,6 +24,10 @@ source "$ENV_FILE"
 set +a
 [[ "${DATABASE_URL:-}" == postgres:* || "${DATABASE_URL:-}" == postgresql:* ]] || { echo 'This is only for the one-time PostgreSQL cutover.' >&2; exit 1; }
 SOURCE_DATABASE_URL=$DATABASE_URL
+RELEASE_BACKUP_DIR=${SWARTZIT_RELEASE_BACKUP_DIR:-/var/backups/swartzit/releases}
+mkdir -p "$RELEASE_BACKUP_DIR"
+exec 9>"$RELEASE_BACKUP_DIR/.release.lock"
+flock -n 9 || { echo 'Another release/cutover is running.' >&2; exit 75; }
 SQLITE_URL="sqlite:$DB_FILE"
 install -d -o swartzit -g swartzit -m 0700 "$(dirname "$DB_FILE")"
 filesystem=$(findmnt -T "$(dirname "$DB_FILE")" -n -o FSTYPE)
@@ -51,6 +55,8 @@ recover() {
   return "$status"
 }
 trap recover EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 systemctl stop swartzit-worker.timer swartzit-worker.service swartzit swartzit-web
 # Quiesced source: the dump, manifest and import cannot miss subsequent app writes.
 DATABASE_URL="$SOURCE_DATABASE_URL" SWARTZIT_DATABASE_URL="$SOURCE_DATABASE_URL" \
@@ -79,7 +85,7 @@ for name in sys.argv[1:3]:
         staged=target.name
     os.replace(staged,path)
 PY_ENV
-DATABASE_URL="$SQLITE_URL" SWARTZIT_DATABASE_URL="$SQLITE_URL" SWARTZIT_DB_BACKUP_MODE=auto \
+DATABASE_URL="$SQLITE_URL" SWARTZIT_DATABASE_URL="$SQLITE_URL" SWARTZIT_DB_BACKUP_MODE=auto SWARTZIT_CUTOVER_LOCKED=1 \
   bash "$SCRIPT_HOME/swartzit-release-update.sh" --tag "$TAG" --yes
 if (( WORKER_WAS_ACTIVE )); then systemctl start swartzit-worker.timer; fi
 SUCCESS=1

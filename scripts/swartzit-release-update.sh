@@ -78,7 +78,12 @@ if [[ "$ASSUME_YES" -ne 1 ]]; then
   [[ "$CONFIRM" == "$TAG" ]] || { echo 'Confirmation did not match.' >&2; exit 2; }
 fi
 mkdir -p "$BACKUP_DIR"
-exec 9>"$BACKUP_DIR/.release.lock"
+CUTOVER_LOCKED=${SWARTZIT_CUTOVER_LOCKED:-0}
+if [[ "$CUTOVER_LOCKED" == 1 ]]; then
+  [[ "$(readlink /proc/self/fd/9)" == "$BACKUP_DIR/.release.lock" ]] || { echo 'The inherited cutover lock is invalid.' >&2; exit 1; }
+else
+  exec 9>"$BACKUP_DIR/.release.lock"
+fi
 flock -n 9 || { echo 'Another Swartzit release update is already running.' >&2; exit 75; }
 WORK=$(mktemp -d /var/tmp/swartzit-release.XXXXXX)
 # Once the checkout or services change, every unsuccessful exit must recover.
