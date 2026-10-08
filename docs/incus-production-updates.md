@@ -1,16 +1,17 @@
 # SER8 Incus production updates
 
-The live application and worker run in the `swartzit` Incus instance. PostgreSQL
-runs separately in `swartzit-db`. The checkout, services, and receipts under
+The application, website, worker and embedded SQLite database run together in
+the `swartzit` Incus instance. See [SQLite cutover](sqlite-single-instance.md)
+for migration from the retained `swartzit-db` PostgreSQL VM. The checkout, services, and receipts under
 `/var/lib/swartzit` on the SER8 host are not the live application deployment.
 
 The production workflow invokes the root-owned host entry point
 `/usr/local/sbin/swartzit-incus-update`. It targets only `swartzit` and starts the
 root-owned guest tools through `systemd-run --wait --pipe --collect`. The guest
 manager reads `/etc/swartzit/upgrade.env`; the host adapter does not forward
-database credentials in its arguments. Existing guest PostgreSQL helpers still
-pass the service database URL to some child clients; moving those URLs out of
-process arguments is a separate credential-handling improvement.
+database credentials in its arguments. SQLite operation needs a local file URL
+and no database account. Retained PostgreSQL backup tools remain available for
+recovery of the pre-cutover data.
 
 ## Install reviewed deployment tools
 
@@ -21,13 +22,15 @@ and install their committed contents into separate root-owned locations.
 ```sh
 REVIEWED_COMMIT='reviewed-commit-sha'
 tools_stage=$(mktemp -d /var/tmp/swartzit-tools.XXXXXX)
-git -C /var/lib/swartzit -c safe.directory=/var/lib/swartzit archive "$REVIEWED_COMMIT" scripts \
+git -C /var/lib/swartzit -c safe.directory=/var/lib/swartzit archive "$REVIEWED_COMMIT" scripts crates/server/sqlite-migrations \
   | tar -x -C "$tools_stage"
 install -o root -g root -m 0755 "$tools_stage/scripts/swartzit-incus-update.sh" \
   /usr/local/sbin/swartzit-incus-update
 incus --force-local exec swartzit -- install -d -o root -g root -m 0755 \
   /usr/local/libexec/swartzit/scripts
 incus --force-local file push -r "$tools_stage/scripts" swartzit/usr/local/libexec/swartzit/
+incus --force-local exec swartzit -- mkdir -p /usr/local/libexec/swartzit/crates/server
+incus --force-local file push -r "$tools_stage/crates/server/sqlite-migrations" swartzit/usr/local/libexec/swartzit/crates/server/
 incus --force-local exec swartzit -- chown -R root:root /usr/local/libexec/swartzit
 incus --force-local exec swartzit -- chmod -R go-w /usr/local/libexec/swartzit
 incus --force-local exec swartzit -- chmod 0755 \
@@ -44,12 +47,9 @@ and unwritable by the service and deploy accounts. The guest environment file
 must also be root-owned and unwritable by those accounts. Keep its existing
 settings and secrets; do not replace it with values from a source checkout.
 
-Verify the guest environment names the actual service database and its approved
-administrative endpoint (`SWARTZIT_PG_ADMIN_HOST`, `SWARTZIT_PG_ADMIN_PORT`, and
-`SWARTZIT_PG_ADMIN_USER`), authentication settings, and API/web health addresses.
-The PostgreSQL client tools must support the database server version. The
-configured administrative account needs the existing disposable-role and
-restore-rehearsal permissions. Confirm connectivity without printing secrets.
+Verify that server.env names the persistent local SQLite file and upgrade.env
+uses SWARTZIT_DB_BACKUP_MODE=auto with the correct API/web health addresses.
+Install Python 3 and the committed SQLite helper/schema for backup and rehearsal.
 
 Add the adapter to the deploy account's sudoers policy using `visudo`:
 

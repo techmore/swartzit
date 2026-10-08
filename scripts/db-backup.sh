@@ -7,6 +7,9 @@ CONTAINER="${SWARTZIT_DB_CONTAINER:-swartzit-db}"
 DB_USER="${SWARTZIT_DB_USER:-swartzit}"
 DB_NAME="${SWARTZIT_DB_NAME:-swartzit}"
 DATABASE_URL="${SWARTZIT_DATABASE_URL:-${DATABASE_URL:-}}"
+if [[ -z "$DATABASE_URL" && -n "${SWARTZIT_STATE_DIR:-}" ]]; then DATABASE_URL="sqlite:$SWARTZIT_STATE_DIR/swartzit.sqlite"; fi
+if [[ -z "$DATABASE_URL" && -f "$ROOT/.local/runtime.env" ]]; then source "$ROOT/.local/runtime.env"; fi
+if [[ -z "${DATABASE_URL:-}" ]]; then DATABASE_URL="sqlite:${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}/swartzit.sqlite"; fi
 DB_MODE="${SWARTZIT_DB_BACKUP_MODE:-auto}"
 RETENTION="${SWARTZIT_BACKUP_RETENTION:-7}"
 INCLUDE_MEDIA="${SWARTZIT_DB_BACKUP_INCLUDE_MEDIA:-1}"
@@ -35,6 +38,9 @@ trap cleanup_lock EXIT
 
 DB_BACKEND="native"
 case "$DB_MODE" in
+  sqlite)
+    DB_BACKEND="sqlite"
+    ;;
   native|postgres)
     DB_BACKEND="native"
     ;;
@@ -42,17 +48,24 @@ case "$DB_MODE" in
     DB_BACKEND="container"
     ;;
   auto)
-    if command -v container >/dev/null 2>&1 && container inspect "$CONTAINER" >/dev/null 2>&1; then
+    if [[ "$DATABASE_URL" == sqlite:* ]]; then
+      DB_BACKEND="sqlite"
+    elif [[ "$DATABASE_URL" == postgres:* || "$DATABASE_URL" == postgresql:* ]]; then
+      DB_BACKEND="native"
+    elif command -v container >/dev/null 2>&1 && container inspect "$CONTAINER" >/dev/null 2>&1; then
       DB_BACKEND="container"
     fi
     ;;
   *)
-    echo 'SWARTZIT_DB_BACKUP_MODE must be auto, container, or native.' >&2
+    echo 'SWARTZIT_DB_BACKUP_MODE must be auto, sqlite, container, or native.' >&2
     exit 2
     ;;
 esac
 
-if [[ "$DB_BACKEND" == native ]]; then
+if [[ "$DB_BACKEND" == sqlite ]]; then
+  [[ "$DATABASE_URL" == sqlite:* ]] || { echo "SQLite backups require a sqlite: DATABASE_URL." >&2; exit 1; }
+  command -v python3 >/dev/null 2>&1 || { echo "python3 is required for SQLite snapshots." >&2; exit 1; }
+elif [[ "$DB_BACKEND" == native ]]; then
   [[ -n "$DATABASE_URL" ]] || {
     echo 'Native PostgreSQL backups require DATABASE_URL or SWARTZIT_DATABASE_URL.' >&2
     exit 1
@@ -68,7 +81,10 @@ fi
 ROW_COUNTS_SQL="select tablename || E'\\t' || (xpath('/table/row/count/text()', query_to_xml('select count(*) as count from ' || quote_ident(tablename), true, false, '')))[1]::text from pg_tables where schemaname='public' and tablename <> '_sqlx_migrations' order by tablename"
 
 db_ready() {
-  if [[ "$DB_BACKEND" == native ]]; then
+  if [[ "$DB_BACKEND" == sqlite ]]; then
+    SQLITE_SOURCE=$(python3 "$ROOT/scripts/sqlite-db.py" path "$DATABASE_URL")
+    [[ -f "$SQLITE_SOURCE" ]]
+  elif [[ "$DB_BACKEND" == native ]]; then
     # pg_isready is a connectivity probe and never prompts, so it takes no -w.
     pg_isready --dbname="$DATABASE_URL" >/dev/null
   else
@@ -78,7 +94,10 @@ db_ready() {
 
 db_dump() {
   local destination="$1"
-  if [[ "$DB_BACKEND" == native ]]; then
+  if [[ "$DB_BACKEND" == sqlite ]]; then
+    python3 "$ROOT/scripts/sqlite-db.py" backup "$DATABASE_URL" "$destination"
+    return
+  elif [[ "$DB_BACKEND" == native ]]; then
     pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --file="$destination" -w
     return
   fi
@@ -89,7 +108,10 @@ db_dump() {
 }
 
 db_row_counts() {
-  if [[ "$DB_BACKEND" == native ]]; then
+  if [[ "$DB_BACKEND" == sqlite ]]; then
+    # Counts come from the same completed snapshot, never a second live read.
+    python3 "$ROOT/scripts/sqlite-db.py" counts "$OUT_DIR/swartzit.dump"
+  elif [[ "$DB_BACKEND" == native ]]; then
     psql --dbname="$DATABASE_URL" -w -Atqc "$ROW_COUNTS_SQL"
   else
     container exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atqc "$ROW_COUNTS_SQL"
@@ -104,6 +126,8 @@ while [[ -e "$OUT_DIR" || -e "$BACKUP_ROOT/swartzit-$STAMP-backup.tgz" ]]; do
   OUT_DIR="$BACKUP_ROOT/$STAMP"
 done
 mkdir -p "$OUT_DIR"
+chmod 0700 "$OUT_DIR"
+umask 0077
 
 if [[ -n "${SWARTZIT_MEDIA_ROOT:-}" ]]; then
   MEDIA_ROOT="$SWARTZIT_MEDIA_ROOT"

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Diagnostic-only PostgreSQL instrumentation. It is opt-in because
+# LEGACY ONLY: for the retained PostgreSQL database before/after a SQLite
+# migration. Swartzit now uses SQLite; this tool is not part of deployment or
+# SQLite runtime diagnostics. Diagnostic-only PostgreSQL instrumentation is opt-in because
 # shared_preload_libraries requires a database restart and should not be
 # changed during a normal Swartzit upgrade.
+if [[ "${DATABASE_URL:-}" == sqlite:* ]]; then
+  echo "Swartzit uses SQLite. Inspect /api/admin/runtime for runtime database counters; this legacy tool only diagnoses a retained PostgreSQL database." >&2
+  exit 2
+fi
 DB_CONTAINER="${SWARTZIT_DB_CONTAINER:-swartzit-db}"
 DB_USER="${SWARTZIT_DB_USER:-swartzit}"
 DB_NAME="${SWARTZIT_DB_NAME:-swartzit}"

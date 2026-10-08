@@ -7,6 +7,7 @@ class Swartzit < Formula
 
   depends_on "node" => :build
   depends_on "rust" => :build
+  depends_on "python@3.14"
 
   def install
     ENV.prepend_path "PATH", HOMEBREW_PREFIX/"bin"
@@ -24,12 +25,13 @@ class Swartzit < Formula
     # Keep the relative scripts/ paths used by runner templates intact in the
     # packaged worker. The launcher discovers this directory automatically.
     libexec.install "scripts" => "scripts"
+    (libexec/"crates/server").install "crates/server/sqlite-migrations"
     etc.install ".env.example" => "swartzit.env.example"
   end
 
   def caveats
     <<~EOS
-      Swartzit requires PostgreSQL. Start the app with:
+      Swartzit stores data in a local SQLite file. Start the app with:
         swartzit start
       Configure DATABASE_URL and BIND_ADDR in #{etc}/swartzit.env.example.
       Runtime state and backups default to ~/Library/Application Support/Swartzit;

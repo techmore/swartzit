@@ -73,12 +73,17 @@ if [[ "$(id -u)" -eq 0 && "$REPO_USER" != "root" ]] && id "$REPO_USER" >/dev/nul
   echo "Running checkout updates as $REPO_USER."
 fi
 if [[ "$ASSUME_YES" -ne 1 ]]; then
-  echo "This will back up PostgreSQL, preflight the release on a restored DB, stop services, install $TAG, and roll back on failure."
+  echo "This will back up the database, preflight the release on a restored DB, stop services, install $TAG, and roll back on failure."
   read -r -p "Type the tag to continue: $TAG " CONFIRM || true
   [[ "$CONFIRM" == "$TAG" ]] || { echo 'Confirmation did not match.' >&2; exit 2; }
 fi
 mkdir -p "$BACKUP_DIR"
-exec 9>"$BACKUP_DIR/.release.lock"
+CUTOVER_LOCKED=${SWARTZIT_CUTOVER_LOCKED:-0}
+if [[ "$CUTOVER_LOCKED" == 1 ]]; then
+  [[ "$(readlink /proc/self/fd/9)" == "$BACKUP_DIR/.release.lock" ]] || { echo 'The inherited cutover lock is invalid.' >&2; exit 1; }
+else
+  exec 9>"$BACKUP_DIR/.release.lock"
+fi
 flock -n 9 || { echo 'Another Swartzit release update is already running.' >&2; exit 75; }
 WORK=$(mktemp -d /var/tmp/swartzit-release.XXXXXX)
 # Once the checkout or services change, every unsuccessful exit must recover.
@@ -151,10 +156,9 @@ verify_release_checksums
 SERVER_ASSET="$WORK/swartzit-server-linux-amd64"
 WEB_ASSET="$WORK/swartzit-web-linux-amd64.tar.gz"
 RELEASE_VERSION=$(tr -d '[:space:]' < "$WORK/VERSION")
-# The backup is taken with the service's own PostgreSQL credentials rather than
-# a superuser session, so it authenticates exactly the way the server does and
-# needs no runuser. The rehearsal below is the step that needs elevated access,
-# because it creates a disposable role and database.
+# Back up the database used by the running service. SQLite uses an online
+# snapshot of its local file; legacy PostgreSQL authenticates with the service
+# credentials. The connection URL is never printed or rewritten.
 SERVICE_ENV_FILE=${SWARTZIT_SERVER_ENV_FILE:-/etc/swartzit/server.env}
 SERVICE_DATABASE_URL=${DATABASE_URL:-}
 if [[ -z "$SERVICE_DATABASE_URL" && -r "$SERVICE_ENV_FILE" ]]; then
@@ -168,7 +172,7 @@ fi
   exit 1
 }
 BACKUP_OUTPUT=$(
-  SWARTZIT_DB_BACKUP_MODE=native \
+  SWARTZIT_DB_BACKUP_MODE=auto \
   SWARTZIT_DATABASE_URL="$SERVICE_DATABASE_URL" \
   SWARTZIT_BACKUP_DIR="$BACKUP_TAG/db" \
   SWARTZIT_MEDIA_ROOT="$APP_DIR/state/media" \
@@ -178,6 +182,11 @@ printf '%s\n' "$BACKUP_OUTPUT" | tee "$BACKUP_TAG/backup.txt"
 DB_DUMP=$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Backup: //p' | head -n1)
 DB_ARCHIVE=$(printf '%s\n' "$BACKUP_OUTPUT" | sed -n 's/^Archive: //p' | head -n1)
 [[ -f "$DB_DUMP" ]] || { echo 'Database backup path could not be determined.' >&2; exit 1; }
+if [[ "$SERVICE_DATABASE_URL" == sqlite:* ]]; then
+  SQLITE_SOURCE_COUNTS="$(dirname "$DB_DUMP")/source-row-counts.tsv"
+  [[ -f "$SQLITE_SOURCE_COUNTS" ]] || { echo 'SQLite backup has no row-count manifest; refusing the update.' >&2; exit 1; }
+  python3 "$SCRIPT_HOME/sqlite-db.py" verify "$DB_DUMP" "$SQLITE_SOURCE_COUNTS"
+fi
 cp "$DB_DUMP" "$BACKUP_TAG/"
 
 # Prove the backup is actually restorable before treating it as a recovery
@@ -192,7 +201,8 @@ fi
 
 # Prove the candidate release can migrate a restored copy of the real data
 # before any live service is stopped.
-bash "$SCRIPT_HOME/preflight-release.sh" "$SERVER_ASSET" "$DB_DUMP"
+SWARTZIT_SERVICE_DATABASE_URL="$SERVICE_DATABASE_URL" \
+  bash "$SCRIPT_HOME/preflight-release.sh" "$SERVER_ASSET" "$DB_DUMP"
 # Recovery assets are required. Do not stop a healthy service without them.
 tar -C "$APP_DIR/apps/web" -czf "$BACKUP_TAG/web-build.tgz" build
 cp /usr/local/bin/swartzit-server "$BACKUP_TAG/swartzit-server.previous"

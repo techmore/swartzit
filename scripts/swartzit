@@ -25,6 +25,8 @@ else
   STATE_DIR="${SWARTZIT_DATA_DIR:-$HOME/Library/Application Support/Swartzit}"
 fi
 mkdir -p "$STATE_DIR"
+chmod 0700 "$STATE_DIR"
+umask 0077
 SCRIPT_HOME="$HOME_DIR/scripts"
 if [[ ! -d "$SCRIPT_HOME" && -d "$HOME_DIR/libexec/scripts" ]]; then
   SCRIPT_HOME="$HOME_DIR/libexec/scripts"
@@ -270,7 +272,7 @@ case "${1:-status}" in
     if caddy_configured; then
       export SWARTZIT_CADDY=1
     fi
-    : "${DATABASE_URL:=postgres://swartzit:swartzit-local-only@127.0.0.1:54329/swartzit}"
+    : "${DATABASE_URL:=sqlite:$STATE_DIR/swartzit.sqlite}"
     : "${API_PORT:=18080}"
     : "${BIND_ADDR:=$API_BIND_IP:$API_PORT}"
     : "${API_URL:=http://$API_BIND_IP:$API_PORT}"
@@ -278,8 +280,10 @@ case "${1:-status}" in
     : "${PORT:=4173}"
     REQUESTED_ORIGIN="${SWARTZIT_ORIGIN:-${ORIGIN:-}}"
     : "${ORIGIN:=${SWARTZIT_ORIGIN:-http://$WEB_BIND_IP:$PORT}}"
+    [[ "$DATABASE_URL" == sqlite:* ]] || { echo "Import PostgreSQL data to SQLite before starting this release." >&2; exit 1; }
     export DATABASE_URL BIND_ADDR API_URL HOST PORT ORIGIN SWARTZIT_STATE_DIR="$STATE_DIR"
     {
+      printf 'DATABASE_URL=%q\n' "$DATABASE_URL"
       printf 'API_URL=%q\n' "$API_URL"
       printf 'API_PORT=%q\n' "$API_PORT"
       printf 'PORT=%q\n' "$PORT"
@@ -369,7 +373,7 @@ case "${1:-status}" in
   backup) exec "$SCRIPT_HOME/db-backup.sh" ;;
   backup-install) shift; exec "$SCRIPT_HOME/install-mac-backup.sh" "$@" ;;
   restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify.sh" "$@" ;;
-  native-backup) shift; exec "$SCRIPT_HOME/db-backup-postgres.sh" "$@" ;;
+  native-backup) shift; exec "$SCRIPT_HOME/db-backup.sh" "$@" ;;
   native-restore-verify) shift; exec "$SCRIPT_HOME/db-restore-verify-postgres.sh" "$@" ;;
   release-preflight) shift; exec "$SCRIPT_HOME/preflight-release.sh" "$@" ;;
   rollback) shift; exec "$SCRIPT_HOME/db-restore.sh" "$@" ;;

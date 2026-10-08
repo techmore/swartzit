@@ -1,5 +1,11 @@
 # Swartzit
 
+## Single-instance storage
+
+Swartzit now uses embedded SQLite with WAL and FTS5, plus the existing in-process
+cache. No separate PostgreSQL VM or cache service is required.
+See [deployment and full-data migration](docs/sqlite-single-instance.md).
+
 Production release safety, database backups, restore rehearsals, and the Linux auto-update workflow are documented in [`docs/release-operations.md`](docs/release-operations.md).
 
 Swartzit is a self-hosted discussion commons: a public, readable timeline with
@@ -155,18 +161,17 @@ brew install swartzit
 
 The formula is built from source on the local Mac, while the tag and SHA256
 keep the source reproducible. To update safely, use `swartzit update --yes`; it
-backs up PostgreSQL before upgrading, refreshes the installed native menu
+backs up SQLite before upgrading, refreshes the installed native menu
 companion from the same Homebrew release, and records the recovery paths. To
 refresh that companion independently, use `swartzit status-install` on macOS.
 To restore an earlier verified dump, use the rollback command documented below.
 
-The formula builds the Rust API and SvelteKit web app. PostgreSQL remains an
-external dependency so its data directory can be upgraded, backed up, and
-restored independently.
+The formula builds the Rust API and SvelteKit web app with embedded SQLite.
+The API, website and worker share one deployment and persistent state directory.
 
 ## Database backup and recovery
 
-Use the PostgreSQL custom-format backup rather than treating the public JSON
+Use the consistent SQLite snapshot rather than treating the public JSON
 export as a disaster-recovery backup:
 
 ```sh
@@ -179,7 +184,7 @@ The backup command writes a dump, SHA256 checksum, table row counts, and a gzip
 archive under `.local/backups/`. It uses a lock to prevent overlapping dumps and
 keeps the newest seven archives by default. Change the policy with
 `SWARTZIT_BACKUP_RETENTION`. The verification command creates a temporary
-second PostgreSQL container, restores the dump, compares every application table
+SQLite file, restores the snapshot, compares every application table
 against the source counts, validates the optional media archive, and removes only
 that temporary verification instance. Pass either the timestamped `swartzit.dump`
 or the complete `swartzit-<timestamp>-backup.tgz` archive. The media archive is
@@ -196,7 +201,7 @@ the most recent 14 calendar days. See
 [`docs/github-database-backups.md`](docs/github-database-backups.md) for the
 one-time repository and SSH deploy-key setup.
 
-On macOS, install the automatic circular backup job after PostgreSQL is running:
+On macOS, install the automatic circular backup job after the app is running:
 
 ```sh
 swartzit backup-install
@@ -218,7 +223,7 @@ swartzit rollback --backup \
 ```
 
 The command records `last-rollback.json` and preserves the pre-rollback dump
-and archive. It requires `--yes` because PostgreSQL objects are replaced. Add
+and archive. It requires `--yes` because the database file is replaced. Add
 `--leave-stopped` when the database should be restored without restarting the
 application.
 
@@ -291,7 +296,7 @@ sharing for a hosted or commercial instance.
 
 ## Instance administration
 
-Run `bash scripts/bootstrap-admin.sh` after starting PostgreSQL. It creates or
+Run `bash scripts/bootstrap-admin.sh` after configuring the SQLite file. It creates or
 promotes `u/techmore` (override with `ADMIN_HANDLE`). New accounts receive a random
 password printed once; existing accounts keep their password. Sign in at `/login`
 and open `/admin`. The API checks the database admin role on every request.
@@ -338,11 +343,11 @@ search, expandable structured details, and older/newer pages through retained
 events. Search covers only the bounded retained history. Pause live updates while
 investigating; all views also have manual refresh and error/retry states.
 
-Operational request/startup/bootstrap events persist in a 1,000-slot PostgreSQL
+Operational request/startup/bootstrap events persist in a 1,000-slot SQLite
 ring, replacing the oldest slots. The dashboard displays the newest 100. Logs omit
 IP addresses, headers, request bodies, tokens, query strings, and raw paths.
 Admin polling and page-view events are excluded from the request log. This ring
-does not manage external process-manager/stdout logs or PostgreSQL WAL retention.
+does not manage external process-manager/stdout logs or external storage retention.
 
 Swartzit is a self-hosted discussion prototype with public reading, pseudonymous
 accounts, communities, posts, threaded comments, voting, subscriptions, search,
@@ -390,7 +395,7 @@ To prepopulate an instance with 20 familiar discussion topics:
 bash scripts/post-install.sh
 ```
 
-Run it from a checkout with Cargo and PostgreSQL available. Export DATABASE_URL
+Run it from a checkout with Cargo available. Export DATABASE_URL
 for a non-default database. It applies migrations and adds empty communities such
 as technology, science, programming, books, cooking, gaming, privacy, and space.
 These are independent communities with original descriptions, not a Reddit
@@ -408,28 +413,17 @@ also works without JavaScript, while the suggestion button requires JavaScript.
 
 ### Run on this Mac
 
-With Apple `container`, Rust, and Node.js installed:
+With Rust, Python 3, and Node.js installed:
 
 ```sh
 bash scripts/run-local.sh
 ```
 
-Open http://127.0.0.1:4173. The script runs PostgreSQL in an Apple Linux
-container with a persistent named volume and starts the Rust API and standalone
-SvelteKit website. Startup is idempotent: it reuses healthy listeners, waits
-for PostgreSQL/API/web readiness, and skips rebuilds when artifacts already
-exist, so a reboot does not trigger a full install/build cycle. The web server
-binds to all local interfaces for Wi-Fi/LAN access; the API and database stay
-on loopback.
-Create your own account through **Create account**; the seeded authors are
-display-only identities without passwords. The local database password is a
-development credential and must not be reused for public hosting.
-
-The website uses port 4173, the API 18080, and PostgreSQL 54329. The API and
-PostgreSQL remain loopback-only; the website is reachable from the current LAN
-address printed by the launcher. Stop application services with
-`bash scripts/stop-local.sh`; stop PostgreSQL separately with
-`container stop swartzit-db`; its named volume retains the data.
+The script starts the Rust API and standalone SvelteKit website, using the
+persistent SQLite file under `.local/`. It reuses healthy listeners and skips
+rebuilds when artifacts already exist. The website uses port 4173, the API 18080;
+SQLite has no network listener. Stop services with `bash scripts/stop-local.sh`.
+Your database and media remain in the persistent state directory.
 
 For a direct HTTPS domain from the Mac, configure the router to forward TCP
 80 and 443 to this Mac, then start the optional Caddy terminator:
@@ -522,7 +516,7 @@ runtime; Swartzit still serves the API/web processes and the pulse checks the
 configured public URL. The integration is isolated so it can be replaced by
 another container companion later.
 
-`status-local.sh` reports API, web, PostgreSQL, Caddy, worker, and (when
+`status-local.sh` reports API, web, SQLite, Caddy, worker, and (when
 configured) public URL state. The API defaults to loopback even when the web
 interface is bound to Wi-Fi or Ethernet; set `SWARTZIT_API_INTERFACE` only when
 you intentionally want the API exposed on another interface.
@@ -533,7 +527,7 @@ media transfer are not implemented yet.
 ## Production VPS deployment
 
 For an always-on instance, use a small Linux VPS rather than keeping the Mac
-running. The practical minimum for the complete stack (PostgreSQL, Rust API,
+running. The practical minimum for the complete stack (SQLite, Rust API,
 SvelteKit web server, Caddy, and the scheduler) is a 2 GiB / 1-2 vCPU machine
 with about 50 GiB of disk. A 512 MiB / $4 proxy-only machine is not enough for
 the database and workers; a 2 GiB DigitalOcean Basic Droplet is roughly
@@ -547,7 +541,7 @@ timer. Supply secrets out of band; never commit them:
 ```sh
 sudo REPO_URL=https://github.com/techmore/swartzit.git \
   REF=main \
-  DATABASE_URL='postgres://swartzit:change-me@127.0.0.1:5432/swartzit' \
+  DATABASE_URL='sqlite:/var/lib/swartzit/state/swartzit.sqlite' \
   ORIGIN=https://swartzit.example.org \
   SCHEDULER_HANDLE=techmore \
   SCHEDULER_PASSWORD='use-a-password-manager-value' \
@@ -555,8 +549,7 @@ sudo REPO_URL=https://github.com/techmore/swartzit.git \
   bash scripts/install-server.sh
 ```
 
-The installer expects PostgreSQL to be installed and the database/user to
-already exist. It keeps the API on `127.0.0.1:18080`, the web server on
+The installer creates the SQLite database in the persistent state directory. It keeps the API on `127.0.0.1:18080`, the web server on
 `127.0.0.1:4173`, and exposes only Caddy. Check the services with:
 
 ```sh
@@ -570,7 +563,7 @@ see [`docs/github-database-backups.md`](docs/github-database-backups.md).
 
 The Linux source updater is installed at
 `scripts/swartzit-linux-update.sh`. It creates and validates a native
-PostgreSQL backup before stopping services, keeps `/etc/swartzit/*.env`
+SQLite snapshot before stopping services, keeps `/etc/swartzit/*.env`
 unchanged, and gates promotion on API/web health. It is intentionally opt-in:
 configure the production GitHub environment described in
 [`docs/production-updates.md`](docs/production-updates.md), or enable the
@@ -587,7 +580,7 @@ sudo WEB_HOST=192.168.3.251 \
   WIREGUARD_INTERFACE=wg0 \
   REPO_URL=https://github.com/techmore/swartzit.git \
   REF=main \
-  DATABASE_URL='postgres://...' \
+  DATABASE_URL='sqlite:/var/lib/swartzit/state/swartzit.sqlite' \
   ORIGIN=https://stoverparc.org \
   SCHEDULER_HANDLE=techmore \
   SCHEDULER_PASSWORD='use-a-password-manager-value' \
@@ -673,8 +666,8 @@ the Mac is offline.
 
 Run Swartzit first with `bash scripts/run-local.sh`. Localhost URLs only work
 on your own computer. Both sharing methods below forward to the **website on
-port 4173**, which proxies API calls internally. Keep PostgreSQL and the API on
-loopback. Your Mac must stay awake and the app must remain running.
+port 4173**, which proxies API calls internally. Keep the API on
+loopback and the SQLite file on local disk. Your Mac must stay awake and the app must remain running.
 
 ### Temporary HTTPS link with Cloudflare
 
@@ -753,18 +746,18 @@ See [Tor deployment notes](deploy/tor/README.md) and the
 
 ### Manual API development
 
-Requirements: Rust stable, Node.js/npm, and PostgreSQL 14+.
+Requirements: Rust stable, Node.js/npm, and Python 3 for backup tools.
 
 The Rust API reads exported environment variables; copying `.env.example`
-alone does not load them. Use your own database credentials. The example below
+alone does not load them. Choose a private local database path. The example below
 starts the API only on its default port 8080.
 
 Common checks are also available through `make check`, `make test`, `make fmt`,
 and `make web-build`.
 
 ```sh
-createdb swartzit
-export DATABASE_URL=postgres://localhost/swartzit
+mkdir -p .local
+export DATABASE_URL="sqlite:$PWD/.local/swartzit.sqlite"
 cargo run -p swartzit-server -- --seed-demo
 cargo run -p swartzit-server
 curl http://127.0.0.1:8080/api/posts
@@ -975,7 +968,7 @@ deduplicate across both feeds; local votes and comments survive refreshes.
 ## Deployment direction
 
 The intended deployment shape is a Linux system container or VM managed with
-Incus, with PostgreSQL on a private network and the server supervised by
+Incus, with SQLite in the persistent state directory and the server supervised by
 systemd. OCI images remain an optional interoperability format for Apple
 `container` on macOS and other runtimes; Docker is not required.
 

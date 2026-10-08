@@ -28,7 +28,7 @@ case "$REMOTE" in
   *) die 'use an SSH remote such as git@github.com:OWNER/REPOSITORY.git.' ;;
 esac
 
-for command_name in git pg_restore sha256sum awk date ssh flock python3; do
+for command_name in git sha256sum awk date ssh flock python3; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command is missing: $command_name"
 done
 [[ -f "$ROOT/scripts/db-backup.sh" ]] || die 'scripts/db-backup.sh was not found.'
@@ -51,6 +51,19 @@ cleanup() {
 trap cleanup EXIT
 WORK_DIR=$(mktemp -d "$STATE_DIR/git-work.XXXXXXXX")
 
+validate_dump() {
+  local dump="$1"
+  if [[ "$(head -c 15 "$dump")" == 'SQLite format 3' ]]; then
+    python3 "$ROOT/scripts/sqlite-db.py" verify "$dump" >/dev/null
+  elif command -v pg_restore >/dev/null 2>&1; then
+    pg_restore --list "$dump" >/dev/null
+  else
+    # Historical PG snapshots remain checksum-protected and restorable with
+    # PostgreSQL client tools. New runtime backups are checked as SQLite.
+    [[ "$(head -c 5 "$dump")" == PGDMP ]]
+  fi
+}
+
 TODAY=$(date -u '+%F')
 CREATED_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
@@ -70,7 +83,7 @@ DUMP="$NEW_LOCAL_DIR/swartzit.dump"
 COUNTS="$NEW_LOCAL_DIR/row-counts.tsv"
 [[ -s "$DUMP" ]] || die 'database dump is missing or empty.'
 [[ -s "$COUNTS" ]] || die 'database row-count file is missing or empty.'
-pg_restore --list "$DUMP" >/dev/null || die 'pg_restore could not read the new dump.'
+validate_dump "$DUMP" || die 'could not read the new database snapshot.'
 
 dump_sha() {
   sha256sum "$1" | awk '{print $1}'
@@ -131,7 +144,7 @@ for snapshot_dir in "$WORK_DIR"/snapshots/*; do
     [[ -s "$snapshot_dir/$required_file" ]] || die "incomplete existing snapshot: ${snapshot_dir#"$WORK_DIR"/}"
   done
   (cd "$snapshot_dir" && sha256sum --check --status SHA256SUMS) || die "checksum failed for ${snapshot_dir#"$WORK_DIR"/}"
-  pg_restore --list "$snapshot_dir/swartzit.dump" >/dev/null || die "pg_restore could not read ${snapshot_dir#"$WORK_DIR"/}"
+  validate_dump "$snapshot_dir/swartzit.dump" || die "pg_restore could not read ${snapshot_dir#"$WORK_DIR"/}"
   row_total "$snapshot_dir/row-counts.tsv" >/dev/null || die "invalid row counts in ${snapshot_dir#"$WORK_DIR"/}"
   if [[ -z "$LATEST_SNAPSHOT" || "$snapshot_date" > "${LATEST_SNAPSHOT##*/}" ]]; then
     LATEST_SNAPSHOT="$snapshot_dir"
@@ -179,13 +192,14 @@ install -m 0600 "$COUNTS" "$SNAPSHOT_DIR/row-counts.tsv"
 install -m 0600 "$COUNTS" "$SNAPSHOT_DIR/source-row-counts.tsv"
 printf '%s  swartzit.dump\n' "$NEW_SHA" > "$SNAPSHOT_DIR/SHA256SUMS"
 {
+  printf 'database_format\tsqlite-or-legacy-postgres\n'
   printf 'created_utc\t%s\n' "$CREATED_UTC"
   printf 'database_rows\t%s\n' "$NEW_ROWS"
   printf 'dump_bytes\t%s\n' "$NEW_BYTES"
   printf 'dump_sha256\t%s\n' "$NEW_SHA"
 } > "$SNAPSHOT_DIR/manifest.tsv"
 (cd "$SNAPSHOT_DIR" && sha256sum --check --status SHA256SUMS) || die 'copied dump failed its checksum.'
-pg_restore --list "$SNAPSHOT_DIR/swartzit.dump" >/dev/null || die 'copied dump failed pg_restore validation.'
+validate_dump "$SNAPSHOT_DIR/swartzit.dump" || die 'copied dump failed pg_restore validation.'
 row_total "$SNAPSHOT_DIR/source-row-counts.tsv" >/dev/null || die 'copied row counts failed validation.'
 
 CUTOFF=$(date -u -d "$((RETENTION_DAYS - 1)) days ago" '+%F') || die 'could not calculate the snapshot retention cutoff.'

@@ -15,12 +15,17 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP_DIR=${SWARTZIT_APP_DIR:-/var/lib/swartzit}
 [[ "$ROOT" == "$APP_DIR" ]] || { echo "Run this script from the deployment checkout at $APP_DIR." >&2; exit 1; }
 
-SCRIPTS=(postgres-native-lib.sh db-restore-verify-postgres.sh preflight-release.sh swartzit-release-update.sh swartzit-linux-update.sh swartzit-upgrade-check.sh)
+SCRIPTS=(sqlite-db.py db-backup.sh db-backup-to-github.sh compare-backup-counts.py postgres-native-lib.sh db-restore-verify-postgres.sh preflight-release.sh swartzit-release-update.sh swartzit-linux-update.sh swartzit-upgrade-check.sh)
 for script in "${SCRIPTS[@]}"; do
   [[ -f "$ROOT/scripts/$script" ]] || { echo "Missing $ROOT/scripts/$script" >&2; exit 1; }
   chmod 0755 "$ROOT/scripts/$script"
 done
 
+install -d -o root -g root -m 0755 /usr/local/libexec/swartzit/scripts /usr/local/libexec/swartzit/crates/server/sqlite-migrations
+cp -a "$ROOT/scripts/." /usr/local/libexec/swartzit/scripts/
+cp -a "$ROOT/crates/server/sqlite-migrations/." /usr/local/libexec/swartzit/crates/server/sqlite-migrations/
+chown -R root:root /usr/local/libexec/swartzit
+chmod -R go-w /usr/local/libexec/swartzit
 install -m 0644 "$ROOT/deploy/systemd/swartzit-upgrade-check.service" /etc/systemd/system/
 install -m 0644 "$ROOT/deploy/systemd/swartzit-upgrade-check.timer" /etc/systemd/system/
 systemctl daemon-reload

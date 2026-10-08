@@ -17,8 +17,8 @@ test('the rated feed selects exactly R, X, or both ratings', () => {
   // accidentally making R+X empty when X posts exist.
   assert.match(server, /ratings: Option<String>/);
   assert.match(server, /matches!\(ratings, "r" \| "x" \| "rx"\)/);
-  assert.match(server, /\$7 = 'r'.*\$7 = 'x'.*\$7 = 'rx'/);
-  assert.match(server, /\$8 = 'r'.*\$8 = 'x'.*\$8 = 'rx'/);
+  assert.match(server, /\?7 = 'r'.*\?7 = 'x'.*\?7 = 'rx'/);
+  assert.match(server, /\?8 = 'r'.*\?8 = 'x'.*\?8 = 'rx'/);
   assert.match(server, /let hide_x = ratings\.is_none\(\) && !mature_only && query\.hide_x\(\)/);
   // Older mature-only links remain a positive R+X request.
   assert.match(server, /mature_only: Option<bool>/);

@@ -37,7 +37,7 @@ else
   api_health_json='{}'
 fi
 check_http "$web_url/" && web_status=ready || true
-if command -v container >/dev/null 2>&1 && container exec "$db_container" pg_isready -U "$db_user" >/dev/null 2>&1; then database_status=ready; fi
+if [[ "$api_status" == ready ]]; then database_status=ready; fi
 caddy_agent="org.stoverparc.swartzit-caddy"
 if command -v launchctl >/dev/null 2>&1 && launchctl print "gui/$(id -u)/$caddy_agent" >/dev/null 2>&1; then
   caddy_status=running

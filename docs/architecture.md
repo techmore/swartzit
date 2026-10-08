@@ -8,8 +8,9 @@ migration; federation remains future work.
 ## Runtime
 
 - Rust and Axum HTTP API
-- PostgreSQL for durable data and search
-- SvelteKit + TypeScript web client (next integration)
+- Embedded SQLite for durable data, WAL concurrency and FTS5 search
+- Bounded public-response cache inside the API; no separate cache service
+- SvelteKit + TypeScript server-rendered web client
 - Tor onion service as an optional local companion
 - Incus Linux container or VM as the preferred host
 
@@ -23,7 +24,7 @@ be included in this public export format.
 
 ## Portability
 
-Backups contain PostgreSQL data, media manifests, and the configured canonical
+Backups contain consistent SQLite snapshots, media manifests, and the configured canonical
 filesystem media archive when one exists. IPFS-backed restores retain their
 CIDs and require the configured IPFS node or gateway to remain available. A
 host can restore them into another instance without depending on a vendor
@@ -34,3 +35,6 @@ queued as durable background work, retried after partner failures, and used for
 checksum-verified read fallback once ready. Catbox.moe remains share/export
 only. The local cache is excluded from durability guarantees and can always be
 cleared or rebuilt.
+
+See [SQLite deployment and migration](sqlite-single-instance.md) for storage, job
+claiming, complete PostgreSQL import and recovery details.

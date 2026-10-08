@@ -7,7 +7,7 @@ use axum::{
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use std::{
     collections::HashMap,
     future::Future,
@@ -110,7 +110,7 @@ where
     result
 }
 
-async fn measure_pool_wait(db: &PgPool) {
+async fn measure_pool_wait(db: &SqlitePool) {
     if !db_telemetry_enabled() {
         return;
     }
@@ -141,7 +141,7 @@ pub struct Snapshot {
     db_idle: usize,
     host_load: Option<[f64; 3]>,
 }
-pub fn snapshot(db: &PgPool) -> Snapshot {
+pub fn snapshot(db: &SqlitePool) -> Snapshot {
     let requests = REQUESTS.load(Relaxed);
     let elapsed = (chrono::Utc::now() - *super::STARTED_AT.get().unwrap())
         .num_seconds()
@@ -189,14 +189,14 @@ impl Drop for Active {
         IN_FLIGHT.fetch_sub(1, Relaxed);
     }
 }
-pub async fn observe(State(db): State<PgPool>, request: Request, next: Next) -> Response {
+pub async fn observe(State(db): State<SqlitePool>, request: Request, next: Next) -> Response {
     // This is intentionally diagnostic-only: SQLx performs the real checkout
     // for each query. The probe gives us a measured pool-wait signal without
     // changing the normal request path in production.
     measure_pool_wait(&db).await;
     let ip_hash = client_ip_hash(&request);
     if let Some(hash) = &ip_hash {
-        let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM ip_blocks WHERE ip_hash=$1 AND (expires_at IS NULL OR expires_at>now()))")
+        let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM ip_blocks WHERE ip_hash=?1 AND (expires_at IS NULL OR julianday(expires_at) > julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now'))))")
             .bind(hash).fetch_one(&db).await.unwrap_or(false);
         if blocked {
             return (
@@ -256,7 +256,7 @@ pub async fn observe(State(db): State<PgPool>, request: Request, next: Next) -> 
         let record_successes = env_flag("SWARTZIT_IP_ACTIVITY_SUCCESS", false);
         if record_successes || status.is_client_error() || status.is_server_error() {
             let _ = sqlx::query(
-                "INSERT INTO ip_activity(ip_hash,route,method,status) VALUES($1,$2,$3,$4)
+                "INSERT INTO ip_activity(ip_hash,route,method,status) VALUES(?1,?2,?3,?4)
                  ON CONFLICT (slot) DO UPDATE SET
                    id=EXCLUDED.id,
                    ip_hash=EXCLUDED.ip_hash,

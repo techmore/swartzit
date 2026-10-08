@@ -8,7 +8,7 @@ axum = "0.8"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "chrono"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "sqlite", "migrate", "chrono", "json"] }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -21,3 +21,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 hex = "0.4"
 url = "2"
+
+# Same SQLite ABI as SQLx; registers the portable ranking scalar per connection.
+libsqlite3-sys = "0.30.1"
+rand_core = { version = "0.6", features = ["getrandom"] }

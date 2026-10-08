@@ -8,7 +8,7 @@ APP_DIR=${APP_DIR:-/var/lib/swartzit}
 REPO_URL=${REPO_URL:-https://github.com/techmore/swartzit.git}
 REF=${REF:-main}
 ORIGIN=${ORIGIN:-}
-DATABASE_URL=${DATABASE_URL:-}
+DATABASE_URL=${DATABASE_URL:-sqlite:$APP_DIR/state/swartzit.sqlite}
 SCHEDULER_HANDLE=${SCHEDULER_HANDLE:-}
 SCHEDULER_PASSWORD=${SCHEDULER_PASSWORD:-}
 X_BEARER_TOKEN=${X_BEARER_TOKEN:-}
@@ -19,7 +19,7 @@ SWARTZIT_AUTO_UPDATE=${SWARTZIT_AUTO_UPDATE:-0}
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl git openssh-client build-essential pkg-config libssl-dev rustc cargo postgresql-client nodejs npm caddy
+apt-get install -y ca-certificates curl git openssh-client build-essential pkg-config libssl-dev rustc cargo python3 sqlite3 nodejs npm caddy
 id swartzit >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --create-home --shell /usr/sbin/nologin swartzit
 mkdir -p "$APP_DIR" /etc/swartzit
 if [[ ! -d "$APP_DIR/.git" ]]; then
@@ -40,19 +40,22 @@ chown -R swartzit:swartzit "$APP_DIR/.cache"
 python3 "$APP_DIR/scripts/swartzit-protect-code.py" "$APP_DIR"
 install -o root -g root -m 0755 "$APP_DIR/target/release/swartzit-server" /usr/local/bin/swartzit-server
 
-if [[ -z "$DATABASE_URL" || -z "$SCHEDULER_HANDLE" || -z "$SCHEDULER_PASSWORD" || -z "$ORIGIN" ]]; then
+if [[ -z "$SCHEDULER_HANDLE" || -z "$SCHEDULER_PASSWORD" || -z "$ORIGIN" ]]; then
   cat >&2 <<'EOF'
 Build complete. Before starting services, set these values and rerun:
-  DATABASE_URL=postgres://...
   ORIGIN=https://your-hostname
   SCHEDULER_HANDLE=...
   SCHEDULER_PASSWORD=...
 EOF
   exit 0
 fi
+[[ "$DATABASE_URL" == sqlite:* ]] || { echo "Import PostgreSQL data before installing this SQLite release." >&2; exit 1; }
+install -d -o swartzit -g swartzit -m 0700 "$APP_DIR/state"
 cat > /etc/swartzit/server.env <<EOF
 DATABASE_URL=$DATABASE_URL
 BIND_ADDR=127.0.0.1:18080
+SWARTZIT_STATE_DIR=$APP_DIR/state
+SWARTZIT_MEDIA_ROOT=$APP_DIR/state/media
 EOF
 cat > /etc/swartzit/web.env <<EOF
 API_URL=http://127.0.0.1:18080
@@ -77,7 +80,13 @@ install -m 0644 "$APP_DIR/deploy/systemd/swartzit-update.service" /etc/systemd/s
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-update.timer" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.timer" /etc/systemd/system/
-install -m 0755 "$APP_DIR/scripts/preflight-release.sh" "$APP_DIR/scripts/db-restore-verify-postgres.sh" "$APP_DIR/scripts/postgres-native-lib.sh" "$APP_DIR/scripts/swartzit-release-update.sh" "$APP_DIR/scripts/swartzit-linux-update.sh" "$APP_DIR/scripts/swartzit-upgrade-check.sh" "$APP_DIR/scripts/"
+install -d -o root -g root -m 0755 /usr/local/libexec/swartzit/scripts /usr/local/libexec/swartzit/crates/server/sqlite-migrations
+cp -a "$APP_DIR/scripts/." /usr/local/libexec/swartzit/scripts/
+cp -a "$APP_DIR/crates/server/sqlite-migrations/." /usr/local/libexec/swartzit/crates/server/sqlite-migrations/
+chown -R root:root /usr/local/libexec/swartzit
+chmod -R go-w /usr/local/libexec/swartzit
+find /usr/local/libexec/swartzit/scripts -maxdepth 1 -name '*.sh' -exec chmod 0755 {} +
+
 if [[ -n "$WIREGUARD_INTERFACE" ]]; then
   [[ "$WIREGUARD_INTERFACE" == wg0 ]] || { echo 'WIREGUARD_INTERFACE currently supports only wg0.' >&2; exit 1; }
   install -d -m 0755 /etc/systemd/system/swartzit-web.service.d

@@ -8,4 +8,5 @@ Type=oneshot
 User=root
 WorkingDirectory=/var/lib/swartzit
 EnvironmentFile=-/etc/swartzit/upgrade.env
-ExecStart=/var/lib/swartzit/scripts/swartzit-upgrade-check.sh
+Environment=SWARTZIT_APP_DIR=/var/lib/swartzit
+ExecStart=/usr/local/libexec/swartzit/scripts/swartzit-upgrade-check.sh

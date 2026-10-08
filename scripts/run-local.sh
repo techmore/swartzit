@@ -96,7 +96,7 @@ case "$MODE" in
     WEB_INTERFACE="$MODE"
     ;;
 esac
-export DATABASE_URL="${DATABASE_URL:-postgres://swartzit:swartzit-local-only@127.0.0.1:54329/swartzit}"
+export DATABASE_URL="${DATABASE_URL:-sqlite:$SWARTZIT_STATE_DIR/swartzit.sqlite}"
 API_PORT="${API_PORT:-18080}"
 API_BIND_INTERFACE="${SWARTZIT_API_INTERFACE:-loopback}"
 API_BIND_IP="$(interface_ip "$API_BIND_INTERFACE" || true)"
@@ -111,6 +111,7 @@ if [[ "$MODE" == public && -z "${SWARTZIT_CADDY_BIND_IP:-}" ]]; then
 fi
 SWARTZIT_CADDY_UPSTREAM="${SWARTZIT_CADDY_UPSTREAM:-$WEB_BIND_IP:$PORT}"
 {
+  printf 'DATABASE_URL=%q\n' "$DATABASE_URL"
   printf 'API_URL=%q\n' "$API_URL"
   printf 'PORT=%q\n' "$PORT"
   printf 'SWARTZIT_LOCAL_URL=%q\n' "http://$WEB_BIND_IP:$PORT"
@@ -129,24 +130,9 @@ SWARTZIT_CADDY_UPSTREAM="${SWARTZIT_CADDY_UPSTREAM:-$WEB_BIND_IP:$PORT}"
 } > .local/runtime.env
 API_LOG=.local/api.log
 WEB_LOG=.local/web.log
-if command -v container >/dev/null; then
-  container system start >/dev/null
-  if container inspect swartzit-db >/dev/null 2>&1; then
-    container start swartzit-db >/dev/null 2>&1 || true
-  else
-    container run -d --name swartzit-db -p 127.0.0.1:54329:5432 \
-      -e POSTGRES_USER=swartzit -e POSTGRES_PASSWORD=swartzit-local-only \
-      -e POSTGRES_DB=swartzit -e PGDATA=/var/lib/postgresql/data/pgdata \
-      -v swartzit-db-data:/var/lib/postgresql/data docker.io/library/postgres:16 >/dev/null
-  fi
-  ready=false
-  for attempt in {1..45}; do
-    if container exec swartzit-db pg_isready -U swartzit >/dev/null 2>&1; then ready=true; break; fi
-    [[ "$attempt" == 45 ]] && { echo 'PostgreSQL did not become ready.' >&2; exit 1; }
-    sleep 1
-  done
-  $ready || exit 1
-fi
+[[ "$DATABASE_URL" == sqlite:* ]] || { echo 'This release requires SQLite; import existing PostgreSQL data before starting.' >&2; exit 1; }
+chmod 0700 "$SWARTZIT_STATE_DIR"
+umask 0077
 if [[ "${SWARTZIT_BUILD:-0}" == 1 || ! -x target/debug/swartzit-server ]]; then cargo build --locked; fi
 if [[ "${SWARTZIT_BUILD:-0}" == 1 || ! -f apps/web/build/index.js ]]; then
   npm --prefix apps/web ci

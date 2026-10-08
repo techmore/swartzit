@@ -1,101 +1,95 @@
 #!/usr/bin/env bash
 # Migration preflight for a candidate Swartzit server release.
 #
-# Restores the latest backup into a throwaway database, starts the *candidate*
-# binary against that restored copy, and waits for /health. If the candidate's
-# SQLx migrations are incompatible with the data the production instance is
-# currently serving, the rehearsal fails here, before any live service is
-# touched and before the production database is migrated.
+# Starts the candidate against a restored, disposable copy of the latest
+# backup and waits for /health before changing the live checkout or service.
+# SQLite rehearsals need no database daemon. PostgreSQL backups retain their
+# disposable-role restore path for releases preceding the SQLite cutover.
 #
-# The rehearsal uses a disposable role with a random password so the production
-# credential is never reused, never logged, and never appears in `ps`.
-#
-# The rehearsal server is launched with fd 9 closed. This script runs inside the
-# release updater, which holds its lock on fd 9; a child that inherits that
-# descriptor keeps the lock held for as long as the child lives, so any leak of
-# this server would block every later deploy. Closing the descriptor here means a
-# leak can only cost a process, never the release path.
+# The rehearsal server closes fd 9 so it cannot retain the updater's lock.
 
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-# shellcheck source=scripts/postgres-native-lib.sh
-source "$ROOT/scripts/postgres-native-lib.sh"
-swartzit_pg_resolve_run_as
-
 BINARY=${1:-}
 BACKUP=${2:-}
-# The binary does not need to arrive executable: a mode-0755 copy is staged
-# below before it runs. Requiring the execute bit here would reject a freshly
-# downloaded release asset, which curl creates as 0644.
+# Downloaded release assets may arrive with mode 0644; stage an executable copy.
 [[ -f "$BINARY" && -f "$BACKUP" ]] || { echo "Usage: $0 /path/to/swartzit-server /path/to/swartzit.dump" >&2; exit 2; }
-swartzit_pg_require_tools psql pg_restore createdb dropdb dropuser curl python3
-
-SERVICE_DATABASE_URL=${SWARTZIT_SERVICE_DATABASE_URL:-}
-if [[ -z "$SERVICE_DATABASE_URL" ]]; then
-  if ! SERVICE_DATABASE_URL=$(swartzit_pg_service_database_url); then
-    echo 'Could not read the service DATABASE_URL. Set SWARTZIT_DATABASE_URL or SWARTZIT_DATABASE_URL_FILE.' >&2
-    exit 2
-  fi
-fi
-# macOS still ships bash 3.2, so read the parsed URL parts without mapfile.
-URL_PARTS=""
-while IFS= read -r line; do
-  URL_PARTS="${URL_PARTS}${URL_PARTS:+
-}$line"
-done < <(swartzit_pg_url_parts "$SERVICE_DATABASE_URL")
-SCHEME=$(printf '%s\n' "$URL_PARTS" | sed -n 1p)
-PARSED_HOST=$(printf '%s\n' "$URL_PARTS" | sed -n 2p)
-PARSED_PORT=$(printf '%s\n' "$URL_PARTS" | sed -n 3p)
-PG_HOST=${SWARTZIT_PG_HOST:-${PARSED_HOST:-127.0.0.1}}
-PG_PORT=${SWARTZIT_PG_PORT:-${PARSED_PORT:-5432}}
-if [[ -z "$PG_HOST" ]]; then
-  # A socket-only service URL cannot be reused for a disposable role, because
-  # peer authentication maps roles to OS users. TCP on loopback is the same
-  # endpoint in every supported deployment.
-  PG_HOST=127.0.0.1
-fi
-
-SUFFIX="$$_$(date +%s)"
-TEST_DB="swartzit_preflight_${SUFFIX}"
-TEST_ROLE="swartzit_preflight_${SUFFIX}"
-TEST_PASSWORD=$(swartzit_pg_random_password)
-TEST_PORT=${SWARTZIT_PREFLIGHT_PORT:-18081}
-TEST_URL="http://127.0.0.1:${TEST_PORT}/health"
-# Administrative work (creating the disposable role and database) runs as the
-# postgres OS account over the local socket, where peer authentication applies.
-# Pointing it at the service's TCP endpoint instead demands a password that
-# account does not have. Only the disposable role, which carries a generated
-# password, connects over TCP.
-#
-# The service account has to be able to read the staged binary, and a private
-# root-owned temp directory would hide it.
+BACKUP="$(cd "$(dirname "$BACKUP")" && pwd)/$(basename "$BACKUP")"
+for tool in curl python3; do
+  command -v "$tool" >/dev/null || { echo "$tool is required for release preflight." >&2; exit 1; }
+done
+PREFLIGHT_BACKEND=$(python3 - "$BACKUP" <<'PY_BACKEND'
+import sys
+with open(sys.argv[1], 'rb') as source:
+    print('sqlite' if source.read(16) == b'SQLite format 3\x00' else 'postgres')
+PY_BACKEND
+)
 STAGE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/swartzit-preflight.XXXXXX")
 chmod 0755 "$STAGE_DIR"
 STAGED_BINARY="$STAGE_DIR/swartzit-server"
-install -m 0755 "$BINARY" "$STAGED_BINARY"
 LOG="$STAGE_DIR/server.log"
-
+TEST_DB=''
+TEST_ROLE=''
 cleanup() {
   if [[ -n "${TEST_PID:-}" ]] && kill -0 "$TEST_PID" >/dev/null 2>&1; then
     kill "$TEST_PID" >/dev/null 2>&1 || true
     wait "$TEST_PID" 2>/dev/null || true
   fi
-  swartzit_pg_drop_rehearsal "$TEST_DB" "$TEST_ROLE" || true
+  if [[ "$PREFLIGHT_BACKEND" == postgres && -n "$TEST_DB" ]]; then
+    swartzit_pg_drop_rehearsal "$TEST_DB" "$TEST_ROLE" || true
+  fi
   rm -rf "$STAGE_DIR"
 }
 trap cleanup EXIT
+install -m 0755 "$BINARY" "$STAGED_BINARY"
 
-echo "Preflighting against ${SCHEME}://${PG_HOST}:${PG_PORT} using restored database ${BACKUP}."
-swartzit_pg_admin psql -d postgres -v ON_ERROR_STOP=1 -q -c \
-  "create role \"$TEST_ROLE\" login password '$TEST_PASSWORD'; grant \"$TEST_ROLE\" to \"$SWARTZIT_PG_ADMIN_USER\" with set true" >/dev/null
-# The rehearsal role owns the copy, so a --no-owner restore needs no superuser
-# and cannot reach any production object.
-swartzit_pg_admin createdb -O "$TEST_ROLE" "$TEST_DB"
-swartzit_pg_as_role "$TEST_ROLE" "$TEST_PASSWORD" "$PG_HOST" "$PG_PORT" "$TEST_DB" \
-  pg_restore --no-owner --exit-on-error "$BACKUP"
-
-TEST_DATABASE_URL="${SCHEME}://${TEST_ROLE}:${TEST_PASSWORD}@${PG_HOST}:${PG_PORT}/${TEST_DB}"
+if [[ "$PREFLIGHT_BACKEND" == sqlite ]]; then
+  SQLITE_TOOL="$ROOT/scripts/sqlite-db.py"
+  [[ -f "$SQLITE_TOOL" ]] || { echo 'The SQLite database helper is missing from the release tools.' >&2; exit 1; }
+  python3 "$SQLITE_TOOL" verify "$BACKUP"
+  TEST_DATABASE_PATH="$STAGE_DIR/database.sqlite"
+  python3 "$SQLITE_TOOL" backup "sqlite:$BACKUP" "$TEST_DATABASE_PATH"
+  chmod 0600 "$TEST_DATABASE_PATH"
+  TEST_DATABASE_URL="sqlite:$TEST_DATABASE_PATH"
+  echo "Preflighting SQLite release against a restored copy of $BACKUP."
+else
+  # Only the legacy path requires PostgreSQL tools or administrator access.
+  # shellcheck source=scripts/postgres-native-lib.sh
+  source "$ROOT/scripts/postgres-native-lib.sh"
+  swartzit_pg_resolve_run_as
+  swartzit_pg_require_tools psql pg_restore createdb dropdb dropuser
+  SERVICE_DATABASE_URL=${SWARTZIT_SERVICE_DATABASE_URL:-}
+  if [[ -z "$SERVICE_DATABASE_URL" ]]; then
+    if ! SERVICE_DATABASE_URL=$(swartzit_pg_service_database_url); then
+      echo 'Could not read the service DATABASE_URL. Set SWARTZIT_DATABASE_URL or SWARTZIT_DATABASE_URL_FILE.' >&2
+      exit 2
+    fi
+  fi
+  # macOS bash 3.2 has no mapfile.
+  URL_PARTS=""
+  while IFS= read -r line; do
+    URL_PARTS="${URL_PARTS}${URL_PARTS:+
+}$line"
+  done < <(swartzit_pg_url_parts "$SERVICE_DATABASE_URL")
+  SCHEME=$(printf '%s\n' "$URL_PARTS" | sed -n 1p)
+  PARSED_HOST=$(printf '%s\n' "$URL_PARTS" | sed -n 2p)
+  PARSED_PORT=$(printf '%s\n' "$URL_PARTS" | sed -n 3p)
+  PG_HOST=${SWARTZIT_PG_HOST:-${PARSED_HOST:-127.0.0.1}}
+  PG_PORT=${SWARTZIT_PG_PORT:-${PARSED_PORT:-5432}}
+  [[ -n "$PG_HOST" ]] || PG_HOST=127.0.0.1
+  SUFFIX="$$_$(date +%s)"
+  TEST_DB="swartzit_preflight_${SUFFIX}"
+  TEST_ROLE="swartzit_preflight_${SUFFIX}"
+  TEST_PASSWORD=$(swartzit_pg_random_password)
+  echo "Preflighting against ${SCHEME}://${PG_HOST}:${PG_PORT} using restored database ${BACKUP}."
+  swartzit_pg_admin psql -d postgres -v ON_ERROR_STOP=1 -q -c \
+    "create role \"$TEST_ROLE\" login password '$TEST_PASSWORD'; grant \"$TEST_ROLE\" to \"$SWARTZIT_PG_ADMIN_USER\" with set true" >/dev/null
+  swartzit_pg_admin createdb -O "$TEST_ROLE" "$TEST_DB"
+  swartzit_pg_as_role "$TEST_ROLE" "$TEST_PASSWORD" "$PG_HOST" "$PG_PORT" "$TEST_DB" \
+    pg_restore --no-owner --exit-on-error "$BACKUP"
+  TEST_DATABASE_URL="${SCHEME}://${TEST_ROLE}:${TEST_PASSWORD}@${PG_HOST}:${PG_PORT}/${TEST_DB}"
+fi
 
 wait_for_health() {
   for _ in $(seq 1 60); do
@@ -116,7 +110,7 @@ for attempt in 1 2 3; do
   if [[ -n "${SWARTZIT_PREFLIGHT_PORT:-}" ]]; then
     TEST_PORT="$SWARTZIT_PREFLIGHT_PORT"
   else
-    TEST_PORT=$(swartzit_pg_free_port)
+    TEST_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
   fi
   TEST_URL="http://127.0.0.1:${TEST_PORT}/health"
   echo "Preflight attempt $attempt on 127.0.0.1:${TEST_PORT}."
@@ -127,6 +121,9 @@ for attempt in 1 2 3; do
     SWARTZIT_CHECK_URL="$TEST_URL" \
     SWARTZIT_STATE_DIR="$STAGE_DIR/state" \
     SWARTZIT_DATA_DIR="$STAGE_DIR/state" \
+    SWARTZIT_MEDIA_ROOT="$STAGE_DIR/state/media" \
+    SWARTZIT_MEDIA_CACHE_DIR="$STAGE_DIR/state/cache" \
+    SWARTZIT_DISABLE_MAINTENANCE=1 \
     "$STAGED_BINARY" 9>&- > "$LOG" 2>&1 &
   TEST_PID=$!
   set +e
