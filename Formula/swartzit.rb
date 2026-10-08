@@ -1,9 +1,9 @@
 class Swartzit < Formula
   desc "Self-hosted, pseudonymous discussion community"
   homepage "https://stoverparc.org"
-  url "https://github.com/techmore/swartzit/archive/refs/tags/v0.1.94-20261008T2333.tar.gz"
-  version "0.1.94.20261008.2333"
-  sha256 "e0a6788974b559fd2991d80aecbd62bf8c4a0d38c264d0372a7807159c43a056"
+  url "https://github.com/techmore/swartzit/archive/refs/tags/v0.1.95-20261008T2345.tar.gz"
+  version "0.1.95.20261008.2345"
+  sha256 "9ab98037f40d50c17cce4e10fa5c5d782cb8a710f22fb53fdb1d80650b334d44"
 
   depends_on "node"
   depends_on "rust" => :build

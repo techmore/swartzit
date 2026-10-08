@@ -1,6 +1,19 @@
 # SER8 SQLite cutover — 2026-10-08
 
-## Deployment
+## Current release
+
+The final deployment is `v0.1.95-20261008T2345`, built from
+`04c6b56e44a3f633aef7434a9ebec2c3ac29e0a1`. Its
+[main CI](https://github.com/techmore/swartzit/actions/runs/37861177518) and
+[release checks](https://github.com/techmore/swartzit/actions/runs/37861194770)
+passed. It packages the backup fixes described below. The standard updater
+verified a fresh SQLite/media backup, rehearsed its restore and started the
+candidate on a disposable snapshot before activation. API/web health checks
+passed. This update took 8.7 seconds; most work preceded service replacement.
+Its recovery bundle is `/var/backups/swartzit/releases/20261008T234959Z` inside
+the app container. Trusted host/container release tools match this tag.
+
+## Initial conversion
 
 - Site: <https://swartzit.stoverparc.org>.
 - Release: `v0.1.94-20261008T2333`.
@@ -52,6 +65,22 @@ The dedicated `swartzit-db` VM is **stopped**, with `boot.autostart=false`.
 Its original database and recovery files remain available. New writes go to
 SQLite, so an eventual PostgreSQL rollback requires deliberate data
 reconciliation; restarting the retained VM alone does not move new data back.
+
+## Backup follow-up
+
+The first SQLite snapshot was complete, but opening its WAL-mode header during
+validation left empty WAL/shared-memory metadata in the temporary Git checkout.
+The next job correctly rejected those extra files. Backup tools were updated in
+`cf7571f95ce39db5f576725ecb97d12d8fa3ce9d` to close connections explicitly,
+store standalone snapshots in DELETE journal mode, and validate frozen copies
+outside the snapshot tree against their saved table counts. The repair only
+removes metadata after verifying the standalone database; a nonempty WAL is
+rejected.
+
+The corrected GitHub jobs completed at `2026-10-08T23:44:50Z` and
+`2026-10-08T23:45:33Z`, with PostgreSQL still stopped. The current snapshot tree
+contains only the database, checksums and manifests. Public website and API
+requests returned HTTP 200 after those jobs.
 
 See [SQLite deployment and recovery](sqlite-single-instance.md) for future
 installation, snapshots and restore procedures.
