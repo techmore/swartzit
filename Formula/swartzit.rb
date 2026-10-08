@@ -5,7 +5,7 @@ class Swartzit < Formula
   version "0.1.21.20260924.11"
   sha256 "bc9094ca907fc6d1e6ba7da5556ca8c6db5d2728f1a87917995fdb78a6aad4bc"
 
-  depends_on "node" => :build
+  depends_on "node"
   depends_on "rust" => :build
   depends_on "python@3.14"
 

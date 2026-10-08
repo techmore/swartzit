@@ -57,7 +57,8 @@ The updater performs these steps in order:
 4. Verifies every checksum and refuses a partial release.
 5. Snapshots SQLite consistently with row counts, a media archive, and a
    checksum manifest.
-6. Restores the dump into a throwaway database owned by a disposable role.
+6. Restores the snapshot into a disposable SQLite file and checks integrity,
+   foreign keys and application table counts.
 7. Starts the candidate server on that restored copy and waits for `/health`,
    which is what proves the migrations are compatible.
 8. Records the previous binary, web build, version, and commit.

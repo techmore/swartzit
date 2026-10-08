@@ -41,6 +41,13 @@ with open(sys.argv[1], 'rb') as source:
 PY_BACKEND
 )
 if [[ "$BACKUP_BACKEND" == sqlite ]]; then
+  SNAPSHOT_DIR=$(dirname "$BACKUP")
+  if [[ -f "$SNAPSHOT_DIR/SHA256SUMS" ]]; then
+    (cd "$SNAPSHOT_DIR" && shasum -a 256 -c SHA256SUMS)
+  fi
+  if [[ -f "$SNAPSHOT_DIR/media.tgz" ]]; then
+    tar -tzf "$SNAPSHOT_DIR/media.tgz" >/dev/null
+  fi
   SQLITE_TOOL="$ROOT/scripts/sqlite-db.py"
   [[ -f "$SQLITE_TOOL" ]] || { echo 'The SQLite database helper is missing from the release tools.' >&2; exit 1; }
   RESTORED_DATABASE="$WORK_DIR/restored.sqlite"

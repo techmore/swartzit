@@ -11,8 +11,8 @@ latest 14 calendar days of snapshots. Each run replaces the branch tip with a
 snapshot tree without retaining prior Git commits, so ordinary branch history
 does not grow past the rolling set.
 
-Before publishing, the job checks that the dump is non-empty and readable by
-`pg_restore`, verifies the checksum, and compares public-schema table row counts
+Before publishing, the job checks that the dump is non-empty and readable with SQLite integrity and foreign-key checks (or `pg_restore` for
+retained PostgreSQL snapshots), verifies the checksum, and compares public-schema table row counts
 with the previous snapshot. It stops if a table disappears or durable content
 such as authors, posts, comments, sources, or media shrinks. The explicit mutable
 table list in `scripts/compare-backup-counts.py` permits normal session expiry,
@@ -66,12 +66,11 @@ It uses a dedicated local-backup directory instead of the application's
 Clone the backup repository and select a date under `snapshots/`. Run the
 project's `scripts/db-restore-verify-postgres.sh` against that snapshot's
 `swartzit.dump` on a machine with Python 3 and the committed SQLite helper/schema installed.
-For SQLite on Ser8, use the offline restore procedure, stop the
-app services, and restore the selected dump with:
-
-```sh
-pg_restore --dbname="$DATABASE_URL" --clean --if-exists --no-owner \
-  --exit-on-error swartzit.dump
-```
-
-Start the services and check their health after the restore.
+For a SQLite restore, stop the API and worker, preserve a fresh pre-restore
+snapshot, and use the online backup helper to stage a new database file before
+replacing the stopped instance's file. Keep its private ownership. Remove stale
+WAL/SHM files only while the API is stopped. Restart and check health afterward.
+The standalone launcher also provides `swartzit rollback --backup FILE --yes`;
+Linux systemd deployments must stop their service units before using it.
+Retained PostgreSQL dumps require PostgreSQL restore tools and a PostgreSQL
+instance; never pass a SQLite URL to `pg_restore`.
