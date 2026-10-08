@@ -51,20 +51,28 @@ cleanup() {
 trap cleanup EXIT
 WORK_DIR=$(mktemp -d "$STATE_DIR/git-work.XXXXXXXX")
 
-validate_dump() {
-  local dump="$1"
-  local format
+dump_format() {
   # PostgreSQL headers contain NUL bytes; shell substitutions must only carry
   # the text label, never binary header data.
-  format=$(python3 - "$dump" <<'PY_FORMAT'
+  python3 - "$1" <<'PY_FORMAT'
 import sys
 with open(sys.argv[1], 'rb') as source:
     header = source.read(16)
 print('sqlite' if header == b'SQLite format 3\x00' else 'postgres' if header.startswith(b'PGDMP') else 'unknown')
 PY_FORMAT
-)
+}
+
+validate_dump() {
+  local dump="$1"
+  local format verification_dir
+  format=$(dump_format "$dump")
   if [[ "$format" == sqlite ]]; then
-    python3 "$ROOT/scripts/sqlite-db.py" verify "$dump" >/dev/null
+    # Frozen backup files are complete snapshots. Verify a private copy so
+    # reading a legacy WAL-mode header cannot create files in the Git tree.
+    verification_dir=$(mktemp -d "$WORK_DIR/sqlite-verify.XXXXXXXX")
+    cp "$dump" "$verification_dir/snapshot.sqlite"
+    python3 "$ROOT/scripts/sqlite-db.py" verify "$verification_dir/snapshot.sqlite" "$(dirname "$dump")/row-counts.tsv" >/dev/null
+    rm -rf -- "$verification_dir"
   elif [[ "$format" == postgres ]] && command -v pg_restore >/dev/null 2>&1; then
     pg_restore --list "$dump" >/dev/null
   else
@@ -143,6 +151,18 @@ for snapshot_dir in "$WORK_DIR"/snapshots/*; do
   [[ -d "$snapshot_dir" && ! -L "$snapshot_dir" ]] || die "unexpected entry in backup branch: ${snapshot_dir##*/}"
   snapshot_date=${snapshot_dir##*/}
   [[ "$snapshot_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "invalid snapshot date: $snapshot_date"
+  # The initial SQLite backup verifier could leave empty WAL/SHM metadata in
+  # its temporary checkout. Repair only that known case, after proving the
+  # standalone database matches its saved counts. A WAL with data is rejected.
+  if [[ -e "$snapshot_dir/swartzit.dump-wal" || -L "$snapshot_dir/swartzit.dump-wal" || -e "$snapshot_dir/swartzit.dump-shm" || -L "$snapshot_dir/swartzit.dump-shm" ]]; then
+    [[ "$(dump_format "$snapshot_dir/swartzit.dump")" == sqlite ]] || die 'sidecar files accompany a non-SQLite snapshot.'
+    for sidecar in "$snapshot_dir/swartzit.dump-wal" "$snapshot_dir/swartzit.dump-shm"; do
+      [[ ! -L "$sidecar" && ( ! -e "$sidecar" || -f "$sidecar" ) ]] || die 'unsafe SQLite snapshot sidecar.'
+    done
+    [[ ! -s "$snapshot_dir/swartzit.dump-wal" ]] || die 'a frozen snapshot contains a nonempty WAL; refusing to discard data.'
+    validate_dump "$snapshot_dir/swartzit.dump" || die 'standalone SQLite snapshot did not match its manifest.'
+    rm -f -- "$snapshot_dir/swartzit.dump-wal" "$snapshot_dir/swartzit.dump-shm"
+  fi
   for snapshot_file in "$snapshot_dir"/*; do
     case "${snapshot_file##*/}" in
       SHA256SUMS|manifest.tsv|row-counts.tsv|source-row-counts.tsv|swartzit.dump) ;;
@@ -154,7 +174,7 @@ for snapshot_dir in "$WORK_DIR"/snapshots/*; do
     [[ -s "$snapshot_dir/$required_file" ]] || die "incomplete existing snapshot: ${snapshot_dir#"$WORK_DIR"/}"
   done
   (cd "$snapshot_dir" && sha256sum --check --status SHA256SUMS) || die "checksum failed for ${snapshot_dir#"$WORK_DIR"/}"
-  validate_dump "$snapshot_dir/swartzit.dump" || die "pg_restore could not read ${snapshot_dir#"$WORK_DIR"/}"
+  validate_dump "$snapshot_dir/swartzit.dump" || die "could not validate ${snapshot_dir#"$WORK_DIR"/}"
   row_total "$snapshot_dir/row-counts.tsv" >/dev/null || die "invalid row counts in ${snapshot_dir#"$WORK_DIR"/}"
   if [[ -z "$LATEST_SNAPSHOT" || "$snapshot_date" > "${LATEST_SNAPSHOT##*/}" ]]; then
     LATEST_SNAPSHOT="$snapshot_dir"
@@ -209,7 +229,7 @@ printf '%s  swartzit.dump\n' "$NEW_SHA" > "$SNAPSHOT_DIR/SHA256SUMS"
   printf 'dump_sha256\t%s\n' "$NEW_SHA"
 } > "$SNAPSHOT_DIR/manifest.tsv"
 (cd "$SNAPSHOT_DIR" && sha256sum --check --status SHA256SUMS) || die 'copied dump failed its checksum.'
-validate_dump "$SNAPSHOT_DIR/swartzit.dump" || die 'copied dump failed pg_restore validation.'
+validate_dump "$SNAPSHOT_DIR/swartzit.dump" || die 'copied dump failed validation.'
 row_total "$SNAPSHOT_DIR/source-row-counts.tsv" >/dev/null || die 'copied row counts failed validation.'
 
 CUTOFF=$(date -u -d "$((RETENTION_DAYS - 1)) days ago" '+%F') || die 'could not calculate the snapshot retention cutoff.'

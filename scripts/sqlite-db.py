@@ -5,6 +5,7 @@ Database URLs travel through environment variables to psql, never its argv.
 The importer refuses an existing target and keeps private export files mode0600.
 """
 import argparse
+from contextlib import closing
 import datetime
 import hashlib
 import json
@@ -45,7 +46,7 @@ def counts(db):
     return {name: db.execute('SELECT count(*) FROM ' + quote(name)).fetchone()[0] for name in tables(db)}
 
 def verify(path, manifest=None):
-    with connection(path, True) as db:
+    with closing(connection(path, True)) as db:
         if db.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
             raise ValueError('SQLite integrity check failed')
         if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
@@ -74,8 +75,11 @@ def snapshot(url, destination):
     fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     os.close(fd)
     try:
-        with connection(source, True) as src, connection(dest) as target:
+        with closing(connection(source, True)) as src, closing(connection(dest)) as target:
             src.backup(target)
+            # A snapshot carries every committed page in one file. Keep WAL
+            # for the live API only, so frozen archives need no sidecar files.
+            target.execute('PRAGMA journal_mode=DELETE')
         verify(dest)
     except BaseException:
         dest.unlink(missing_ok=True)
@@ -166,7 +170,7 @@ COMMIT;
         os.close(fd)
         try:
             schema = SCHEMA.read_text()
-            with connection(dest) as db:
+            with closing(connection(dest)) as db:
                 db.executescript(schema)
                 db.execute('PRAGMA foreign_keys=OFF')
                 triggers = [stmt for stmt in statements(schema) if 'CREATE TRIGGER ' in stmt]
@@ -234,7 +238,7 @@ def main():
         actual = verify(Path(args.source).resolve(), args.destination)
         print(f'SQLite integrity, foreign keys, and {len(actual)} table counts verified.')
     elif args.operation == 'counts':
-        with connection(Path(args.source).resolve(), True) as db:
+        with closing(connection(Path(args.source).resolve(), True)) as db:
             print('\n'.join(f'{name}\t{total}' for name, total in counts(db).items()))
     else:
         if not args.destination:
