@@ -118,10 +118,10 @@ test('production deployment is opt-in, tag-triggered, and serialized', () => {
   // A merge to main must not change a live host; only a published tag deploys.
   assert.match(workflow, /tags:\s*\n\s*- 'v\*'/);
   assert.doesNotMatch(workflow, /branches: \[main\]/);
-  assert.match(workflow, /sudo -n \/var\/lib\/swartzit\/scripts\/swartzit-linux-update\.sh \\\n\s*--tag "\$TAG" --yes/);
+  assert.match(workflow, /sudo -n \/usr\/local\/sbin\/swartzit-incus-update \\\n\s*--tag "\$TAG" --yes/);
   assert.doesNotMatch(workflow, /sudo -n env SWARTZIT_WEB_URL/);
   // The deploy names the tag it is installing.
-  assert.match(workflow, /swartzit-linux-update\.sh \\\n\s*--tag "\$TAG" --yes/);
+  assert.match(workflow, /swartzit-incus-update \\\n\s*--tag "\$TAG" --yes/);
 });
 
 test('the deploy runs on a self-hosted runner with no remote access', () => {
@@ -135,9 +135,9 @@ test('the deploy runs on a self-hosted runner with no remote access', () => {
   assert.doesNotMatch(workflow, /SWARTZIT_DEPLOY_SSH_KEY/);
   assert.doesNotMatch(workflow, /SWARTZIT_DEPLOY_KNOWN_HOSTS/);
   assert.doesNotMatch(workflow, /ssh -p/);
-  // The installer is the copy already on the host, so a release cannot rewrite
-  // the code that installs it.
-  assert.match(workflow, /sudo -n \/var\/lib\/swartzit\/scripts\/swartzit-linux-update\.sh/);
+  // The installed root-owned adapter targets the live Incus guest; the
+  // workflow checkout is never used as a privileged installer.
+  assert.match(workflow, /sudo -n \/usr\/local\/sbin\/swartzit-incus-update/);
   // release.yml runs concurrently, so the deploy waits for the assets.
   assert.match(workflow, /Wait for the release assets to be published/);
   assert.match(workflow, /releases\/tags\/\$TAG/);
@@ -165,7 +165,7 @@ test('production X token sync runs only for an explicit token-only dispatch', ()
   assert.match(workflow, /sync-x-token/);
   assert.match(workflow, /test-x-token/);
   assert.doesNotMatch(workflow, /steps\.install-release\.outcome == 'success'/);
-  assert.match(workflow, /printf '%s' "\$X_BEARER_TOKEN" \\\n\s*\| sudo -n \/var\/lib\/swartzit\/scripts\/swartzit-linux-update\.sh --sync-x-token-stdin/);
+  assert.match(workflow, /printf '%s' "\$X_BEARER_TOKEN" \\\n\s*\| sudo -n \/usr\/local\/sbin\/swartzit-incus-update --sync-x-token-stdin/);
   assert.doesNotMatch(workflow, /--(?:token|x-token) "\$X_BEARER_TOKEN"/);
 
   const updater = read('scripts/swartzit-linux-update.sh');
