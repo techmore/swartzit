@@ -2,11 +2,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-: "${DATABASE_URL:=postgres://swartzit:swartzit-local-only@127.0.0.1:54329/swartzit}"
+: "${DATABASE_URL:=sqlite:$PWD/.local/swartzit.sqlite}"
+mkdir -p "${SWARTZIT_STATE_DIR:-$PWD/.local}"
 export DATABASE_URL
 
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "post-install: cargo is required (install Rust stable) and PostgreSQL must be reachable at \$DATABASE_URL." >&2
+  echo "post-install: cargo is required (install Rust stable)." >&2
   exit 1
 fi
 

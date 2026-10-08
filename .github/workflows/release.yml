@@ -11,18 +11,8 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: swartzit
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres -d swartzit"
-          --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/swartzit
+      DATABASE_URL: sqlite:${{ runner.temp }}/swartzit-release.sqlite
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,7 +34,6 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets --all-features -- -D warnings
           cargo test --workspace
-          cargo test --workspace bookmarks::tests:: -- --ignored
       - name: Web checks
         run: |
           npm ci

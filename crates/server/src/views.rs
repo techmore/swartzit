@@ -12,7 +12,7 @@ pub struct ViewCounts {
     pub deep_view_count: i64,
 }
 pub async fn record(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     Path(id): Path<i64>,
     Json(input): Json<ViewInput>,
 ) -> Result<Json<ViewCounts>, ApiError> {
@@ -25,24 +25,23 @@ pub async fn record(
         ));
     }
     let hash = Sha256::digest(input.visit_id.to_ascii_lowercase().as_bytes()).to_vec();
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     // Lock the parent first: all milestones for a post use one consistent order.
-    let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM posts WHERE id=$1 AND moderation_status='approved' FOR UPDATE",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let exists: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM posts WHERE id=?1 AND moderation_status='approved'")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
     if exists.is_none() {
         return Err(ApiError::Missing);
     }
     let added = if input.visible_seconds == 0 {
-        sqlx::query("INSERT INTO post_view_visits(post_id,visit_hash) VALUES ($1,$2) ON CONFLICT DO NOTHING").bind(id).bind(&hash).execute(&mut *tx).await?.rows_affected() as i64
+        sqlx::query("INSERT INTO post_view_visits(post_id,visit_hash) VALUES (?1,?2) ON CONFLICT DO NOTHING").bind(id).bind(&hash).execute(&mut *tx).await?.rows_affected() as i64
     } else {
         0
     };
     let visit: Option<(i16, DateTime<Utc>)> = sqlx::query_as(
-        "SELECT seconds,started_at FROM post_view_visits WHERE post_id=$1 AND visit_hash=$2",
+        "SELECT seconds,started_at FROM post_view_visits WHERE post_id=?1 AND visit_hash=?2",
     )
     .bind(id)
     .bind(&hash)
@@ -59,24 +58,24 @@ pub async fn record(
         return Err(ApiError::Invalid("Engagement milestone arrived too early"));
     }
     let next = previous.max(input.visible_seconds);
-    sqlx::query("UPDATE post_view_visits SET seconds=$3 WHERE post_id=$1 AND visit_hash=$2")
+    sqlx::query("UPDATE post_view_visits SET seconds=?3 WHERE post_id=?1 AND visit_hash=?2")
         .bind(id)
         .bind(&hash)
         .bind(next)
         .execute(&mut *tx)
         .await?;
-    let counts=sqlx::query_as::<_,ViewCounts>("UPDATE posts SET view_count=view_count+$2,engaged_view_count=engaged_view_count+$3,deep_view_count=deep_view_count+$4 WHERE id=$1 RETURNING view_count,engaged_view_count,deep_view_count")
+    let counts=sqlx::query_as::<_,ViewCounts>("UPDATE posts SET view_count=view_count+?2,engaged_view_count=engaged_view_count+?3,deep_view_count=deep_view_count+?4 WHERE id=?1 RETURNING view_count,engaged_view_count,deep_view_count")
         .bind(id).bind(added).bind(i64::from(previous<10 && next>=10)).bind(i64::from(previous<30 && next>=30)).fetch_one(&mut *tx).await?;
     sqlx::query(
         "INSERT INTO post_stats(
            post_id, view_count, engaged_view_count, deep_view_count, updated_at
          )
-         VALUES ($1, $2, $3, $4, now())
+         VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
          ON CONFLICT (post_id) DO UPDATE SET
            view_count = EXCLUDED.view_count,
            engaged_view_count = EXCLUDED.engaged_view_count,
            deep_view_count = EXCLUDED.deep_view_count,
-           updated_at = now()",
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(id)
     .bind(counts.view_count)

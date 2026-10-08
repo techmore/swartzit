@@ -84,7 +84,7 @@ impl Filter {
     }
 }
 async fn rows(
-    db: &PgPool,
+    db: &SqlitePool,
     sql: &str,
     q: &str,
     before: Option<i64>,
@@ -98,15 +98,15 @@ async fn rows(
     ))
 }
 pub async fn users(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(f): Query<Filter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    rows(&db, "SELECT row_to_json(t) FROM (SELECT a.id,a.handle,a.is_admin,a.created_at,a.suspended_until,(a.password_hash IS NOT NULL) AS registered,(SELECT count(*) FROM posts WHERE author_id=a.id AND moderation_status='approved') AS posts,(SELECT count(*) FROM comments WHERE author_id=a.id AND moderation_status='approved') AS comments,(SELECT count(*) FROM sessions WHERE author_id=a.id AND expires_at>now()) AS sessions FROM authors a WHERE strpos(lower(a.handle),lower($1))>0 AND ($2::bigint IS NULL OR a.id<$2) ORDER BY a.id DESC LIMIT 50) t", &f.search()?,f.before).await
+    rows(&db, "SELECT json_object('id',t.id,'handle',t.handle,'is_admin',json(CASE WHEN t.is_admin IS NULL THEN NULL WHEN t.is_admin THEN 'true' ELSE 'false' END),'created_at',t.created_at,'suspended_until',t.suspended_until,'registered',json(CASE WHEN t.registered IS NULL THEN NULL WHEN t.registered THEN 'true' ELSE 'false' END),'posts',t.posts,'comments',t.comments,'sessions',t.sessions) FROM (SELECT a.id,a.handle,a.is_admin,a.created_at,a.suspended_until,(a.password_hash IS NOT NULL) AS registered,(SELECT count(*) FROM posts WHERE author_id=a.id AND moderation_status='approved') AS posts,(SELECT count(*) FROM comments WHERE author_id=a.id AND moderation_status='approved') AS comments,(SELECT count(*) FROM sessions WHERE author_id=a.id AND julianday(expires_at)>julianday('now')) AS sessions FROM authors a WHERE instr(lower(a.handle),lower(?1))>0 AND (?2 IS NULL OR a.id<?2) ORDER BY a.id DESC LIMIT 50) t", &f.search()?,f.before).await
 }
 pub async fn revoke(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
@@ -114,14 +114,14 @@ pub async fn revoke(
     if actor == id {
         return Err(ApiError::Invalid("Use Sign out to end your own session"));
     }
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM authors WHERE id=$1)")
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM authors WHERE id=?1)")
         .bind(id)
         .fetch_one(&db)
         .await?;
     if !exists {
         return Err(ApiError::Missing);
     }
-    let count = sqlx::query("DELETE FROM sessions WHERE author_id=$1")
+    let count = sqlx::query("DELETE FROM sessions WHERE author_id=?1")
         .bind(id)
         .execute(&db)
         .await?
@@ -136,68 +136,68 @@ pub async fn revoke(
     Ok(StatusCode::NO_CONTENT)
 }
 pub async fn content(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(f): Query<Filter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
     let sql = match f.kind.as_deref().unwrap_or("posts") {
         "posts" => {
-            r#"SELECT row_to_json(t) FROM (
+            r#"SELECT json_object('id',t.id,'view_count',t.view_count,'engaged_view_count',t.engaged_view_count,'deep_view_count',t.deep_view_count,'content_rating',t.content_rating,'content_rating_source',t.content_rating_source,'content_rating_updated_at',t.content_rating_updated_at,'title',t.title,'body',t.body,'created_at',t.created_at,'author',t.author,'community',t.community,'comments',t.comments,'source_media',json(t.source_media),'uploaded_media',json(t.uploaded_media)) FROM (
                 SELECT p.id,p.view_count,p.engaged_view_count,p.deep_view_count,
                     p.content_rating,p.content_rating_source,p.content_rating_updated_at,
                     p.title,p.body,p.created_at,a.handle AS author,c.slug AS community,
                     (SELECT count(*) FROM comments WHERE post_id=p.id) AS comments,
-                    COALESCE((SELECT e.media FROM external_posts e WHERE e.post_id=p.id), '[]'::jsonb) AS source_media,
+                    COALESCE((SELECT e.media FROM external_posts e WHERE e.post_id=p.id), '[]') AS source_media,
                     COALESCE((
-                        SELECT jsonb_agg(jsonb_build_object(
+                        SELECT json_group_array(json_object(
                             'kind',m.media_type,
                             'src',CASE
-                                WHEN m.media_type='image' AND m.variants ? 'thumbnail'
-                                    THEN '/media/' || m.id::text || '/thumbnail'
+                                WHEN m.media_type='image' AND json_type(m.variants, '$.thumbnail') IS NOT NULL
+                                    THEN '/media/' || m.id || '/thumbnail'
                                 WHEN m.media_type='video'
-                                    THEN '/media/' || m.id::text || '/original'
-                                ELSE '/media/' || m.id::text
+                                    THEN '/media/' || m.id || '/original'
+                                ELSE '/media/' || m.id
                             END,
-                            'original_src','/media/' || m.id::text || '/original',
+                            'original_src','/media/' || m.id || '/original',
                             'poster',CASE
-                                WHEN m.media_type='video' AND m.variants ? 'thumbnail'
-                                    THEN '/media/' || m.id::text || '/thumbnail'
+                                WHEN m.media_type='video' AND json_type(m.variants, '$.thumbnail') IS NOT NULL
+                                    THEN '/media/' || m.id || '/thumbnail'
                                 ELSE NULL
                             END
                         ) ORDER BY pm.position,m.id)
                         FROM post_media pm
                         JOIN media_assets m ON m.id=pm.media_id
                         WHERE pm.post_id=p.id AND m.media_type IN ('image','video')
-                    ), '[]'::jsonb) AS uploaded_media
+                    ), '[]') AS uploaded_media
                 FROM posts p
                 JOIN authors a ON a.id=p.author_id
                 JOIN communities c ON c.id=p.community_id
-                WHERE strpos(lower(p.title || ' ' || p.body),lower($1))>0
-                    AND ($2::bigint IS NULL OR p.id<$2)
+                WHERE instr(lower(p.title || ' ' || p.body),lower(?1))>0
+                    AND (?2 IS NULL OR p.id<?2)
                 ORDER BY p.id DESC
                 LIMIT 50
             ) t"#
         }
         "comments" => {
-            "SELECT row_to_json(t) FROM (SELECT c.id,c.post_id,c.body || CASE WHEN c.source IS NULL THEN '' ELSE E'\\n\\n' || COALESCE(c.source->>'title','External post') || E'\\n' || COALESCE(c.source->>'body','') || E'\\n' || COALESCE(c.source->>'source_url','') END AS body,c.source,c.created_at,a.handle AS author FROM comments c JOIN authors a ON a.id=c.author_id WHERE strpos(lower(c.body || ' ' || COALESCE(c.source->>'body','')),lower($1))>0 AND ($2::bigint IS NULL OR c.id<$2) ORDER BY c.id DESC LIMIT 50) t"
+            "SELECT json_object('id',t.id,'post_id',t.post_id,'body',t.body,'source',json(t.source),'created_at',t.created_at,'author',t.author) FROM (SELECT c.id,c.post_id,c.body || CASE WHEN c.source IS NULL THEN '' ELSE (char(10) || char(10)) || COALESCE(c.source->>'title','External post') || char(10) || COALESCE(c.source->>'body','') || char(10) || COALESCE(c.source->>'source_url','') END AS body,c.source,c.created_at,a.handle AS author FROM comments c JOIN authors a ON a.id=c.author_id WHERE instr(lower(c.body || ' ' || COALESCE(c.source->>'body','')),lower(?1))>0 AND (?2 IS NULL OR c.id<?2) ORDER BY c.id DESC LIMIT 50) t"
         }
         "communities" => {
-            "SELECT row_to_json(t) FROM (SELECT c.id,c.slug,c.name,c.description,(SELECT count(*) FROM posts WHERE community_id=c.id) AS posts FROM communities c WHERE strpos(lower(c.slug || ' ' || c.name),lower($1))>0 AND ($2::bigint IS NULL OR c.id<$2) ORDER BY c.id DESC LIMIT 50) t"
+            "SELECT json_object('id',t.id,'slug',t.slug,'name',t.name,'description',t.description,'posts',t.posts) FROM (SELECT c.id,c.slug,c.name,c.description,(SELECT count(*) FROM posts WHERE community_id=c.id) AS posts FROM communities c WHERE instr(lower(c.slug || ' ' || c.name),lower(?1))>0 AND (?2 IS NULL OR c.id<?2) ORDER BY c.id DESC LIMIT 50) t"
         }
         _ => return Err(ApiError::Invalid("Unknown content type")),
     };
     rows(&db, sql, &f.search()?, f.before).await
 }
 pub async fn comments(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(f): Query<Filter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
     rows(
         &db,
-        r#"SELECT row_to_json(t) FROM (
+        r#"SELECT json_object('id',t.id,'post_id',t.post_id,'parent_id',t.parent_id,'body',t.body,'created_at',t.created_at,'author',t.author,'post_public_id',t.post_public_id,'post_title',t.post_title,'community',t.community) FROM (
             SELECT cm.id,cm.post_id,cm.parent_id,cm.body,cm.created_at,
                 a.handle AS author,p.public_id AS post_public_id,p.title AS post_title,
                 c.slug AS community
@@ -207,8 +207,8 @@ pub async fn comments(
             JOIN communities c ON c.id=p.community_id
             WHERE cm.moderation_status='approved'
                 AND p.moderation_status='approved'
-                AND strpos(lower(cm.body || ' ' || a.handle || ' ' || p.title || ' ' || c.slug),lower($1))>0
-                AND ($2::bigint IS NULL OR cm.id<$2)
+                AND instr(lower(cm.body || ' ' || a.handle || ' ' || p.title || ' ' || c.slug),lower(?1))>0
+                AND (?2 IS NULL OR cm.id<?2)
             ORDER BY cm.id DESC
             LIMIT 50
         ) t"#,
@@ -218,21 +218,21 @@ pub async fn comments(
     .await
 }
 pub async fn reports(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(f): Query<Filter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    rows(&db,"SELECT row_to_json(t) FROM (SELECT r.id,r.reason,r.post_id,r.comment_id,COALESCE(r.post_id,c.post_id) AS discussion_id,r.created_at,r.resolved_at,a.handle AS reporter FROM reports r JOIN authors a ON a.id=r.reporter_id LEFT JOIN comments c ON c.id=r.comment_id WHERE strpos(lower(r.reason),lower($1))>0 AND ($2::bigint IS NULL OR r.id<$2) ORDER BY r.id DESC LIMIT 50) t",&f.search()?,f.before).await
+    rows(&db,"SELECT json_object('id',t.id,'reason',t.reason,'post_id',t.post_id,'comment_id',t.comment_id,'discussion_id',t.discussion_id,'created_at',t.created_at,'resolved_at',t.resolved_at,'reporter',t.reporter) FROM (SELECT r.id,r.reason,r.post_id,r.comment_id,COALESCE(r.post_id,c.post_id) AS discussion_id,r.created_at,r.resolved_at,a.handle AS reporter FROM reports r JOIN authors a ON a.id=r.reporter_id LEFT JOIN comments c ON c.id=r.comment_id WHERE instr(lower(r.reason),lower(?1))>0 AND (?2 IS NULL OR r.id<?2) ORDER BY r.id DESC LIMIT 50) t",&f.search()?,f.before).await
 }
 pub async fn resolve(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
     let n = sqlx::query(
-        "UPDATE reports SET resolved_at=now(),resolved_by=$2 WHERE id=$1 AND resolved_at IS NULL",
+        "UPDATE reports SET resolved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),resolved_by=?2 WHERE id=?1 AND resolved_at IS NULL",
     )
     .bind(id)
     .bind(actor)
@@ -252,7 +252,7 @@ pub async fn resolve(
     Ok(StatusCode::NO_CONTENT)
 }
 pub async fn logs(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(f): Query<Filter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
@@ -261,14 +261,30 @@ pub async fn logs(
     if !["", "info", "warn", "error"].contains(&level) {
         return Err(ApiError::Invalid("Unknown log level"));
     }
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT id,level,event,detail,created_at FROM system_logs WHERE ($1='' OR level=$1) AND strpos(lower(event || ' ' || detail::text),lower($2))>0 AND ($3::bigint IS NULL OR id<$3) ORDER BY id DESC LIMIT 100) t").bind(level).bind(f.search()?).bind(f.before).fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar("SELECT json_object('id',t.id,'level',t.level,'event',t.event,'detail',json(t.detail),'created_at',t.created_at) FROM (SELECT id,level,event,detail,created_at FROM system_logs WHERE (?1='' OR level=?1) AND instr(lower(event || ' ' || detail),lower(?2))>0 AND (?3 IS NULL OR id<?3) ORDER BY id DESC LIMIT 100) t").bind(level).bind(f.search()?).bind(f.before).fetch_all(&db).await?))
 }
 pub async fn analytics(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT d::date AS day,(SELECT count(*) FROM authors WHERE password_hash IS NOT NULL AND (created_at AT TIME ZONE 'UTC')::date=d::date) AS users,(SELECT count(*) FROM posts WHERE moderation_status='approved' AND (created_at AT TIME ZONE 'UTC')::date=d::date) AS posts,(SELECT count(*) FROM comments WHERE moderation_status='approved' AND (created_at AT TIME ZONE 'UTC')::date=d::date) AS comments FROM generate_series((now() AT TIME ZONE 'UTC')::date-13,(now() AT TIME ZONE 'UTC')::date,interval '1 day') d ORDER BY d) t").fetch_all(&db).await?))
+    Ok(Json(
+        sqlx::query_scalar(
+            "WITH RECURSIVE days(day) AS (
+                 SELECT date('now', '-13 days')
+                 UNION ALL
+                 SELECT date(day, '+1 day') FROM days WHERE day < date('now')
+             )
+             SELECT json_object(
+                 'day', day,
+                 'users', (SELECT count(*) FROM authors WHERE password_hash IS NOT NULL AND date(created_at) = day),
+                 'posts', (SELECT count(*) FROM posts WHERE moderation_status = 'approved' AND date(created_at) = day),
+                 'comments', (SELECT count(*) FROM comments WHERE moderation_status = 'approved' AND date(created_at) = day)
+             ) FROM days ORDER BY day",
+        )
+        .fetch_all(&db)
+        .await?,
+    ))
 }
 
 #[derive(FromRow)]
@@ -288,7 +304,7 @@ pub struct ModerationDecision {
 }
 
 pub async fn moderation(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(f): Query<Filter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
@@ -301,17 +317,17 @@ pub async fn moderation(
         _ => return Err(ApiError::Invalid("Unknown moderation type")),
     };
     Ok(Json(sqlx::query_scalar(
-        "SELECT row_to_json(t) FROM (
+        "SELECT json_object('id',t.id,'kind',t.kind,'target_id',t.target_id,'status',t.status,'severity',t.severity,'flags',json(t.flags),'rule_version',t.rule_version,'urgent',json(CASE WHEN t.urgent IS NULL THEN NULL WHEN t.urgent THEN 'true' ELSE 'false' END),'created_at',t.created_at,'author',t.author,'title',t.title,'body',t.body,'community',t.community,'profile',json(t.profile)) FROM (
            SELECT mi.id, mi.kind, mi.target_id, mi.status, mi.severity, mi.flags,
                   mi.rule_version, mi.urgent, mi.created_at, a.handle AS author,
                   CASE WHEN mi.kind = 'profile' THEN '' ELSE COALESCE(p.title, '') END AS title,
                   CASE
                     WHEN mi.kind = 'profile'
-                      THEN concat_ws(E'\\n', NULLIF(mi.payload->>'display_name', ''), NULLIF(mi.payload->>'bio', ''))
-                    ELSE COALESCE(p.body, cm.body, '') || CASE WHEN cm.source IS NULL THEN '' ELSE E'\\n\\n' || COALESCE(cm.source->>'title','External post') || E'\\n' || COALESCE(cm.source->>'body','') || E'\\n' || COALESCE(cm.source->>'source_url','') END
+                      THEN COALESCE(mi.payload->>'display_name', '') || CASE WHEN COALESCE(mi.payload->>'display_name', '') <> '' AND COALESCE(mi.payload->>'bio', '') <> '' THEN char(10) ELSE '' END || COALESCE(mi.payload->>'bio', '')
+                    ELSE COALESCE(p.body, cm.body, '') || CASE WHEN cm.source IS NULL THEN '' ELSE (char(10) || char(10)) || COALESCE(cm.source->>'title','External post') || char(10) || COALESCE(cm.source->>'body','') || char(10) || COALESCE(cm.source->>'source_url','') END
                   END AS body,
                   c.slug AS community,
-                  CASE WHEN mi.kind = 'profile' THEN mi.payload ELSE NULL::jsonb END AS profile
+                  CASE WHEN mi.kind = 'profile' THEN mi.payload ELSE NULL END AS profile
            FROM moderation_items mi
            JOIN authors a ON a.id = mi.author_id
            LEFT JOIN posts p ON mi.kind = 'post' AND p.id = mi.target_id
@@ -319,12 +335,12 @@ pub async fn moderation(
            LEFT JOIN communities c ON c.id = p.community_id
            WHERE mi.kind <> 'profile'
              AND mi.status IN ('pending', 'escalated')
-             AND ($1 = '' OR strpos(lower(
+             AND (?1 = '' OR instr(lower(
                a.handle || ' ' || COALESCE(p.title, '') || ' ' ||
-               COALESCE(p.body, cm.body, '') || ' ' || COALESCE(cm.source->>'body','') || ' ' || COALESCE(mi.payload::text, '')
-             ), lower($1)) > 0)
-             AND ($2 = '' OR mi.kind = $2)
-             AND ($3::bigint IS NULL OR mi.id < $3)
+               COALESCE(p.body, cm.body, '') || ' ' || COALESCE(cm.source->>'body','') || ' ' || COALESCE(mi.payload, '')
+             ), lower(?1)) > 0)
+             AND (?2 = '' OR mi.kind = ?2)
+             AND (?3 IS NULL OR mi.id < ?3)
            ORDER BY mi.urgent DESC, mi.created_at ASC, mi.id ASC
            LIMIT 50
          ) t",
@@ -337,13 +353,13 @@ pub async fn moderation(
 }
 
 pub async fn moderation_history(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
     Ok(Json(
         sqlx::query_scalar(
-            "SELECT row_to_json(t) FROM (
+            "SELECT json_object('id',t.id,'moderation_item_id',t.moderation_item_id,'action',t.action,'from_status',t.from_status,'to_status',t.to_status,'note',t.note,'detail',json(t.detail),'created_at',t.created_at,'actor',t.actor,'kind',t.kind,'subject',t.subject) FROM (
            SELECT ma.id, ma.moderation_item_id, ma.action, ma.from_status, ma.to_status,
                   ma.note, ma.detail, ma.created_at, actor.handle AS actor,
                   mi.kind, subject.handle AS subject
@@ -361,7 +377,7 @@ pub async fn moderation_history(
 }
 
 pub async fn decide_moderation(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<ModerationDecision>,
@@ -381,12 +397,11 @@ pub async fn decide_moderation(
             "Suspension duration must be between 1 minute and 30 days",
         ));
     }
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     let item: ModerationTarget = sqlx::query_as(
         "SELECT kind, target_id, author_id, status, payload
          FROM moderation_items
-         WHERE id = $1
-         FOR UPDATE",
+         WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(&mut *tx)
@@ -410,9 +425,9 @@ pub async fn decide_moderation(
         // Escalation keeps the content hidden and asks for urgent human review.
         sqlx::query(
             "UPDATE moderation_items
-             SET status = 'escalated', urgent = TRUE, reviewed_by = $2,
-                 reviewed_at = now(), review_note = $3
-             WHERE id = $1",
+             SET status = 'escalated', urgent = TRUE, reviewed_by = ?2,
+                 reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), review_note = ?3
+             WHERE id = ?1",
         )
         .bind(id)
         .bind(actor)
@@ -423,9 +438,9 @@ pub async fn decide_moderation(
         if item.kind == "post" {
             sqlx::query(
                 "UPDATE posts
-                 SET moderation_status = $2, moderation_reviewed_by = $3,
-                     moderation_reviewed_at = now()
-                 WHERE id = $1",
+                 SET moderation_status = ?2, moderation_reviewed_by = ?3,
+                     moderation_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 WHERE id = ?1",
             )
             .bind(item.target_id)
             .bind(if publishes { "approved" } else { "rejected" })
@@ -435,9 +450,9 @@ pub async fn decide_moderation(
         } else if item.kind == "comment" {
             sqlx::query(
                 "UPDATE comments
-                 SET moderation_status = $2, moderation_reviewed_by = $3,
-                     moderation_reviewed_at = now()
-                 WHERE id = $1",
+                 SET moderation_status = ?2, moderation_reviewed_by = ?3,
+                     moderation_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 WHERE id = ?1",
             )
             .bind(item.target_id)
             .bind(if publishes { "approved" } else { "rejected" })
@@ -461,8 +476,8 @@ pub async fn decide_moderation(
                 .and_then(serde_json::Value::as_str);
             sqlx::query(
                 "UPDATE authors
-                 SET display_name = $2, bio = $3, avatar_url = $4, profile_updated_at = now()
-                 WHERE id = $1",
+                 SET display_name = ?2, bio = ?3, avatar_url = ?4, profile_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 WHERE id = ?1",
             )
             .bind(item.author_id)
             .bind(display_name)
@@ -475,12 +490,12 @@ pub async fn decide_moderation(
             let until = Utc::now() + chrono::Duration::minutes(duration_minutes);
             sqlx::query(
                 "UPDATE authors
-                 SET suspended_until = GREATEST(COALESCE(suspended_until, now()), $2),
-                     suspension_reason = $3
-                 WHERE id = $1",
+                 SET suspended_until = CASE WHEN julianday(suspended_until) > julianday(?2) THEN suspended_until ELSE ?2 END,
+                     suspension_reason = ?3
+                 WHERE id = ?1",
             )
             .bind(item.author_id)
-            .bind(until)
+            .bind(until.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
             .bind(if note.is_empty() {
                 "Moderator suspension"
             } else {
@@ -491,8 +506,8 @@ pub async fn decide_moderation(
         }
         sqlx::query(
             "UPDATE moderation_items
-             SET status = $2, reviewed_by = $3, reviewed_at = now(), review_note = $4
-             WHERE id = $1",
+             SET status = ?2, reviewed_by = ?3, reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), review_note = ?4
+             WHERE id = ?1",
         )
         .bind(id)
         .bind(to_status)
@@ -504,7 +519,7 @@ pub async fn decide_moderation(
     sqlx::query(
         "INSERT INTO moderation_actions(
            moderation_item_id, actor_id, action, from_status, to_status, note, detail
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )
     .bind(id)
     .bind(actor)
@@ -579,7 +594,7 @@ fn normalize_media_secondaries(values: &[String]) -> Result<Vec<String>, ApiErro
 }
 
 pub async fn settings(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
@@ -622,7 +637,9 @@ pub async fn settings(
     })))
 }
 
-pub async fn adsense_config(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
+pub async fn adsense_config(
+    State(db): State<SqlitePool>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let enabled: bool =
         sqlx::query_scalar("SELECT enabled FROM instance_modules WHERE module_key = 'adsense'")
             .fetch_optional(&db)
@@ -674,7 +691,7 @@ fn normalize_adsense_publisher_id(value: &str) -> Result<Option<String>, ApiErro
 }
 
 pub async fn storage(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<media_store::StorageOverview>, ApiError> {
     require_admin(&headers, &db).await?;
@@ -686,7 +703,7 @@ pub async fn storage(
 }
 
 pub async fn update_settings(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<UpdateSettings>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -743,9 +760,9 @@ pub async fn update_settings(
     if let Some(orchard_enabled) = input.orchard_enabled {
         sqlx::query(
             "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
-         VALUES ('orchard', $1, $2, now())
+         VALUES ('orchard', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
          ON CONFLICT (module_key) DO UPDATE
-         SET enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = now()",
+         SET enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
         )
         .bind(orchard_enabled)
         .bind(actor)
@@ -762,8 +779,8 @@ pub async fn update_settings(
     if let Some(enabled) = input.content_runners_enabled {
         sqlx::query(
             "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
-             VALUES ('content_runners', $1, $2, now())
-             ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=now()",
+             VALUES ('content_runners', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+             ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
         ).bind(enabled).bind(actor).execute(&db).await?;
         log_event(
             &db,
@@ -776,8 +793,8 @@ pub async fn update_settings(
     if let Some(enabled) = input.moderation_enabled {
         sqlx::query(
             "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
-             VALUES ('moderation', $1, $2, now())
-             ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=now()",
+             VALUES ('moderation', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+             ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
         )
         .bind(enabled)
         .bind(actor)
@@ -794,7 +811,7 @@ pub async fn update_settings(
     if let Some(publisher_id) = normalized_adsense_publisher_id.as_ref() {
         sqlx::query(
             "UPDATE adsense_settings
-             SET publisher_id = $1, updated_by = $2, updated_at = now()
+             SET publisher_id = ?1, updated_by = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
              WHERE singleton = TRUE",
         )
         .bind(publisher_id.as_deref())
@@ -836,9 +853,9 @@ pub async fn update_settings(
         }
         sqlx::query(
             "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
-             VALUES ('adsense', $1, $2, now())
+             VALUES ('adsense', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
              ON CONFLICT (module_key) DO UPDATE
-             SET enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = now()",
+             SET enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
         )
         .bind(enabled)
         .bind(actor)
@@ -921,19 +938,23 @@ pub async fn update_settings(
     {
         sqlx::query(
             "UPDATE media_settings
-             SET primary_provider = COALESCE($1, primary_provider),
-                 secondary_provider = COALESCE($2, secondary_provider),
-                 secondary_providers = COALESCE($3, secondary_providers),
-                 cache_enabled = COALESCE($4, cache_enabled),
-                 cache_max_bytes = COALESCE($5, cache_max_bytes),
-                 share_provider = COALESCE($6, share_provider),
-                 updated_by = $7,
-                 updated_at = now()
+             SET primary_provider = COALESCE(?1, primary_provider),
+                 secondary_provider = COALESCE(?2, secondary_provider),
+                 secondary_providers = COALESCE(?3, secondary_providers),
+                 cache_enabled = COALESCE(?4, cache_enabled),
+                 cache_max_bytes = COALESCE(?5, cache_max_bytes),
+                 share_provider = COALESCE(?6, share_provider),
+                 updated_by = ?7,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
              WHERE singleton = TRUE",
         )
         .bind(input.media_primary.as_deref())
         .bind(legacy_secondary.as_deref())
-        .bind(normalized_secondaries.clone())
+        .bind(
+            normalized_secondaries
+                .as_ref()
+                .map(|providers| serde_json::json!(providers)),
+        )
         .bind(input.media_cache_enabled)
         .bind(input.media_cache_max_bytes)
         .bind(input.media_share.as_deref())
@@ -985,19 +1006,19 @@ pub struct BlockIp {
     expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 pub async fn security(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
-    let blocks: Vec<serde_json::Value> = sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT id,label,reason,expires_at,created_at FROM ip_blocks WHERE expires_at IS NULL OR expires_at>now() ORDER BY created_at DESC) t").fetch_all(&db).await?;
-    let activity: Vec<serde_json::Value> = sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT ip_hash, count(*)::bigint AS requests, count(*) FILTER (WHERE status>=400)::bigint AS errors, max(created_at) AS last_seen FROM ip_activity WHERE created_at>now()-interval '24 hours' GROUP BY ip_hash ORDER BY requests DESC LIMIT 100) t").fetch_all(&db).await?;
-    let access: Vec<serde_json::Value> = sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT id,ip_hash,route,method,status,created_at FROM ip_activity ORDER BY id DESC LIMIT 100) t").fetch_all(&db).await?;
+    let blocks: Vec<serde_json::Value> = sqlx::query_scalar("SELECT json_object('id',t.id,'label',t.label,'reason',t.reason,'expires_at',t.expires_at,'created_at',t.created_at) FROM (SELECT id,label,reason,expires_at,created_at FROM ip_blocks WHERE expires_at IS NULL OR julianday(expires_at)>julianday('now') ORDER BY created_at DESC) t").fetch_all(&db).await?;
+    let activity: Vec<serde_json::Value> = sqlx::query_scalar("SELECT json_object('ip_hash',t.ip_hash,'requests',t.requests,'errors',t.errors,'last_seen',t.last_seen) FROM (SELECT ip_hash, count(*) AS requests, count(*) FILTER (WHERE status>=400) AS errors, max(created_at) AS last_seen FROM ip_activity WHERE julianday(created_at)>julianday('now','-24 hours') GROUP BY ip_hash ORDER BY requests DESC LIMIT 100) t").fetch_all(&db).await?;
+    let access: Vec<serde_json::Value> = sqlx::query_scalar("SELECT json_object('id',t.id,'ip_hash',t.ip_hash,'route',t.route,'method',t.method,'status',t.status,'created_at',t.created_at) FROM (SELECT id,ip_hash,route,method,status,created_at FROM ip_activity ORDER BY id DESC LIMIT 100) t").fetch_all(&db).await?;
     Ok(Json(
         serde_json::json!({"proxy_trust_enabled":super::operations::proxy_trust_enabled(),"blocks":blocks,"activity":activity,"access":access}),
     ))
 }
 pub async fn block_ip(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<BlockIp>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -1012,7 +1033,7 @@ pub async fn block_ip(
     if reason.len() > 500 {
         return Err(ApiError::Invalid("Reason is too long"));
     }
-    let row = sqlx::query_scalar::<_,serde_json::Value>("INSERT INTO ip_blocks(ip_hash,label,reason,expires_at,created_by) VALUES($1,'manual',$2,$3,$4) ON CONFLICT(ip_hash) DO UPDATE SET reason=EXCLUDED.reason,expires_at=EXCLUDED.expires_at,label=EXCLUDED.label RETURNING row_to_json(ip_blocks.*)").bind(&hash).bind(reason.trim()).bind(input.expires_at).bind(actor).fetch_one(&db).await?;
+    let row = sqlx::query_scalar::<_,serde_json::Value>("INSERT INTO ip_blocks(ip_hash,label,reason,expires_at,created_by) VALUES(?1,'manual',?2,?3,?4) ON CONFLICT(ip_hash) DO UPDATE SET reason=EXCLUDED.reason,expires_at=EXCLUDED.expires_at,label=EXCLUDED.label RETURNING json_object('id',id,'ip_hash',ip_hash,'label',label,'reason',reason,'expires_at',expires_at,'created_by',created_by,'created_at',created_at)").bind(&hash).bind(reason.trim()).bind(input.expires_at.map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))).bind(actor).fetch_one(&db).await?;
     log_event(
         &db,
         "warn",
@@ -1023,12 +1044,12 @@ pub async fn block_ip(
     Ok(Json(row))
 }
 pub async fn unblock_ip(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let n = sqlx::query("DELETE FROM ip_blocks WHERE id=$1")
+    let n = sqlx::query("DELETE FROM ip_blocks WHERE id=?1")
         .bind(id)
         .execute(&db)
         .await?
@@ -1047,15 +1068,15 @@ pub async fn unblock_ip(
 }
 
 pub async fn crawler_jobs(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT j.id,j.name,j.provider,j.source,c.slug AS community,j.interval_seconds,j.max_items,j.mode,j.filters,j.enabled,j.next_run_at,j.last_run_at,j.last_status,j.last_error,j.created_at,j.updated_at,(SELECT count(*) FROM crawler_runs r WHERE r.job_id=j.id) AS runs,(SELECT row_to_json(r) FROM (SELECT id,status,started_at,finished_at,imported_count,error FROM crawler_runs WHERE job_id=j.id ORDER BY id DESC LIMIT 1) r) AS latest_run FROM crawler_jobs j LEFT JOIN communities c ON c.id=j.community_id ORDER BY j.enabled DESC,j.id DESC) t").fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar("SELECT json_object('id',t.id,'name',t.name,'provider',t.provider,'source',t.source,'community',t.community,'interval_seconds',t.interval_seconds,'max_items',t.max_items,'mode',t.mode,'filters',json(t.filters),'enabled',json(CASE WHEN t.enabled IS NULL THEN NULL WHEN t.enabled THEN 'true' ELSE 'false' END),'next_run_at',t.next_run_at,'last_run_at',t.last_run_at,'last_status',t.last_status,'last_error',t.last_error,'created_at',t.created_at,'updated_at',t.updated_at,'runs',t.runs,'latest_run',json(t.latest_run)) FROM (SELECT j.id,j.name,j.provider,j.source,c.slug AS community,j.interval_seconds,j.max_items,j.mode,j.filters,j.enabled,j.next_run_at,j.last_run_at,j.last_status,j.last_error,j.created_at,j.updated_at,(SELECT count(*) FROM crawler_runs r WHERE r.job_id=j.id) AS runs,(SELECT json_object('id',r.id,'status',r.status,'started_at',r.started_at,'finished_at',r.finished_at,'imported_count',r.imported_count,'error',r.error) FROM (SELECT id,status,started_at,finished_at,imported_count,error FROM crawler_runs WHERE job_id=j.id ORDER BY id DESC LIMIT 1) r) AS latest_run FROM crawler_jobs j LEFT JOIN communities c ON c.id=j.community_id ORDER BY j.enabled DESC,j.id DESC) t").fetch_all(&db).await?))
 }
 
 pub async fn create_crawler_job(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<CreateCrawlerJob>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
@@ -1086,7 +1107,7 @@ pub async fn create_crawler_job(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        Some(slug) => sqlx::query_scalar("SELECT id FROM communities WHERE slug=$1")
+        Some(slug) => sqlx::query_scalar("SELECT id FROM communities WHERE slug=?1")
             .bind(slug)
             .fetch_optional(&db)
             .await?
@@ -1096,8 +1117,8 @@ pub async fn create_crawler_job(
     if community_id == Some(-1) {
         return Err(ApiError::Invalid("Community not found"));
     }
-    let row = sqlx::query_scalar::<_, serde_json::Value>("INSERT INTO crawler_jobs(name,provider,source,community_id,interval_seconds,max_items,mode,filters) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING row_to_json(crawler_jobs.*)")
-        .bind(name).bind(&provider).bind(source).bind(community_id).bind(input.interval_seconds).bind(input.max_items).bind(mode).bind(input.filters.unwrap_or_else(|| serde_json::json!({}))).fetch_one(&db).await.map_err(|e| if matches!(&e, sqlx::Error::Database(d) if d.constraint()==Some("crawler_jobs_name_key")) { ApiError::Invalid("A job with that name already exists") } else { ApiError::Database(e) })?;
+    let row = sqlx::query_scalar::<_, serde_json::Value>("INSERT INTO crawler_jobs(name,provider,source,community_id,interval_seconds,max_items,mode,filters) VALUES(?1,?2,?3,?4,?5,?6,?7,?8) RETURNING json_object('id',id,'name',name,'provider',provider,'source',source,'community_id',community_id,'interval_seconds',interval_seconds,'max_items',max_items,'mode',mode,'filters',json(filters),'enabled',json(CASE WHEN enabled IS NULL THEN NULL WHEN enabled THEN 'true' ELSE 'false' END),'next_run_at',next_run_at,'last_run_at',last_run_at,'last_status',last_status,'last_error',last_error,'created_at',created_at,'updated_at',updated_at)")
+        .bind(name).bind(&provider).bind(source).bind(community_id).bind(input.interval_seconds).bind(input.max_items).bind(mode).bind(input.filters.unwrap_or_else(|| serde_json::json!({}))).fetch_one(&db).await.map_err(|e| if matches!(&e, sqlx::Error::Database(d) if d.is_unique_violation()) { ApiError::Invalid("A job with that name already exists") } else { ApiError::Database(e) })?;
     log_event(
         &db,
         "info",
@@ -1109,12 +1130,12 @@ pub async fn create_crawler_job(
 }
 
 pub async fn toggle_crawler_job(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let n = sqlx::query("UPDATE crawler_jobs SET enabled=NOT enabled,updated_at=now() WHERE id=$1")
+    let n = sqlx::query("UPDATE crawler_jobs SET enabled=NOT enabled,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1")
         .bind(id)
         .execute(&db)
         .await?
@@ -1133,12 +1154,12 @@ pub async fn toggle_crawler_job(
 }
 
 pub async fn run_crawler_job_now(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let n = sqlx::query("UPDATE crawler_jobs SET enabled=TRUE,next_run_at=now(),last_error=NULL,updated_at=now() WHERE id=$1").bind(id).execute(&db).await?.rows_affected();
+    let n = sqlx::query("UPDATE crawler_jobs SET enabled=TRUE,next_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1").bind(id).execute(&db).await?.rows_affected();
     if n == 0 {
         return Err(ApiError::Missing);
     }
@@ -1158,21 +1179,21 @@ pub struct RunFilter {
 }
 
 pub async fn crawler_runs(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(f): Query<RunFilter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT r.id,r.job_id,j.name,r.started_at,r.finished_at,r.status,r.imported_count,r.error,r.detail FROM crawler_runs r JOIN crawler_jobs j ON j.id=r.job_id WHERE ($1::bigint IS NULL OR r.job_id=$1) ORDER BY r.id DESC LIMIT 100) t").bind(f.job_id).fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar("SELECT json_object('id',t.id,'job_id',t.job_id,'name',t.name,'started_at',t.started_at,'finished_at',t.finished_at,'status',t.status,'imported_count',t.imported_count,'error',t.error,'detail',json(t.detail)) FROM (SELECT r.id,r.job_id,j.name,r.started_at,r.finished_at,r.status,r.imported_count,r.error,r.detail FROM crawler_runs r JOIN crawler_jobs j ON j.id=r.job_id WHERE (?1 IS NULL OR r.job_id=?1) ORDER BY r.id DESC LIMIT 100) t").bind(f.job_id).fetch_all(&db).await?))
 }
 
 pub async fn delete_crawler_job(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let n = sqlx::query("DELETE FROM crawler_jobs WHERE id=$1")
+    let n = sqlx::query("DELETE FROM crawler_jobs WHERE id=?1")
         .bind(id)
         .execute(&db)
         .await?
@@ -1199,12 +1220,12 @@ pub struct CompleteCrawlerRun {
 }
 
 pub async fn claim_crawler_job(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     type ClaimedJob = (
         i64,
         String,
@@ -1215,7 +1236,7 @@ pub async fn claim_crawler_job(
         i32,
         String,
     );
-    let job: Option<ClaimedJob> = sqlx::query_as("SELECT j.id,j.name,j.provider,j.source,(SELECT slug FROM communities WHERE id=j.community_id),j.interval_seconds,j.max_items,j.mode FROM crawler_jobs j WHERE j.id=$1 AND j.enabled AND j.next_run_at<=now() FOR UPDATE SKIP LOCKED")
+    let job: Option<ClaimedJob> = sqlx::query_as("SELECT j.id,j.name,j.provider,j.source,(SELECT slug FROM communities WHERE id=j.community_id),j.interval_seconds,j.max_items,j.mode FROM crawler_jobs j WHERE j.id=?1 AND j.enabled AND julianday(j.next_run_at)<=julianday('now')")
         .bind(id).fetch_optional(&mut *tx).await?;
     let Some((id, name, provider, source, community, interval_seconds, max_items, mode)) = job
     else {
@@ -1224,12 +1245,12 @@ pub async fn claim_crawler_job(
         ));
     };
     let run_id: i64 = sqlx::query_scalar(
-        "INSERT INTO crawler_runs(job_id,status) VALUES($1,'running') RETURNING id",
+        "INSERT INTO crawler_runs(job_id,status) VALUES(?1,'running') RETURNING id",
     )
     .bind(id)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query("UPDATE crawler_jobs SET last_run_at=now(),last_status='running',last_error=NULL,next_run_at=now() + make_interval(secs => interval_seconds),updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE crawler_jobs SET last_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_status='running',last_error=NULL,next_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now', (interval_seconds) || ' seconds'),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1").bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(
         serde_json::json!({"run_id":run_id,"id":id,"name":name,"provider":provider,"source":source,"community":community,"interval_seconds":interval_seconds,"max_items":max_items,"mode":mode}),
@@ -1237,7 +1258,7 @@ pub async fn claim_crawler_job(
 }
 
 pub async fn complete_crawler_job(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(run_id): Path<i64>,
     Json(input): Json<CompleteCrawlerRun>,
@@ -1246,12 +1267,12 @@ pub async fn complete_crawler_job(
     if !["success", "failed", "skipped"].contains(&input.status.as_str()) {
         return Err(ApiError::Invalid("Unknown crawler run status"));
     }
-    let n = sqlx::query("UPDATE crawler_runs SET finished_at=now(),status=$2,imported_count=COALESCE($3,0),error=$4,detail=COALESCE($5,'{}'::jsonb) WHERE id=$1")
+    let n = sqlx::query("UPDATE crawler_runs SET finished_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),status=?2,imported_count=COALESCE(?3,0),error=?4,detail=COALESCE(?5,'{}') WHERE id=?1")
         .bind(run_id).bind(&input.status).bind(input.imported_count).bind(&input.error).bind(input.detail.unwrap_or_else(||serde_json::json!({}))).execute(&db).await?.rows_affected();
     if n == 0 {
         return Err(ApiError::Missing);
     }
-    sqlx::query("UPDATE crawler_jobs SET last_status=$2,last_error=$3,updated_at=now() WHERE id=(SELECT job_id FROM crawler_runs WHERE id=$1)").bind(run_id).bind(&input.status).bind(&input.error).execute(&db).await?;
+    sqlx::query("UPDATE crawler_jobs SET last_status=?2,last_error=?3,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=(SELECT job_id FROM crawler_runs WHERE id=?1)").bind(run_id).bind(&input.status).bind(&input.error).execute(&db).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1584,10 +1605,10 @@ fn validate_environment_keys(keys: &serde_json::Value) -> Result<(), ApiError> {
     Ok(())
 }
 
-const RUNNER_SELECT: &str = "SELECT row_to_json(t) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.days_of_week,r.priority,r.enabled,r.state,r.test_requested,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT row_to_json(x) FROM (SELECT id,status,attempt,config_version,dry_run,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail,progress_percent,progress_phase,progress_message,current_step,total_steps,eta_seconds,progress_updated_at,control_request FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
+const RUNNER_SELECT: &str = "SELECT json_object('id',t.id,'name',t.name,'kind',t.kind,'command',json(t.command),'prompt',t.prompt,'author',t.author,'community',t.community,'interval_seconds',t.interval_seconds,'days_of_week',json(t.days_of_week),'priority',t.priority,'enabled',json(CASE WHEN t.enabled IS NULL THEN NULL WHEN t.enabled THEN 'true' ELSE 'false' END),'state',t.state,'test_requested',json(CASE WHEN t.test_requested IS NULL THEN NULL WHEN t.test_requested THEN 'true' ELSE 'false' END),'timeout_seconds',t.timeout_seconds,'max_attempts',t.max_attempts,'retry_backoff_seconds',t.retry_backoff_seconds,'failure_threshold',t.failure_threshold,'consecutive_failures',t.consecutive_failures,'current_attempt',t.current_attempt,'retention_days',t.retention_days,'environment_keys',json(t.environment_keys),'capture_output',json(CASE WHEN t.capture_output IS NULL THEN NULL WHEN t.capture_output THEN 'true' ELSE 'false' END),'max_log_bytes',t.max_log_bytes,'paused_reason',t.paused_reason,'archived_at',t.archived_at,'last_success_at',t.last_success_at,'next_run_at',t.next_run_at,'last_run_at',t.last_run_at,'last_status',t.last_status,'last_error',t.last_error,'config_version',t.config_version,'created_at',t.created_at,'updated_at',t.updated_at,'latest_run',json(t.latest_run),'run_count',t.run_count) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.days_of_week,r.priority,r.enabled,r.state,r.test_requested,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT json_object('id',x.id,'status',x.status,'attempt',x.attempt,'config_version',x.config_version,'dry_run',json(CASE WHEN x.dry_run IS NULL THEN NULL WHEN x.dry_run THEN 'true' ELSE 'false' END),'started_at',x.started_at,'finished_at',x.finished_at,'post_id',x.post_id,'error',x.error,'exit_code',x.exit_code,'duration_ms',x.duration_ms,'timed_out',json(CASE WHEN x.timed_out IS NULL THEN NULL WHEN x.timed_out THEN 'true' ELSE 'false' END),'retry_at',x.retry_at,'stdout',x.stdout,'stderr',x.stderr,'detail',json(x.detail),'progress_percent',x.progress_percent,'progress_phase',x.progress_phase,'progress_message',x.progress_message,'current_step',x.current_step,'total_steps',x.total_steps,'eta_seconds',x.eta_seconds,'progress_updated_at',x.progress_updated_at,'control_request',x.control_request) FROM (SELECT id,status,attempt,config_version,dry_run,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail,progress_percent,progress_phase,progress_message,current_step,total_steps,eta_seconds,progress_updated_at,control_request FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
 
 pub async fn content_runners(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
@@ -1595,12 +1616,12 @@ pub async fn content_runners(
 }
 
 pub async fn content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
-    sqlx::query_scalar::<_, serde_json::Value>(&format!("{} WHERE r.id=$1) t", RUNNER_SELECT))
+    sqlx::query_scalar::<_, serde_json::Value>(&format!("{} WHERE r.id=?1) t", RUNNER_SELECT))
         .bind(id)
         .fetch_optional(&db)
         .await?
@@ -1613,7 +1634,7 @@ pub async fn content_runner(
 /// performs its own locked lookup, so this is an optimization and a clearer
 /// preview rather than the final duplicate-safety boundary.
 pub async fn content_runner_source_status(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<ContentRunnerSourceStatus>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -1633,7 +1654,7 @@ pub async fn content_runner_source_status(
         }
         let canonical = imports::canonical(&provider, source_url)?;
         let present: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM external_posts WHERE source_url=$1)")
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM external_posts WHERE source_url=?1)")
                 .bind(canonical)
                 .fetch_one(&db)
                 .await?;
@@ -1648,7 +1669,7 @@ pub async fn content_runner_source_status(
 }
 
 pub async fn create_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<CreateContentRunner>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
@@ -1698,12 +1719,12 @@ pub async fn create_content_runner(
             "Log size must be between 1024 and 20000 bytes",
         ));
     }
-    let author_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle=$1")
+    let author_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle=?1")
         .bind(author)
         .fetch_optional(&db)
         .await?
         .ok_or(ApiError::Invalid("Author not found"))?;
-    let community_id: i64 = sqlx::query_scalar("SELECT id FROM communities WHERE slug=$1")
+    let community_id: i64 = sqlx::query_scalar("SELECT id FROM communities WHERE slug=?1")
         .bind(&community)
         .fetch_optional(&db)
         .await?
@@ -1714,7 +1735,7 @@ pub async fn create_content_runner(
     if prompt.len() > 20000 {
         return Err(ApiError::Invalid("Prompt is too long"));
     }
-    let row=sqlx::query_scalar::<_,serde_json::Value>("INSERT INTO content_runners(name,kind,command,prompt,author_id,community_id,interval_seconds,days_of_week,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING row_to_json(content_runners.*)").bind(name).bind(kind).bind(command).bind(prompt.trim()).bind(author_id).bind(community_id).bind(input.interval_seconds).bind(days_of_week).bind(priority).bind(timeout).bind(attempts).bind(backoff).bind(threshold).bind(retention).bind(environment_keys).bind(capture_output).bind(max_log_bytes).bind(actor).fetch_one(&db).await.map_err(|e|if matches!(&e,sqlx::Error::Database(d) if d.constraint()==Some("content_runners_name_key")){ApiError::Invalid("A runner with that name already exists")}else{ApiError::Database(e)})?;
+    let row=sqlx::query_scalar::<_,serde_json::Value>("INSERT INTO content_runners(name,kind,command,prompt,author_id,community_id,interval_seconds,days_of_week,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes,updated_by) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18) RETURNING json_object('id',id,'name',name,'kind',kind,'command',json(command),'prompt',prompt,'author_id',author_id,'community_id',community_id,'interval_seconds',interval_seconds,'priority',priority,'enabled',json(CASE WHEN enabled IS NULL THEN NULL WHEN enabled THEN 'true' ELSE 'false' END),'next_run_at',next_run_at,'last_run_at',last_run_at,'last_status',last_status,'last_error',last_error,'created_at',created_at,'updated_at',updated_at,'state',state,'timeout_seconds',timeout_seconds,'max_attempts',max_attempts,'retry_backoff_seconds',retry_backoff_seconds,'failure_threshold',failure_threshold,'consecutive_failures',consecutive_failures,'current_attempt',current_attempt,'retention_days',retention_days,'paused_reason',paused_reason,'archived_at',archived_at,'last_success_at',last_success_at,'config_version',config_version,'updated_by',updated_by,'environment_keys',json(environment_keys),'capture_output',json(CASE WHEN capture_output IS NULL THEN NULL WHEN capture_output THEN 'true' ELSE 'false' END),'max_log_bytes',max_log_bytes,'days_of_week',json(days_of_week),'test_requested',json(CASE WHEN test_requested IS NULL THEN NULL WHEN test_requested THEN 'true' ELSE 'false' END))").bind(name).bind(kind).bind(command).bind(prompt.trim()).bind(author_id).bind(community_id).bind(input.interval_seconds).bind(days_of_week).bind(priority).bind(timeout).bind(attempts).bind(backoff).bind(threshold).bind(retention).bind(environment_keys).bind(capture_output).bind(max_log_bytes).bind(actor).fetch_one(&db).await.map_err(|e|if matches!(&e,sqlx::Error::Database(d) if d.is_unique_violation()){ApiError::Invalid("A runner with that name already exists")}else{ApiError::Database(e)})?;
     log_event(
         &db,
         "info",
@@ -1726,13 +1747,13 @@ pub async fn create_content_runner(
 }
 
 pub async fn update_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<UpdateContentRunner>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let existing: Option<ExistingContentRunner>=sqlx::query_as("SELECT name,kind,command,prompt,(SELECT handle FROM authors WHERE id=author_id) AS author,interval_seconds,days_of_week,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes FROM content_runners WHERE id=$1 AND state<>'archived'").bind(id).fetch_optional(&db).await?;
+    let existing: Option<ExistingContentRunner>=sqlx::query_as("SELECT name,kind,command,prompt,(SELECT handle FROM authors WHERE id=author_id) AS author,interval_seconds,days_of_week,priority,timeout_seconds,max_attempts,retry_backoff_seconds,failure_threshold,retention_days,environment_keys,capture_output,max_log_bytes FROM content_runners WHERE id=?1 AND state<>'archived'").bind(id).fetch_optional(&db).await?;
     let Some(existing) = existing else {
         return Err(ApiError::Missing);
     };
@@ -1776,41 +1797,41 @@ pub async fn update_content_runner(
         return Err(ApiError::Invalid("Prompt is too long"));
     }
     let author_id: i64 = if let Some(handle) = input.author.as_deref() {
-        sqlx::query_scalar::<_, i64>("SELECT id FROM authors WHERE handle=$1")
+        sqlx::query_scalar::<_, i64>("SELECT id FROM authors WHERE handle=?1")
             .bind(handle.trim())
             .fetch_optional(&db)
             .await?
             .ok_or(ApiError::Invalid("Author not found"))?
     } else {
-        sqlx::query_scalar::<_, i64>("SELECT id FROM authors WHERE handle=$1")
+        sqlx::query_scalar::<_, i64>("SELECT id FROM authors WHERE handle=?1")
             .bind(&existing.author)
             .fetch_one(&db)
             .await?
     };
     let community_id: i64 = if let Some(slug) = input.community.as_deref() {
-        sqlx::query_scalar::<_, i64>("SELECT id FROM communities WHERE slug=$1")
+        sqlx::query_scalar::<_, i64>("SELECT id FROM communities WHERE slug=?1")
             .bind(slug.trim().to_ascii_lowercase())
             .fetch_optional(&db)
             .await?
             .ok_or(ApiError::Invalid("Community not found"))?
     } else {
-        sqlx::query_scalar::<_, i64>("SELECT community_id FROM content_runners WHERE id=$1")
+        sqlx::query_scalar::<_, i64>("SELECT community_id FROM content_runners WHERE id=?1")
             .bind(id)
             .fetch_one(&db)
             .await?
     };
-    let row=sqlx::query_scalar::<_,serde_json::Value>("UPDATE content_runners SET name=$2,kind=$3,command=$4,prompt=$5,author_id=$6,community_id=$7,interval_seconds=$8,days_of_week=$9,priority=$10,timeout_seconds=$11,max_attempts=$12,retry_backoff_seconds=$13,failure_threshold=$14,retention_days=$15,environment_keys=$16,capture_output=$17,max_log_bytes=$18,config_version=config_version+1,updated_by=$19,updated_at=now() WHERE id=$1 RETURNING row_to_json(content_runners.*)").bind(id).bind(name).bind(kind).bind(command).bind(prompt.trim()).bind(author_id).bind(community_id).bind(interval).bind(days_of_week).bind(priority).bind(timeout).bind(attempts).bind(backoff).bind(threshold).bind(retention).bind(environment_keys).bind(capture_output).bind(max_log_bytes).bind(actor).fetch_one(&db).await.map_err(|e|if matches!(&e,sqlx::Error::Database(d) if d.constraint()==Some("content_runners_name_key")){ApiError::Invalid("A runner with that name already exists")}else{ApiError::Database(e)})?;
+    let row=sqlx::query_scalar::<_,serde_json::Value>("UPDATE content_runners SET name=?2,kind=?3,command=?4,prompt=?5,author_id=?6,community_id=?7,interval_seconds=?8,days_of_week=?9,priority=?10,timeout_seconds=?11,max_attempts=?12,retry_backoff_seconds=?13,failure_threshold=?14,retention_days=?15,environment_keys=?16,capture_output=?17,max_log_bytes=?18,config_version=config_version+1,updated_by=?19,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 RETURNING json_object('id',id,'name',name,'kind',kind,'command',json(command),'prompt',prompt,'author_id',author_id,'community_id',community_id,'interval_seconds',interval_seconds,'priority',priority,'enabled',json(CASE WHEN enabled IS NULL THEN NULL WHEN enabled THEN 'true' ELSE 'false' END),'next_run_at',next_run_at,'last_run_at',last_run_at,'last_status',last_status,'last_error',last_error,'created_at',created_at,'updated_at',updated_at,'state',state,'timeout_seconds',timeout_seconds,'max_attempts',max_attempts,'retry_backoff_seconds',retry_backoff_seconds,'failure_threshold',failure_threshold,'consecutive_failures',consecutive_failures,'current_attempt',current_attempt,'retention_days',retention_days,'paused_reason',paused_reason,'archived_at',archived_at,'last_success_at',last_success_at,'config_version',config_version,'updated_by',updated_by,'environment_keys',json(environment_keys),'capture_output',json(CASE WHEN capture_output IS NULL THEN NULL WHEN capture_output THEN 'true' ELSE 'false' END),'max_log_bytes',max_log_bytes,'days_of_week',json(days_of_week),'test_requested',json(CASE WHEN test_requested IS NULL THEN NULL WHEN test_requested THEN 'true' ELSE 'false' END))").bind(id).bind(name).bind(kind).bind(command).bind(prompt.trim()).bind(author_id).bind(community_id).bind(interval).bind(days_of_week).bind(priority).bind(timeout).bind(attempts).bind(backoff).bind(threshold).bind(retention).bind(environment_keys).bind(capture_output).bind(max_log_bytes).bind(actor).fetch_one(&db).await.map_err(|e|if matches!(&e,sqlx::Error::Database(d) if d.is_unique_violation()){ApiError::Invalid("A runner with that name already exists")}else{ApiError::Database(e)})?;
     log_event(&db,"info","admin.content_runner_updated",serde_json::json!({"actor_id":actor,"runner_id":id,"config_version":row.get("config_version").and_then(|v|v.as_i64())})).await;
     Ok(Json(row))
 }
 
 pub async fn toggle_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let state: Option<String> = sqlx::query_scalar("SELECT state FROM content_runners WHERE id=$1")
+    let state: Option<String> = sqlx::query_scalar("SELECT state FROM content_runners WHERE id=?1")
         .bind(id)
         .fetch_optional(&db)
         .await?;
@@ -1825,7 +1846,7 @@ pub async fn toggle_content_runner(
     } else {
         (true, "enabled")
     };
-    sqlx::query("UPDATE content_runners SET enabled=$2,state=$3,current_attempt=CASE WHEN $2 THEN 0 ELSE current_attempt END,paused_reason=CASE WHEN $2 THEN NULL ELSE 'Paused by administrator' END,next_run_at=CASE WHEN $2 THEN now() ELSE next_run_at END,updated_at=now() WHERE id=$1").bind(id).bind(enabled).bind(next_state).execute(&db).await?;
+    sqlx::query("UPDATE content_runners SET enabled=?2,state=?3,current_attempt=CASE WHEN ?2 THEN 0 ELSE current_attempt END,paused_reason=CASE WHEN ?2 THEN NULL ELSE 'Paused by administrator' END,next_run_at=CASE WHEN ?2 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE next_run_at END,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1").bind(id).bind(enabled).bind(next_state).execute(&db).await?;
     log_event(
         &db,
         "info",
@@ -1839,19 +1860,18 @@ pub async fn toggle_content_runner(
 /// Set a runner's scheduled state explicitly. Repeating the same request is
 /// safe: it will not toggle the runner back or move its next run time.
 pub async fn set_content_runner_enabled(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<SetContentRunnerEnabled>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let mut tx = db.begin().await?;
-    let current: Option<(bool, String, bool)> = sqlx::query_as(
-        "SELECT enabled,state,test_requested FROM content_runners WHERE id=$1 FOR UPDATE",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
+    let current: Option<(bool, String, bool)> =
+        sqlx::query_as("SELECT enabled,state,test_requested FROM content_runners WHERE id=?1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
     let Some((currently_enabled, state, test_requested)) = current else {
         return Err(ApiError::Missing);
     };
@@ -1864,13 +1884,13 @@ pub async fn set_content_runner_enabled(
         || (!input.enabled && matches!(state.as_str(), "enabled" | "retrying"))
         || (!input.enabled && test_requested);
     if input.enabled && changed {
-        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',current_attempt=0,paused_reason=NULL,next_run_at=now(),updated_by=$2,updated_at=now() WHERE id=$1")
+        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',current_attempt=0,paused_reason=NULL,next_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by=?2,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1")
             .bind(id)
             .bind(actor)
             .execute(&mut *tx)
             .await?;
     } else if !input.enabled && changed {
-        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',test_requested=FALSE,paused_reason='Paused by administrator',updated_by=$2,updated_at=now() WHERE id=$1")
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',test_requested=FALSE,paused_reason='Paused by administrator',updated_by=?2,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1")
             .bind(id)
             .bind(actor)
             .execute(&mut *tx)
@@ -1893,12 +1913,12 @@ pub async fn set_content_runner_enabled(
 }
 
 pub async fn run_content_runner_now(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let n=sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',next_run_at=now(),last_error=NULL,paused_reason=NULL,updated_at=now() WHERE id=$1 AND state<>'archived'").bind(id).execute(&db).await?.rows_affected();
+    let n=sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',next_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error=NULL,paused_reason=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'").bind(id).execute(&db).await?.rows_affected();
     if n == 0 {
         return Err(ApiError::Missing);
     }
@@ -1915,7 +1935,7 @@ pub async fn run_content_runner_now(
 /// Queue one host-side execution that records output but never publishes a
 /// post. A draft runner may be tested without changing its lifecycle state.
 pub async fn test_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
@@ -1926,7 +1946,7 @@ pub async fn test_content_runner(
         ));
     }
     let n = sqlx::query(
-        "UPDATE content_runners SET test_requested=TRUE,last_error=NULL,updated_by=$2,updated_at=now() WHERE id=$1 AND state<>'archived'",
+        "UPDATE content_runners SET test_requested=TRUE,last_error=NULL,updated_by=?2,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'",
     )
     .bind(id)
     .bind(actor)
@@ -1946,12 +1966,12 @@ pub async fn test_content_runner(
     Ok(StatusCode::NO_CONTENT)
 }
 pub async fn archive_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let n=sqlx::query("UPDATE content_runners SET enabled=FALSE,state='archived',archived_at=COALESCE(archived_at,now()),updated_at=now() WHERE id=$1 AND state<>'archived'").bind(id).execute(&db).await?.rows_affected();
+    let n=sqlx::query("UPDATE content_runners SET enabled=FALSE,state='archived',archived_at=COALESCE(archived_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'").bind(id).execute(&db).await?.rows_affected();
     if n == 0 {
         return Err(ApiError::Missing);
     }
@@ -1965,12 +1985,12 @@ pub async fn archive_content_runner(
     Ok(StatusCode::NO_CONTENT)
 }
 pub async fn delete_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let n = sqlx::query("DELETE FROM content_runners WHERE id=$1")
+    let n = sqlx::query("DELETE FROM content_runners WHERE id=?1")
         .bind(id)
         .execute(&db)
         .await?
@@ -1993,12 +2013,12 @@ pub struct RunnerRunFilter {
     pub runner_id: Option<i64>,
 }
 pub async fn content_runner_runs(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(filter): Query<RunnerRunFilter>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar("SELECT row_to_json(t) FROM (SELECT r.id,r.runner_id,c.name,r.status,r.attempt,r.config_version,r.dry_run,r.started_at,r.finished_at,r.post_id,r.error,r.exit_code,r.duration_ms,r.timed_out,r.retry_at,r.stdout,r.stderr,r.detail,r.progress_percent,r.progress_phase,r.progress_message,r.current_step,r.total_steps,r.eta_seconds,r.progress_updated_at,r.control_request FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE ($1::bigint IS NULL OR r.runner_id=$1) ORDER BY r.id DESC LIMIT 200) t").bind(filter.runner_id).fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar("SELECT json_object('id',t.id,'runner_id',t.runner_id,'name',t.name,'status',t.status,'attempt',t.attempt,'config_version',t.config_version,'dry_run',json(CASE WHEN t.dry_run IS NULL THEN NULL WHEN t.dry_run THEN 'true' ELSE 'false' END),'started_at',t.started_at,'finished_at',t.finished_at,'post_id',t.post_id,'error',t.error,'exit_code',t.exit_code,'duration_ms',t.duration_ms,'timed_out',json(CASE WHEN t.timed_out IS NULL THEN NULL WHEN t.timed_out THEN 'true' ELSE 'false' END),'retry_at',t.retry_at,'stdout',t.stdout,'stderr',t.stderr,'detail',json(t.detail),'progress_percent',t.progress_percent,'progress_phase',t.progress_phase,'progress_message',t.progress_message,'current_step',t.current_step,'total_steps',t.total_steps,'eta_seconds',t.eta_seconds,'progress_updated_at',t.progress_updated_at,'control_request',t.control_request) FROM (SELECT r.id,r.runner_id,c.name,r.status,r.attempt,r.config_version,r.dry_run,r.started_at,r.finished_at,r.post_id,r.error,r.exit_code,r.duration_ms,r.timed_out,r.retry_at,r.stdout,r.stderr,r.detail,r.progress_percent,r.progress_phase,r.progress_message,r.current_step,r.total_steps,r.eta_seconds,r.progress_updated_at,r.control_request FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE (?1 IS NULL OR r.runner_id=?1) ORDER BY r.id DESC LIMIT 200) t").bind(filter.runner_id).fetch_all(&db).await?))
 }
 
 #[derive(Deserialize, Default)]
@@ -2014,7 +2034,7 @@ pub struct UpdateContentRunnerProgress {
 }
 
 pub async fn update_content_runner_progress(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(run_id): Path<i64>,
     Json(input): Json<UpdateContentRunnerProgress>,
@@ -2071,17 +2091,17 @@ pub async fn update_content_runner_progress(
     }
     let updated = sqlx::query(
         "UPDATE content_runner_runs
-         SET progress_percent=COALESCE($2, progress_percent),
-             progress_phase=COALESCE($3, progress_phase),
-             progress_message=COALESCE($4, progress_message),
-             current_step=COALESCE($5, current_step),
-             total_steps=COALESCE($6, total_steps),
-             eta_seconds=COALESCE($7, eta_seconds),
-             detail=CASE WHEN $8::jsonb IS NULL THEN detail
-                         ELSE jsonb_set(COALESCE(detail, '{}'::jsonb), '{checkpoint}', $8::jsonb, true)
+         SET progress_percent=COALESCE(?2, progress_percent),
+             progress_phase=COALESCE(?3, progress_phase),
+             progress_message=COALESCE(?4, progress_message),
+             current_step=COALESCE(?5, current_step),
+             total_steps=COALESCE(?6, total_steps),
+             eta_seconds=COALESCE(?7, eta_seconds),
+             detail=CASE WHEN ?8 IS NULL THEN detail
+                         ELSE json_set(COALESCE(detail, '{}'), '$.checkpoint', json(?8))
                     END,
-             progress_updated_at=now()
-         WHERE id=$1 AND status='running'",
+             progress_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id=?1 AND status='running'",
     )
     .bind(run_id)
     .bind(percent)
@@ -2108,13 +2128,13 @@ pub struct ContentRunnerControlRequest {
 /// Return the live control signal for a worker. The worker polls this during
 /// a package run and only acts on pause at the next adapter checkpoint.
 pub async fn content_runner_control_status(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(run_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
     let row = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT row_to_json(t) FROM (SELECT r.id,r.status,r.control_request,r.detail->'checkpoint' AS checkpoint,c.id AS runner_id,c.state AS runner_state,c.enabled AS runner_enabled FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=$1) t",
+        "SELECT json_object('id',t.id,'status',t.status,'control_request',t.control_request,'checkpoint',json(t.checkpoint),'runner_id',t.runner_id,'runner_state',t.runner_state,'runner_enabled',json(CASE WHEN t.runner_enabled IS NULL THEN NULL WHEN t.runner_enabled THEN 'true' ELSE 'false' END)) FROM (SELECT r.id,r.status,r.control_request,r.detail->'checkpoint' AS checkpoint,c.id AS runner_id,c.state AS runner_state,c.enabled AS runner_enabled FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=?1) t",
     )
     .bind(run_id)
     .fetch_optional(&db)
@@ -2127,7 +2147,7 @@ pub async fn content_runner_control_status(
 /// resume a paused run. The host adapter remains responsible for preserving
 /// its own checkpoint; the worker only terminates after receiving one.
 pub async fn content_runner_control(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(run_id): Path<i64>,
     Json(input): Json<ContentRunnerControlRequest>,
@@ -2139,9 +2159,9 @@ pub async fn content_runner_control(
             "Runner control must be pause, cancel, or resume",
         ));
     }
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     let run: Option<(i64, String)> =
-        sqlx::query_as("SELECT runner_id,status FROM content_runner_runs WHERE id=$1 FOR UPDATE")
+        sqlx::query_as("SELECT runner_id,status FROM content_runner_runs WHERE id=?1")
             .bind(run_id)
             .fetch_optional(&mut *tx)
             .await?;
@@ -2155,19 +2175,19 @@ pub async fn content_runner_control(
             ));
         }
         sqlx::query(
-            "UPDATE content_runner_runs SET control_request=NULL WHERE id=$1 AND status='running'",
+            "UPDATE content_runner_runs SET control_request=NULL WHERE id=?1 AND status='running'",
         )
         .bind(run_id)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',next_run_at=now(),last_error=NULL,paused_reason=NULL,updated_by=$2,updated_at=now() WHERE id=$1 AND state<>'archived'")
+        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',next_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error=NULL,paused_reason=NULL,updated_by=?2,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'")
             .bind(runner_id)
             .bind(actor)
             .execute(&mut *tx)
             .await?;
     } else {
         let updated = sqlx::query(
-            "UPDATE content_runner_runs SET control_request=$2 WHERE id=$1 AND status='running'",
+            "UPDATE content_runner_runs SET control_request=?2 WHERE id=?1 AND status='running'",
         )
         .bind(run_id)
         .bind(&action)
@@ -2182,7 +2202,7 @@ pub async fn content_runner_control(
         } else {
             "Cancellation requested by administrator"
         };
-        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',paused_reason=$2,updated_by=$3,updated_at=now() WHERE id=$1 AND state<>'archived'")
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',paused_reason=?2,updated_by=?3,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'")
             .bind(runner_id)
             .bind(reason)
             .bind(actor)
@@ -2203,12 +2223,12 @@ pub async fn content_runner_control(
 }
 
 pub async fn replay_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(run_id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_admin(&headers, &db).await?;
-    let n=sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',next_run_at=now(),current_attempt=0,last_error=NULL,paused_reason=NULL,updated_at=now() WHERE id=(SELECT runner_id FROM content_runner_runs WHERE id=$1) AND state<>'archived'").bind(run_id).execute(&db).await?.rows_affected();
+    let n=sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',next_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),current_attempt=0,last_error=NULL,paused_reason=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=(SELECT runner_id FROM content_runner_runs WHERE id=?1) AND state<>'archived'").bind(run_id).execute(&db).await?.rows_affected();
     if n == 0 {
         return Err(ApiError::Missing);
     }
@@ -2248,18 +2268,15 @@ struct ClaimedContentRunner {
 }
 
 pub async fn claim_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
-    let mut tx = db.begin().await?;
-    // The worker timer is normally singleton, but the database gate also
-    // protects against overlapping worker processes or a second host.
-    sqlx::query("SELECT pg_advisory_xact_lock(90127431)")
-        .execute(&mut *tx)
-        .await?;
-    let r:Option<ClaimedContentRunner>=sqlx::query_as("SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.priority,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.current_attempt,r.config_version,r.state,r.test_requested,r.environment_keys,r.capture_output,r.max_log_bytes,COALESCE((SELECT previous.detail->'checkpoint' FROM content_runner_runs previous WHERE previous.runner_id=r.id AND previous.status IN ('paused','cancelled') AND previous.detail ? 'checkpoint' ORDER BY previous.id DESC LIMIT 1),'{}'::jsonb) AS resume_checkpoint FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id CROSS JOIN instance_modules m WHERE r.id=$1 AND m.module_key='content_runners' AND m.enabled AND ( (r.test_requested AND r.state<>'archived') OR (r.enabled AND r.state IN ('enabled','retrying') AND r.next_run_at<=now() AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.days_of_week) day WHERE day::int=EXTRACT(ISODOW FROM now())::int) ) ) AND NOT EXISTS (SELECT 1 FROM content_runner_runs active WHERE active.status='running') FOR UPDATE SKIP LOCKED").bind(id).fetch_optional(&mut *tx).await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
+    // BEGIN IMMEDIATE serializes claims, including the global running-run gate,
+    // across overlapping worker processes. Commit before the worker executes.
+    let r:Option<ClaimedContentRunner>=sqlx::query_as("SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.priority,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.current_attempt,r.config_version,r.state,r.test_requested,r.environment_keys,r.capture_output,r.max_log_bytes,COALESCE((SELECT previous.detail->'checkpoint' FROM content_runner_runs previous WHERE previous.runner_id=r.id AND previous.status IN ('paused','cancelled') AND json_type(previous.detail, '$.checkpoint') IS NOT NULL ORDER BY previous.id DESC LIMIT 1),'{}') AS resume_checkpoint FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id CROSS JOIN instance_modules m WHERE r.id=?1 AND m.module_key='content_runners' AND m.enabled AND ( (r.test_requested AND r.state<>'archived') OR (r.enabled AND r.state IN ('enabled','retrying') AND julianday(r.next_run_at)<=julianday('now') AND EXISTS (SELECT 1 FROM json_each(r.days_of_week) day WHERE CAST(day.value AS INTEGER) = ((CAST(strftime('%w','now') AS INTEGER) + 6) % 7) + 1) ) ) AND NOT EXISTS (SELECT 1 FROM content_runner_runs active WHERE active.status='running')").bind(id).fetch_optional(&mut *tx).await?;
     let Some(r) = r else {
         return Err(ApiError::Invalid(
             "Runner is disabled, not due, archived, or already running",
@@ -2270,8 +2287,8 @@ pub async fn claim_content_runner(
     } else {
         1
     };
-    let run_id:i64=sqlx::query_scalar("INSERT INTO content_runner_runs(runner_id,status,attempt,config_version,dry_run) VALUES($1,'running',$2,$3,$4) RETURNING id").bind(r.id).bind(attempt).bind(r.config_version).bind(r.test_requested).fetch_one(&mut *tx).await?;
-    sqlx::query("UPDATE content_runners SET test_requested=FALSE,last_run_at=now(),last_status=CASE WHEN $3 THEN 'testing' ELSE 'running' END,last_error=NULL,current_attempt=$2,next_run_at=CASE WHEN $3 THEN next_run_at ELSE now()+make_interval(secs=>interval_seconds) END,updated_at=now() WHERE id=$1").bind(r.id).bind(attempt).bind(r.test_requested).execute(&mut *tx).await?;
+    let run_id:i64=sqlx::query_scalar("INSERT INTO content_runner_runs(runner_id,status,attempt,config_version,dry_run) VALUES(?1,'running',?2,?3,?4) RETURNING id").bind(r.id).bind(attempt).bind(r.config_version).bind(r.test_requested).fetch_one(&mut *tx).await?;
+    sqlx::query("UPDATE content_runners SET test_requested=FALSE,last_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_status=CASE WHEN ?3 THEN 'testing' ELSE 'running' END,last_error=NULL,current_attempt=?2,next_run_at=CASE WHEN ?3 THEN next_run_at ELSE strftime('%Y-%m-%dT%H:%M:%fZ','now', (interval_seconds) || ' seconds') END,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1").bind(r.id).bind(attempt).bind(r.test_requested).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(
         serde_json::json!({"run_id":run_id,"id":r.id,"name":r.name,"kind":r.kind,"command":r.command,"prompt":r.prompt,"author":r.author,"community":r.community,"interval_seconds":r.interval_seconds,"priority":r.priority,"timeout_seconds":r.timeout_seconds,"max_attempts":r.max_attempts,"retry_backoff_seconds":r.retry_backoff_seconds,"failure_threshold":r.failure_threshold,"attempt":attempt,"config_version":r.config_version,"dry_run":r.test_requested,"environment_keys":r.environment_keys,"capture_output":r.capture_output,"max_log_bytes":r.max_log_bytes,"resume_checkpoint":r.resume_checkpoint}),
@@ -2291,7 +2308,7 @@ pub struct CompleteContentRunner {
     timed_out: Option<bool>,
 }
 pub async fn complete_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(run_id): Path<i64>,
     Json(input): Json<CompleteContentRunner>,
@@ -2309,9 +2326,9 @@ pub async fn complete_content_runner(
     {
         return Err(ApiError::Invalid("Unknown runner run status"));
     }
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     type C = (i64, i32, i32, i32, i32, i32, String, bool);
-    let run:Option<C>=sqlx::query_as("SELECT r.runner_id,r.attempt,c.max_attempts,c.retry_backoff_seconds,c.failure_threshold,c.consecutive_failures,c.state,r.dry_run FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=$1 AND r.status='running' FOR UPDATE").bind(run_id).fetch_optional(&mut *tx).await?;
+    let run:Option<C>=sqlx::query_as("SELECT r.runner_id,r.attempt,c.max_attempts,c.retry_backoff_seconds,c.failure_threshold,c.consecutive_failures,c.state,r.dry_run FROM content_runner_runs r JOIN content_runners c ON c.id=r.runner_id WHERE r.id=?1 AND r.status='running'").bind(run_id).fetch_optional(&mut *tx).await?;
     let Some((runner_id, attempt, max_attempts, backoff, threshold, consecutive, state, dry_run)) =
         run
     else {
@@ -2325,9 +2342,9 @@ pub async fn complete_content_runner(
         ));
     }
     let detail = input.detail.unwrap_or_else(|| serde_json::json!({}));
-    sqlx::query("UPDATE content_runner_runs SET finished_at=now(),status=$2,post_id=$3,error=$4,detail=$5,stdout=$6,stderr=$7,exit_code=$8,duration_ms=$9,timed_out=$10,control_request=NULL,progress_percent=CASE WHEN $2 IN ('success','skipped') THEN 100 ELSE progress_percent END,progress_phase=CASE WHEN $2 IN ('success','skipped') THEN 'complete' ELSE progress_phase END,eta_seconds=NULL,progress_updated_at=now() WHERE id=$1").bind(run_id).bind(&input.status).bind(input.post_id).bind(&input.error).bind(detail).bind(&stdout).bind(&stderr).bind(input.exit_code).bind(input.duration_ms).bind(input.timed_out.unwrap_or(input.status=="timeout")).execute(&mut *tx).await?;
+    sqlx::query("UPDATE content_runner_runs SET finished_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),status=?2,post_id=?3,error=?4,detail=?5,stdout=?6,stderr=?7,exit_code=?8,duration_ms=?9,timed_out=?10,control_request=NULL,progress_percent=CASE WHEN ?2 IN ('success','skipped') THEN 100 ELSE progress_percent END,progress_phase=CASE WHEN ?2 IN ('success','skipped') THEN 'complete' ELSE progress_phase END,eta_seconds=NULL,progress_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1").bind(run_id).bind(&input.status).bind(input.post_id).bind(&input.error).bind(detail).bind(&stdout).bind(&stderr).bind(input.exit_code).bind(input.duration_ms).bind(input.timed_out.unwrap_or(input.status=="timeout")).execute(&mut *tx).await?;
     if dry_run {
-        sqlx::query("UPDATE content_runners SET last_status=$2,last_error=$3,paused_reason=NULL,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'")
+        sqlx::query("UPDATE content_runners SET last_status=?2,last_error=?3,paused_reason=NULL,updated_by=?4,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'")
             .bind(runner_id)
             .bind(format!("test_{}", input.status))
             .bind(&input.error)
@@ -2342,7 +2359,7 @@ pub async fn complete_content_runner(
             .error
             .clone()
             .unwrap_or_else(|| format!("Runner {} by administrator", input.status));
-        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',current_attempt=0,last_status=$2,last_error=$3,paused_reason=$3,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'")
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',current_attempt=0,last_status=?2,last_error=?3,paused_reason=?3,updated_by=?4,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'")
             .bind(runner_id)
             .bind(&input.status)
             .bind(reason)
@@ -2356,7 +2373,7 @@ pub async fn complete_content_runner(
     // Keep that decision when the already-claimed run reports its result;
     // otherwise success or retry handling below would silently re-enable it.
     if state == "paused" {
-        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',current_attempt=0,consecutive_failures=CASE WHEN $2='success' THEN 0 ELSE consecutive_failures END,last_success_at=CASE WHEN $2='success' THEN now() ELSE last_success_at END,last_status=$2,last_error=$3,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'")
+        sqlx::query("UPDATE content_runners SET enabled=FALSE,state='paused',current_attempt=0,consecutive_failures=CASE WHEN ?2='success' THEN 0 ELSE consecutive_failures END,last_success_at=CASE WHEN ?2='success' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE last_success_at END,last_status=?2,last_error=?3,updated_by=?4,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'")
             .bind(runner_id)
             .bind(&input.status)
             .bind(&input.error)
@@ -2374,23 +2391,23 @@ pub async fn complete_content_runner(
         consecutive
     };
     if input.status == "success" || input.status == "skipped" {
-        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',current_attempt=0,consecutive_failures=0,last_success_at=CASE WHEN $2='success' THEN now() ELSE last_success_at END,last_status=$2,last_error=NULL,paused_reason=NULL,next_run_at=now()+make_interval(secs=>interval_seconds),updated_by=$3,updated_at=now() WHERE id=$1 AND state<>'archived'").bind(runner_id).bind(&input.status).bind(actor).execute(&mut *tx).await?;
+        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='enabled',current_attempt=0,consecutive_failures=0,last_success_at=CASE WHEN ?2='success' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE last_success_at END,last_status=?2,last_error=NULL,paused_reason=NULL,next_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now', (interval_seconds) || ' seconds'),updated_by=?3,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'").bind(runner_id).bind(&input.status).bind(actor).execute(&mut *tx).await?;
     } else if failed && !exhausted {
         let shift = std::cmp::min(attempt - 1, 10);
         let delay = (backoff as i64) * (1_i64 << shift);
         sqlx::query(
-            "UPDATE content_runner_runs SET retry_at=now()+make_interval(secs=>$2) WHERE id=$1",
+            "UPDATE content_runner_runs SET retry_at=strftime('%Y-%m-%dT%H:%M:%fZ','now', (?2) || ' seconds') WHERE id=?1",
         )
         .bind(run_id)
         .bind(delay as i32)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='retrying',current_attempt=$2,last_status='retrying',last_error=$3,paused_reason=NULL,next_run_at=now()+make_interval(secs=>$4),updated_by=$5,updated_at=now() WHERE id=$1 AND state<>'archived'").bind(runner_id).bind(attempt).bind(&input.error).bind(delay as i32).bind(actor).execute(&mut *tx).await?;
+        sqlx::query("UPDATE content_runners SET enabled=TRUE,state='retrying',current_attempt=?2,last_status='retrying',last_error=?3,paused_reason=NULL,next_run_at=strftime('%Y-%m-%dT%H:%M:%fZ','now', (?4) || ' seconds'),updated_by=?5,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'").bind(runner_id).bind(attempt).bind(&input.error).bind(delay as i32).bind(actor).execute(&mut *tx).await?;
     } else if failed {
         let paused = new_failures >= threshold;
-        sqlx::query("UPDATE content_runners SET enabled=NOT $2,state=CASE WHEN $2 THEN 'paused' ELSE 'enabled' END,current_attempt=0,consecutive_failures=$3,last_status=$4,last_error=$5,paused_reason=CASE WHEN $2 THEN 'Failure threshold reached' ELSE NULL END,next_run_at=CASE WHEN $2 THEN next_run_at ELSE now()+make_interval(secs=>interval_seconds) END,updated_by=$6,updated_at=now() WHERE id=$1 AND state<>'archived'").bind(runner_id).bind(paused).bind(new_failures).bind(&input.status).bind(&input.error).bind(actor).execute(&mut *tx).await?;
+        sqlx::query("UPDATE content_runners SET enabled=NOT ?2,state=CASE WHEN ?2 THEN 'paused' ELSE 'enabled' END,current_attempt=0,consecutive_failures=?3,last_status=?4,last_error=?5,paused_reason=CASE WHEN ?2 THEN 'Failure threshold reached' ELSE NULL END,next_run_at=CASE WHEN ?2 THEN next_run_at ELSE strftime('%Y-%m-%dT%H:%M:%fZ','now', (interval_seconds) || ' seconds') END,updated_by=?6,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'").bind(runner_id).bind(paused).bind(new_failures).bind(&input.status).bind(&input.error).bind(actor).execute(&mut *tx).await?;
     } else {
-        sqlx::query("UPDATE content_runners SET last_status=$2,last_error=$3,updated_by=$4,updated_at=now() WHERE id=$1 AND state<>'archived'").bind(runner_id).bind(&input.status).bind(&input.error).bind(actor).execute(&mut *tx).await?;
+        sqlx::query("UPDATE content_runners SET last_status=?2,last_error=?3,updated_by=?4,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND state<>'archived'").bind(runner_id).bind(&input.status).bind(&input.error).bind(actor).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
@@ -2456,7 +2473,7 @@ fn runner_media_content_type(headers: &HeaderMap) -> Result<String, ApiError> {
 }
 
 async fn store_content_runner_media(
-    db: &PgPool,
+    db: &SqlitePool,
     content_type: &str,
     bytes: &[u8],
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -2507,11 +2524,11 @@ struct MediaSource {
     variants: serde_json::Value,
 }
 
-async fn media_source(db: &PgPool, id: i64) -> Result<MediaSource, ApiError> {
+async fn media_source(db: &SqlitePool, id: i64) -> Result<MediaSource, ApiError> {
     sqlx::query_as(
         "SELECT id, content_hash, content_bytes, byte_size, mime_type, content_type,
                 storage_backend, object_key, status, variants
-         FROM media_assets WHERE id = $1",
+         FROM media_assets WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(db)
@@ -2546,7 +2563,7 @@ fn source_variant(
 }
 
 async fn load_media_variant(
-    db: &PgPool,
+    db: &SqlitePool,
     config: &media_store::MediaConfig,
     id: i64,
     variant: &str,
@@ -2559,8 +2576,8 @@ async fn load_media_variant(
     let secondaries: Vec<(String, String)> = sqlx::query_as(
         "SELECT provider, object_key
          FROM media_replicas
-         WHERE media_id = $1 AND role IN ('secondary', 'backup')
-           AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+         WHERE media_id = ?1 AND role IN ('secondary', 'backup')
+           AND variant = ?2 AND state = 'ready' AND object_key IS NOT NULL
          ORDER BY CASE role WHEN 'secondary' THEN 0 ELSE 1 END,
                   last_verified_at DESC NULLS LAST, id DESC",
     )
@@ -2596,7 +2613,7 @@ async fn load_media_variant(
 }
 
 async fn record_replicas(
-    db: &PgPool,
+    db: &SqlitePool,
     media_id: i64,
     role: &str,
     stored: &media_store::StoredAsset,
@@ -2607,7 +2624,7 @@ async fn record_replicas(
             "INSERT INTO media_replicas
                 (media_id, provider, role, variant, object_key, external_url,
                  checksum, byte_size, mime_type, state, error, updated_at, last_verified_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'ready', '', now(), now())
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'ready', '', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
              ON CONFLICT (media_id, provider, role, variant) DO UPDATE SET
                 object_key = EXCLUDED.object_key,
                 external_url = EXCLUDED.external_url,
@@ -2616,8 +2633,8 @@ async fn record_replicas(
                 mime_type = EXCLUDED.mime_type,
                 state = 'ready',
                 error = '',
-                updated_at = now(),
-                last_verified_at = now()",
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                last_verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
         )
         .bind(media_id)
         .bind(&stored.backend)
@@ -2635,7 +2652,7 @@ async fn record_replicas(
 }
 
 async fn record_primary_replicas(
-    db: &PgPool,
+    db: &SqlitePool,
     media_id: i64,
     stored: &media_store::StoredAsset,
 ) -> Result<(), ApiError> {
@@ -2643,7 +2660,7 @@ async fn record_primary_replicas(
 }
 
 async fn record_secondary_replicas(
-    db: &PgPool,
+    db: &SqlitePool,
     media_id: i64,
     stored: &media_store::StoredAsset,
 ) -> Result<(), ApiError> {
@@ -2663,8 +2680,8 @@ async fn record_secondary_replicas(
             sqlx::query(
                 "UPDATE media_replication_jobs
                  SET status = 'ready', locked_at = NULL, last_error = '',
-                     completed_at = COALESCE(completed_at, now()), updated_at = now()
-                 WHERE media_id = $1 AND provider = $2 AND variant = $3",
+                     completed_at = COALESCE(completed_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 WHERE media_id = ?1 AND provider = ?2 AND variant = ?3",
             )
             .bind(media_id)
             .bind(&secondary.backend)
@@ -2677,7 +2694,7 @@ async fn record_secondary_replicas(
 }
 
 async fn queue_secondary_replicas(
-    db: &PgPool,
+    db: &SqlitePool,
     media_id: i64,
     stored: &media_store::StoredAsset,
     providers: &[String],
@@ -2687,7 +2704,7 @@ async fn queue_secondary_replicas(
             sqlx::query(
                 "INSERT INTO media_replicas
                     (media_id, provider, role, variant, checksum, byte_size, mime_type, state, error)
-                 VALUES ($1, $2, 'secondary', $3, $4, $5, $6, 'uploading', '')
+                 VALUES (?1, ?2, 'secondary', ?3, ?4, ?5, ?6, 'uploading', '')
                  ON CONFLICT (media_id, provider, role, variant) DO NOTHING",
             )
             .bind(media_id)
@@ -2701,7 +2718,7 @@ async fn queue_secondary_replicas(
             sqlx::query(
                 "INSERT INTO media_replication_jobs
                     (media_id, provider, variant, status, available_at, updated_at)
-                 VALUES ($1, $2, $3, 'pending', now(), now())
+                 VALUES (?1, ?2, ?3, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                  ON CONFLICT (media_id, provider, variant) DO NOTHING",
             )
             .bind(media_id)
@@ -2715,7 +2732,7 @@ async fn queue_secondary_replicas(
 }
 
 async fn persist_stored_asset(
-    db: &PgPool,
+    db: &SqlitePool,
     media_type: &str,
     content_type: &str,
     bytes: &[u8],
@@ -2728,7 +2745,7 @@ async fn persist_stored_asset(
         "INSERT INTO media_assets
             (content_hash, media_type, byte_size, content_type, storage_backend,
              object_key, mime_type, status, variants, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $4, 'ready', $7, now())
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?4, 'ready', ?7, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
          ON CONFLICT (content_hash) DO UPDATE SET
             byte_size = EXCLUDED.byte_size,
             media_type = CASE WHEN media_assets.storage_backend = 'legacy'
@@ -2745,7 +2762,7 @@ async fn persist_stored_asset(
                           THEN 'ready' ELSE media_assets.status END,
             variants = CASE WHEN media_assets.storage_backend = 'legacy'
                             THEN EXCLUDED.variants ELSE media_assets.variants END,
-            updated_at = now()
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          RETURNING id, content_type, storage_backend, variants",
     )
     .bind(digest)
@@ -2779,7 +2796,7 @@ pub struct MediaUploadRequest {
 }
 
 pub async fn upload_media(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<MediaUploadRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
@@ -2849,7 +2866,7 @@ pub async fn upload_media(
 /// be different machines. This endpoint is admin-only and never exposes a
 /// worker filesystem path to the web process.
 pub async fn upload_content_runner_media(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<RunnerMediaUpload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -2881,7 +2898,7 @@ pub async fn upload_content_runner_media(
 /// reverse-proxy limits. The worker prefers this endpoint and falls back to
 /// the legacy contract for older servers.
 pub async fn upload_content_runner_media_raw(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -2899,43 +2916,53 @@ struct MediaReplicationJob {
     attempts: i32,
 }
 
-async fn claim_media_replication_job(db: &PgPool) -> Result<Option<MediaReplicationJob>, String> {
-    sqlx::query_as(
-        "WITH stale AS (
-             UPDATE media_replication_jobs
-             SET status = 'pending', locked_at = NULL, updated_at = now()
-             WHERE status = 'running'
-               AND locked_at < now() - interval '10 minutes'
-         ), candidate AS (
-             SELECT id
-             FROM media_replication_jobs
-             WHERE status IN ('pending', 'failed')
-               AND available_at <= now()
-             ORDER BY id
-             FOR UPDATE SKIP LOCKED
-             LIMIT 1
-         )
-         UPDATE media_replication_jobs AS job
-         SET status = 'running', attempts = job.attempts + 1,
-             locked_at = now(), updated_at = now()
-         FROM candidate
-         WHERE job.id = candidate.id
-         RETURNING job.id, job.media_id, job.provider, job.variant, job.attempts",
+async fn claim_media_replication_job(
+    db: &SqlitePool,
+) -> Result<Option<MediaReplicationJob>, String> {
+    // A short immediate transaction replaces PostgreSQL's modifying CTE and
+    // row locks. Release the writer before any provider reads or uploads.
+    let mut tx = crate::db::begin_immediate(db)
+        .await
+        .map_err(|error| format!("could not start media replication claim: {error}"))?;
+    sqlx::query(
+        "UPDATE media_replication_jobs
+         SET status = 'pending', locked_at = NULL,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE status = 'running' AND julianday(locked_at) < julianday('now', '-10 minutes')",
     )
-    .fetch_optional(db)
+    .execute(&mut *tx)
     .await
-    .map_err(|error| format!("could not claim media replication job: {error}"))
+    .map_err(|error| format!("could not recover stale media replication jobs: {error}"))?;
+    let job = sqlx::query_as(
+        "UPDATE media_replication_jobs
+         SET status = 'running', attempts = attempts + 1,
+             locked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = (
+             SELECT id FROM media_replication_jobs
+             WHERE status IN ('pending', 'failed') AND julianday(available_at) <= julianday('now')
+             ORDER BY id LIMIT 1
+         )
+         RETURNING id, media_id, provider, variant, attempts",
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|error| format!("could not claim media replication job: {error}"))?;
+    tx.commit()
+        .await
+        .map_err(|error| format!("could not commit media replication claim: {error}"))?;
+    Ok(job)
 }
 
 async fn complete_media_replication_job(
-    db: &PgPool,
+    db: &SqlitePool,
     job: &MediaReplicationJob,
     config: &media_store::MediaConfig,
 ) -> Result<(), String> {
     let source = sqlx::query_as::<_, MediaSource>(
         "SELECT id, content_hash, content_bytes, byte_size, mime_type, content_type,
                 storage_backend, object_key, status, variants
-         FROM media_assets WHERE id = $1",
+         FROM media_assets WHERE id = ?1",
     )
     .bind(job.media_id)
     .fetch_optional(db)
@@ -2979,14 +3006,14 @@ async fn complete_media_replication_job(
         "INSERT INTO media_replicas
             (media_id, provider, role, variant, object_key, external_url,
              checksum, byte_size, mime_type, state, error, updated_at, last_verified_at)
-         VALUES ($1, $2, 'secondary', $3, $4, $5, $6, $7, $8, 'ready', '', now(), now())
+         VALUES (?1, ?2, 'secondary', ?3, ?4, ?5, ?6, ?7, ?8, 'ready', '', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
          ON CONFLICT (media_id, provider, role, variant) DO UPDATE SET
             object_key = EXCLUDED.object_key,
             external_url = EXCLUDED.external_url,
             checksum = EXCLUDED.checksum,
             byte_size = EXCLUDED.byte_size,
             mime_type = EXCLUDED.mime_type,
-            state = 'ready', error = '', updated_at = now(), last_verified_at = now()",
+            state = 'ready', error = '', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), last_verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(job.media_id)
     .bind(&job.provider)
@@ -3002,8 +3029,8 @@ async fn complete_media_replication_job(
     sqlx::query(
         "UPDATE media_replication_jobs
          SET status = 'ready', locked_at = NULL, last_error = '',
-             completed_at = now(), updated_at = now()
-         WHERE id = $1",
+             completed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1",
     )
     .bind(job.id)
     .execute(db)
@@ -3013,7 +3040,7 @@ async fn complete_media_replication_job(
 }
 
 async fn fail_media_replication_job(
-    db: &PgPool,
+    db: &SqlitePool,
     job: &MediaReplicationJob,
     error: &str,
 ) -> Result<(), String> {
@@ -3023,12 +3050,12 @@ async fn fail_media_replication_job(
     let error = error.chars().take(2000).collect::<String>();
     sqlx::query(
         "UPDATE media_replication_jobs
-         SET status = 'failed', locked_at = NULL, available_at = $2,
-             last_error = $3, updated_at = now()
-         WHERE id = $1",
+         SET status = 'failed', locked_at = NULL, available_at = ?2,
+             last_error = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1",
     )
     .bind(job.id)
-    .bind(available_at)
+    .bind(available_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
     .bind(&error)
     .execute(db)
     .await
@@ -3037,8 +3064,8 @@ async fn fail_media_replication_job(
     })?;
     sqlx::query(
         "UPDATE media_replicas
-         SET state = 'failed', error = $4, updated_at = now()
-         WHERE media_id = $1 AND provider = $2 AND role = 'secondary' AND variant = $3",
+         SET state = 'failed', error = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE media_id = ?1 AND provider = ?2 AND role = 'secondary' AND variant = ?3",
     )
     .bind(job.media_id)
     .bind(&job.provider)
@@ -3051,7 +3078,7 @@ async fn fail_media_replication_job(
 }
 
 async fn reconcile_media_replication_jobs(
-    db: &PgPool,
+    db: &SqlitePool,
     secondary_providers: &[String],
 ) -> Result<(), String> {
     if !secondary_providers.is_empty() {
@@ -3062,18 +3089,18 @@ async fn reconcile_media_replication_jobs(
         sqlx::query(
             "INSERT INTO media_replicas
                 (media_id, provider, role, variant, checksum, byte_size, mime_type, state, error)
-             SELECT asset.id, provider, 'secondary', variant.key,
+             SELECT asset.id, provider.value, 'secondary', variant.key,
                     NULLIF(variant.value->>'checksum', ''),
-                    COALESCE((variant.value->>'byte_size')::bigint, 0),
+                    COALESCE(CAST(variant.value->>'byte_size' AS INTEGER), 0),
                     COALESCE(NULLIF(variant.value->>'mime_type', ''), 'application/octet-stream'),
                     'uploading', ''
              FROM media_assets AS asset
-             CROSS JOIN unnest($1::text[]) AS provider
-             CROSS JOIN LATERAL jsonb_each(asset.variants) AS variant(key, value)
+             CROSS JOIN json_each(?1) AS provider
+             CROSS JOIN json_each(asset.variants) AS variant
              WHERE asset.status = 'ready' AND asset.storage_backend <> 'legacy'
              ON CONFLICT (media_id, provider, role, variant) DO NOTHING",
         )
-        .bind(secondary_providers)
+        .bind(serde_json::json!(secondary_providers))
         .execute(db)
         .await
         .map_err(|error| format!("could not reconcile media replica rows: {error}"))?;
@@ -3081,7 +3108,7 @@ async fn reconcile_media_replication_jobs(
     sqlx::query(
         "INSERT INTO media_replication_jobs
             (media_id, provider, variant, status, available_at, updated_at)
-         SELECT media_id, provider, variant, 'pending', now(), now()
+         SELECT media_id, provider, variant, 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')
          FROM media_replicas
          WHERE role = 'secondary' AND state IN ('uploading', 'failed')
          ON CONFLICT (media_id, provider, variant) DO NOTHING",
@@ -3092,7 +3119,7 @@ async fn reconcile_media_replication_jobs(
     .map_err(|error| format!("could not reconcile media replication jobs: {error}"))
 }
 
-pub async fn process_media_replication_jobs(db: &PgPool) -> Result<u64, String> {
+pub async fn process_media_replication_jobs(db: &SqlitePool) -> Result<u64, String> {
     let config = media_store::load_config(db).await?;
     reconcile_media_replication_jobs(db, &config.secondary_providers).await?;
     let mut processed = 0_u64;
@@ -3124,7 +3151,7 @@ pub struct ShareMediaRequest {
 }
 
 pub async fn media_test(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
@@ -3150,7 +3177,7 @@ pub async fn media_test(
 }
 
 pub async fn media_clear_cache(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
@@ -3171,7 +3198,7 @@ pub async fn media_clear_cache(
 }
 
 pub async fn media_migrate(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
@@ -3281,10 +3308,10 @@ pub async fn media_migrate(
         let variants = media_store::variants_json(&stored.variants);
         sqlx::query(
             "UPDATE media_assets
-             SET storage_backend = $2, object_key = $3, mime_type = $4,
-                 byte_size = $5, content_type = $4, status = 'ready',
-                 variants = $6, updated_at = now()
-             WHERE id = $1",
+             SET storage_backend = ?2, object_key = ?3, mime_type = ?4,
+                 byte_size = ?5, content_type = ?4, status = 'ready',
+                 variants = ?6, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+             WHERE id = ?1",
         )
         .bind(source.id)
         .bind(&stored.backend)
@@ -3296,22 +3323,22 @@ pub async fn media_migrate(
         .await?;
         sqlx::query(
             "UPDATE media_replicas
-             SET state = 'deleted', updated_at = now()
-             WHERE media_id = $1 AND role = 'secondary'
-               AND NOT (provider = ANY($2))",
+             SET state = 'deleted', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+             WHERE media_id = ?1 AND role = 'secondary'
+               AND provider NOT IN (SELECT value FROM json_each(?2))",
         )
         .bind(source.id)
-        .bind(&config.secondary_providers)
+        .bind(serde_json::json!(&config.secondary_providers))
         .execute(&db)
         .await?;
         if source.storage_backend != "legacy" {
             sqlx::query(
                 "UPDATE media_replicas AS replica
-                 SET role = 'backup', updated_at = now()
-                 WHERE replica.media_id = $1 AND replica.provider = $2 AND replica.role = 'primary'
+                 SET role = 'backup', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 WHERE replica.media_id = ?1 AND replica.provider = ?2 AND replica.role = 'primary'
                    AND NOT EXISTS (
                      SELECT 1 FROM media_replicas existing
-                     WHERE existing.media_id = $1 AND existing.provider = $2
+                     WHERE existing.media_id = ?1 AND existing.provider = ?2
                        AND existing.role = 'backup' AND existing.variant = replica.variant
                    )",
             )
@@ -3344,7 +3371,7 @@ pub async fn media_migrate(
 }
 
 pub async fn media_verify(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let actor = require_admin(&headers, &db).await?;
@@ -3375,8 +3402,8 @@ pub async fn media_verify(
             let secondary_targets = sqlx::query_as::<_, (String, String, String)>(
                 "SELECT provider, object_key, role
                  FROM media_replicas
-                 WHERE media_id = $1 AND role IN ('secondary', 'backup')
-                   AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+                 WHERE media_id = ?1 AND role IN ('secondary', 'backup')
+                   AND variant = ?2 AND state = 'ready' AND object_key IS NOT NULL
                  ORDER BY CASE role WHEN 'secondary' THEN 0 ELSE 1 END,
                           last_verified_at DESC NULLS LAST, id DESC",
             )
@@ -3414,8 +3441,8 @@ pub async fn media_verify(
                         checked += 1;
                         sqlx::query(
                             "UPDATE media_replicas
-                             SET last_verified_at = now(), updated_at = now(), state = 'ready', error = ''
-                             WHERE media_id = $1 AND provider = $2 AND role = $3 AND variant = $4",
+                             SET last_verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), state = 'ready', error = ''
+                             WHERE media_id = ?1 AND provider = ?2 AND role = ?3 AND variant = ?4",
                         )
                         .bind(source.id)
                         .bind(&provider)
@@ -3428,8 +3455,8 @@ pub async fn media_verify(
                         let error = error.chars().take(2000).collect::<String>();
                         sqlx::query(
                             "UPDATE media_replicas
-                             SET state = 'failed', error = $5, updated_at = now()
-                             WHERE media_id = $1 AND provider = $2 AND role = $3 AND variant = $4",
+                             SET state = 'failed', error = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                             WHERE media_id = ?1 AND provider = ?2 AND role = ?3 AND variant = ?4",
                         )
                         .bind(source.id)
                         .bind(&provider)
@@ -3441,9 +3468,9 @@ pub async fn media_verify(
                         if role == "secondary" {
                             sqlx::query(
                                 "UPDATE media_replication_jobs
-                                 SET status = 'pending', locked_at = NULL, available_at = now(),
-                                     last_error = $4, updated_at = now()
-                                 WHERE media_id = $1 AND provider = $2 AND variant = $3",
+                                 SET status = 'pending', locked_at = NULL, available_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                                     last_error = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                                 WHERE media_id = ?1 AND provider = ?2 AND variant = ?3",
                             )
                             .bind(source.id)
                             .bind(&provider)
@@ -3482,7 +3509,7 @@ pub async fn media_verify(
 }
 
 pub async fn share_media(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<ShareMediaRequest>,
@@ -3508,7 +3535,7 @@ pub async fn share_media(
         "INSERT INTO media_replicas
             (media_id, provider, role, variant, external_url, external_id,
              checksum, byte_size, mime_type, state, error, updated_at, last_verified_at)
-         VALUES ($1, 'catbox', 'share', $2, $3, $4, $5, $6, $7, 'ready', '', now(), now())
+         VALUES (?1, 'catbox', 'share', ?2, ?3, ?4, ?5, ?6, ?7, 'ready', '', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
          ON CONFLICT (media_id, provider, role, variant) DO UPDATE SET
             external_url = EXCLUDED.external_url,
             external_id = EXCLUDED.external_id,
@@ -3517,8 +3544,8 @@ pub async fn share_media(
             mime_type = EXCLUDED.mime_type,
             state = 'ready',
             error = '',
-            updated_at = now(),
-            last_verified_at = now()",
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+            last_verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(source.id)
     .bind(variant)
@@ -3550,7 +3577,7 @@ pub async fn share_media(
 }
 
 pub async fn unshare_media(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
@@ -3560,7 +3587,7 @@ pub async fn unshare_media(
         .map_err(ApiError::Storage)?;
     let external_id: String = sqlx::query_scalar(
         "SELECT external_id FROM media_replicas
-         WHERE media_id = $1 AND provider = 'catbox' AND role = 'share'
+         WHERE media_id = ?1 AND provider = 'catbox' AND role = 'share'
            AND variant = 'original' AND state = 'ready'",
     )
     .bind(id)
@@ -3572,8 +3599,8 @@ pub async fn unshare_media(
         .map_err(ApiError::Storage)?;
     sqlx::query(
         "UPDATE media_replicas
-         SET state = 'deleted', updated_at = now(), last_verified_at = NULL
-         WHERE media_id = $1 AND provider = 'catbox' AND role = 'share' AND variant = 'original'",
+         SET state = 'deleted', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), last_verified_at = NULL
+         WHERE media_id = ?1 AND provider = 'catbox' AND role = 'share' AND variant = 'original'",
     )
     .bind(id)
     .execute(&db)
@@ -3592,7 +3619,7 @@ pub async fn unshare_media(
 /// receipt. It intentionally enters the normal moderation queue; enabling a
 /// runner never silently bypasses review.
 pub async fn publish_content_runner(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<RunnerPost>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -3719,12 +3746,12 @@ pub async fn publish_content_runner(
             imports::validate_media(item, "x")?;
         }
     }
-    let author_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle=$1")
+    let author_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle=?1")
         .bind(author)
         .fetch_optional(&db)
         .await?
         .ok_or(ApiError::Missing)?;
-    let community_id: i64 = sqlx::query_scalar("SELECT id FROM communities WHERE slug=$1")
+    let community_id: i64 = sqlx::query_scalar("SELECT id FROM communities WHERE slug=?1")
         .bind(&community)
         .fetch_optional(&db)
         .await?
@@ -3740,29 +3767,28 @@ pub async fn publish_content_runner(
     } else {
         ("none".to_owned(), serde_json::json!([]), false)
     };
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     if let Some(source) = canonical_source.as_ref() {
-        let existing_id = sqlx::query_scalar::<_, i64>(
-            "SELECT post_id FROM external_posts WHERE source_url=$1 FOR UPDATE",
-        )
-        .bind(source)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let existing_id =
+            sqlx::query_scalar::<_, i64>("SELECT post_id FROM external_posts WHERE source_url=?1")
+                .bind(source)
+                .fetch_optional(&mut *tx)
+                .await?;
         if let Some(existing_id) = existing_id {
             sqlx::query(
-                "UPDATE external_posts SET provider=$2,source_author=$3,
-                 published_at=COALESCE($4,published_at),observed_at=now(),
-                 source_views=COALESCE($5,source_views),source_likes=COALESCE($6,source_likes),
-                 source_reposts=COALESCE($7,source_reposts),source_replies=COALESCE($8,source_replies),
-                 media=$9,source_comments=$10,attribution=$11,profile_image_url=$12,
-                 profile_url=$13,profile_display_name=$14,profile_bio=$15,
-                 profile_followers=$16,profile_following=$17,profile_verified=$18,
-                 generation_config=$19 WHERE post_id=$1",
+                "UPDATE external_posts SET provider=?2,source_author=?3,
+                 published_at=COALESCE(?4,published_at),observed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                 source_views=COALESCE(?5,source_views),source_likes=COALESCE(?6,source_likes),
+                 source_reposts=COALESCE(?7,source_reposts),source_replies=COALESCE(?8,source_replies),
+                 media=?9,source_comments=?10,attribution=?11,profile_image_url=?12,
+                 profile_url=?13,profile_display_name=?14,profile_bio=?15,
+                 profile_followers=?16,profile_following=?17,profile_verified=?18,
+                 generation_config=?19 WHERE post_id=?1",
             )
             .bind(existing_id)
             .bind(&provider)
             .bind(&source_author)
-            .bind(input.published_at)
+            .bind(input.published_at.map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)))
             .bind(input.source_views)
             .bind(input.source_likes)
             .bind(input.source_reposts)
@@ -3781,7 +3807,7 @@ pub async fn publish_content_runner(
             .execute(&mut *tx)
             .await?;
             if let Some(rating) = content_rating.as_deref() {
-                sqlx::query("UPDATE posts SET content_rating=$2,content_rating_source='automatic',content_rating_confidence=NULL,content_rating_updated_at=now() WHERE id=$1")
+                sqlx::query("UPDATE posts SET content_rating=?2,content_rating_source='automatic',content_rating_confidence=NULL,content_rating_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1")
                     .bind(existing_id)
                     .bind(rating)
                     .execute(&mut *tx)
@@ -3808,10 +3834,10 @@ pub async fn publish_content_runner(
     } else {
         "approved"
     };
-    let post_id:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status) VALUES($1,$2,$3,$4,$5,'automatic',$6) RETURNING id").bind(community_id).bind(author_id).bind(title).bind(body.trim()).bind(&content_rating_value).bind(publication_status).fetch_one(&mut *tx).await?;
+    let post_id:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status) VALUES(?1,?2,?3,?4,?5,'automatic',?6) RETURNING id").bind(community_id).bind(author_id).bind(title).bind(body.trim()).bind(&content_rating_value).bind(publication_status).fetch_one(&mut *tx).await?;
     let moderation_id = if moderation_enabled {
-        let moderation_id:i64=sqlx::query_scalar("INSERT INTO moderation_items(kind,target_id,author_id,status,severity,flags,rule_version,urgent) VALUES('post',$1,$2,'pending',$3,$4,$5,$6) RETURNING id").bind(post_id).bind(author_id).bind(&severity).bind(flags.clone()).bind(moderation::RULE_VERSION).bind(urgent).fetch_one(&mut *tx).await?;
-        sqlx::query("UPDATE posts SET moderation_item_id=$2 WHERE id=$1")
+        let moderation_id:i64=sqlx::query_scalar("INSERT INTO moderation_items(kind,target_id,author_id,status,severity,flags,rule_version,urgent) VALUES('post',?1,?2,'pending',?3,?4,?5,?6) RETURNING id").bind(post_id).bind(author_id).bind(&severity).bind(flags.clone()).bind(moderation::RULE_VERSION).bind(urgent).fetch_one(&mut *tx).await?;
+        sqlx::query("UPDATE posts SET moderation_item_id=?2 WHERE id=?1")
             .bind(post_id)
             .bind(moderation_id)
             .execute(&mut *tx)
@@ -3821,12 +3847,12 @@ pub async fn publish_content_runner(
         None
     };
     if let Some(source) = canonical_source {
-        sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified,generation_config) VALUES($1,$2,$3,$4,$5,now(),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
+        sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified,generation_config) VALUES(?1,?2,?3,?4,?5,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)")
             .bind(post_id)
             .bind(&provider)
             .bind(source)
             .bind(&source_author)
-            .bind(input.published_at)
+            .bind(input.published_at.map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)))
             .bind(input.source_views)
             .bind(input.source_likes)
             .bind(input.source_reposts)
@@ -4009,7 +4035,7 @@ pub struct SetContentRating {
 /// The rating is recorded as `moderator` rather than overwriting the original
 /// provenance, so it stays visible that a human changed it and when.
 pub async fn set_post_content_rating(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(post_id): Path<i64>,
     Json(input): Json<SetContentRating>,
@@ -4018,14 +4044,14 @@ pub async fn set_post_content_rating(
     let rating = validate_content_rating(Some(input.content_rating.as_str()))?;
 
     let previous: Option<String> =
-        sqlx::query_scalar("SELECT content_rating FROM posts WHERE id = $1")
+        sqlx::query_scalar("SELECT content_rating FROM posts WHERE id = ?1")
             .bind(post_id)
             .fetch_optional(&db)
             .await?;
     let previous = previous.ok_or(ApiError::Missing)?;
 
     let updated: (String, String, DateTime<Utc>) = sqlx::query_as(
-        "UPDATE posts SET content_rating = $1, content_rating_source = 'moderator', content_rating_confidence = NULL, content_rating_updated_at = now() WHERE id = $2 RETURNING content_rating, content_rating_source, content_rating_updated_at",
+        "UPDATE posts SET content_rating = ?1, content_rating_source = 'moderator', content_rating_confidence = NULL, content_rating_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?2 RETURNING content_rating, content_rating_source, content_rating_updated_at",
     )
     .bind(&rating)
     .bind(post_id)

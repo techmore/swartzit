@@ -1,6 +1,6 @@
 [Unit]
 Description=Update Swartzit from GitHub with backup and health gates
-After=network-online.target postgresql.service
+After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/var/lib/swartzit/.git
 
@@ -10,6 +10,7 @@ User=root
 WorkingDirectory=/var/lib/swartzit
 EnvironmentFile=-/etc/swartzit/update.env
 # Verify a pinned release; apply only with SWARTZIT_AUTO_UPDATE=true.
-ExecStart=/var/lib/swartzit/scripts/swartzit-upgrade-check.sh
+Environment=SWARTZIT_APP_DIR=/var/lib/swartzit
+ExecStart=/usr/local/libexec/swartzit/scripts/swartzit-upgrade-check.sh
 Nice=10
 IOSchedulingClass=best-effort

@@ -307,7 +307,7 @@ pub(crate) fn canonical(provider: &str, raw: &str) -> Result<String, ApiError> {
     ))
 }
 pub async fn ingest(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<Import>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -407,19 +407,17 @@ pub async fn ingest(
     } else {
         "approved"
     };
-    let mut tx = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-        .bind(&source)
-        .execute(&mut *tx)
-        .await?;
+    // Serialize the source lookup and insert, preserving idempotence when
+    // a scheduled import and a browser cross-post arrive together.
+    let mut tx = crate::db::begin_immediate(&db).await?;
     let community_slug = normalize_community_slug(&input.community);
-    let community: Option<i64> = sqlx::query_scalar("SELECT id FROM communities WHERE slug=$1")
+    let community: Option<i64> = sqlx::query_scalar("SELECT id FROM communities WHERE slug=?1")
         .bind(&community_slug)
         .fetch_optional(&mut *tx)
         .await?;
     let community = community.ok_or(ApiError::Invalid("Community not found"))?;
     let existing: Option<i64> =
-        sqlx::query_scalar("SELECT post_id FROM external_posts WHERE source_url=$1")
+        sqlx::query_scalar("SELECT post_id FROM external_posts WHERE source_url=?1")
             .bind(&source)
             .fetch_optional(&mut *tx)
             .await?;
@@ -429,7 +427,7 @@ pub async fn ingest(
     } else {
         sqlx::query_scalar(
             "INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status)
-             VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+             VALUES(?1,?2,?3,?4,?5,?6,?7) RETURNING id",
         )
         .bind(community)
         .bind(actor)
@@ -446,7 +444,7 @@ pub async fn ingest(
             let moderation_id: i64 = sqlx::query_scalar(
                 "INSERT INTO moderation_items(
                    kind, target_id, author_id, status, severity, flags, rule_version, urgent
-                 ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
+                 ) VALUES ('post', ?1, ?2, 'pending', ?3, ?4, ?5, ?6)
                  RETURNING id",
             )
             .bind(id)
@@ -457,7 +455,7 @@ pub async fn ingest(
             .bind(moderation_urgent)
             .fetch_one(&mut *tx)
             .await?;
-            sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+            sqlx::query("UPDATE posts SET moderation_item_id = ?2 WHERE id = ?1")
                 .bind(id)
                 .bind(moderation_id)
                 .execute(&mut *tx)
@@ -469,10 +467,10 @@ pub async fn ingest(
     } else {
         (None, "none".to_owned(), serde_json::json!([]))
     };
-    let changed=sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT(post_id) DO UPDATE SET source_author=EXCLUDED.source_author,published_at=COALESCE(EXCLUDED.published_at,external_posts.published_at),observed_at=EXCLUDED.observed_at,source_views=EXCLUDED.source_views,source_likes=EXCLUDED.source_likes,source_reposts=EXCLUDED.source_reposts,source_replies=EXCLUDED.source_replies,media=EXCLUDED.media,source_comments=EXCLUDED.source_comments,attribution=EXCLUDED.attribution,profile_image_url=COALESCE(EXCLUDED.profile_image_url,external_posts.profile_image_url),profile_url=COALESCE(EXCLUDED.profile_url,external_posts.profile_url),profile_display_name=COALESCE(EXCLUDED.profile_display_name,external_posts.profile_display_name),profile_bio=COALESCE(EXCLUDED.profile_bio,external_posts.profile_bio),profile_followers=COALESCE(EXCLUDED.profile_followers,external_posts.profile_followers),profile_following=COALESCE(EXCLUDED.profile_following,external_posts.profile_following),profile_verified=COALESCE(EXCLUDED.profile_verified,external_posts.profile_verified) WHERE EXCLUDED.observed_at>=external_posts.observed_at")
+    let changed=sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20) ON CONFLICT(post_id) DO UPDATE SET source_author=EXCLUDED.source_author,published_at=COALESCE(EXCLUDED.published_at,external_posts.published_at),observed_at=EXCLUDED.observed_at,source_views=EXCLUDED.source_views,source_likes=EXCLUDED.source_likes,source_reposts=EXCLUDED.source_reposts,source_replies=EXCLUDED.source_replies,media=EXCLUDED.media,source_comments=EXCLUDED.source_comments,attribution=EXCLUDED.attribution,profile_image_url=COALESCE(EXCLUDED.profile_image_url,external_posts.profile_image_url),profile_url=COALESCE(EXCLUDED.profile_url,external_posts.profile_url),profile_display_name=COALESCE(EXCLUDED.profile_display_name,external_posts.profile_display_name),profile_bio=COALESCE(EXCLUDED.profile_bio,external_posts.profile_bio),profile_followers=COALESCE(EXCLUDED.profile_followers,external_posts.profile_followers),profile_following=COALESCE(EXCLUDED.profile_following,external_posts.profile_following),profile_verified=COALESCE(EXCLUDED.profile_verified,external_posts.profile_verified) WHERE julianday(EXCLUDED.observed_at)>=julianday(external_posts.observed_at)")
         .bind(id).bind(&input.provider).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at).bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies).bind(serde_json::json!(input.media)).bind(serde_json::json!(input.source_comments)).bind(&input.attribution).bind(&input.profile_image_url).bind(&input.profile_url).bind(&input.profile_display_name).bind(&input.profile_bio).bind(input.profile_followers).bind(input.profile_following).bind(input.profile_verified).execute(&mut *tx).await?.rows_affected()>0;
     if changed {
-        sqlx::query("UPDATE posts SET title=$2,body=$3 WHERE id=$1")
+        sqlx::query("UPDATE posts SET title=?2,body=?3 WHERE id=?1")
             .bind(id)
             .bind(input.title.trim())
             .bind(&input.body)
@@ -480,7 +478,7 @@ pub async fn ingest(
             .await?;
     }
     if let Some(rating) = content_rating.as_deref() {
-        sqlx::query("UPDATE posts SET content_rating=$2,content_rating_source='uploader',content_rating_confidence=NULL,content_rating_updated_at=now() WHERE id=$1")
+        sqlx::query("UPDATE posts SET content_rating=?2,content_rating_source='uploader',content_rating_confidence=NULL,content_rating_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1")
             .bind(id)
             .bind(rating)
             .execute(&mut *tx)
@@ -494,7 +492,7 @@ pub async fn ingest(
 }
 
 pub async fn cross_post(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<Import>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
@@ -602,13 +600,11 @@ pub async fn cross_post(
     } else {
         "approved"
     };
-    let mut tx = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-        .bind(&source)
-        .execute(&mut *tx)
-        .await?;
+    // Serialize the source lookup and insert, preserving idempotence when
+    // a scheduled import and a browser cross-post arrive together.
+    let mut tx = crate::db::begin_immediate(&db).await?;
     let existing: Option<(i64, String, String, String)> = sqlx::query_as(
-        "SELECT p.id,p.public_id,c.slug,p.moderation_status FROM external_posts e JOIN posts p ON p.id=e.post_id JOIN communities c ON c.id=p.community_id WHERE e.source_url=$1"
+        "SELECT p.id,p.public_id,c.slug,p.moderation_status FROM external_posts e JOIN posts p ON p.id=e.post_id JOIN communities c ON c.id=p.community_id WHERE e.source_url=?1"
     ).bind(&source).fetch_optional(&mut *tx).await?;
     if let Some((id, public_id, community, status)) = existing {
         tx.rollback().await?;
@@ -619,14 +615,14 @@ pub async fn cross_post(
             })),
         ));
     }
-    let community_id: Option<i64> = sqlx::query_scalar("SELECT id FROM communities WHERE slug=$1")
+    let community_id: Option<i64> = sqlx::query_scalar("SELECT id FROM communities WHERE slug=?1")
         .bind(&community_slug)
         .fetch_optional(&mut *tx)
         .await?;
     let community_id = community_id.ok_or(ApiError::Invalid("Community not found"))?;
     let (id, public_id): (i64, String) = sqlx::query_as(
         "INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status)
-         VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,public_id",
+         VALUES(?1,?2,?3,?4,?5,?6,?7) RETURNING id,public_id",
     )
     .bind(community_id)
     .bind(actor)
@@ -637,7 +633,7 @@ pub async fn cross_post(
     .bind(publication_status)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
+    sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,published_at,observed_at,source_views,source_likes,source_reposts,source_replies,media,source_comments,attribution,profile_image_url,profile_url,profile_display_name,profile_bio,profile_followers,profile_following,profile_verified) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)")
         .bind(id).bind(&input.provider).bind(&source).bind(&input.source_author).bind(input.published_at).bind(input.observed_at)
         .bind(input.source_views).bind(input.source_likes).bind(input.source_reposts).bind(input.source_replies)
         .bind(serde_json::json!(input.media)).bind(serde_json::json!(input.source_comments)).bind(&input.attribution).bind(&input.profile_image_url)
@@ -648,7 +644,7 @@ pub async fn cross_post(
         let moderation_id: i64 = sqlx::query_scalar(
             "INSERT INTO moderation_items(
                kind, target_id, author_id, status, severity, flags, rule_version, urgent
-             ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
+             ) VALUES ('post', ?1, ?2, 'pending', ?3, ?4, ?5, ?6)
              RETURNING id",
         )
         .bind(id)
@@ -659,7 +655,7 @@ pub async fn cross_post(
         .bind(urgent)
         .fetch_one(&mut *tx)
         .await?;
-        sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+        sqlx::query("UPDATE posts SET moderation_item_id = ?2 WHERE id = ?1")
             .bind(id)
             .bind(moderation_id)
             .execute(&mut *tx)
@@ -695,7 +691,7 @@ pub async fn cross_post(
 pub fn order(sort: Option<&str>) -> Result<&'static str, ApiError> {
     Ok(match sort.unwrap_or("newest") {
         "recommended" => {
-            "(2.0*LN(1.0+p.engaged_view_count)+1.5*LN(1.0+(SELECT count(*) FROM comments cm WHERE cm.post_id=p.id))+LN(1.0+GREATEST(0,(SELECT COALESCE(sum(value),0) FROM post_votes v WHERE v.post_id=p.id)))+0.5*LN(1.0+p.view_count))/(1.0+GREATEST(0.0,EXTRACT(EPOCH FROM(now()-p.created_at))/604800.0)) DESC"
+            "(2.0*LN(1.0+p.engaged_view_count)+1.5*LN(1.0+(SELECT count(*) FROM comments cm WHERE cm.post_id=p.id))+LN(1.0+max(0,(SELECT COALESCE(sum(value),0) FROM post_votes v WHERE v.post_id=p.id)))+0.5*LN(1.0+p.view_count))/(1.0+max(0.0,(julianday('now')-julianday(p.created_at))/7.0)) DESC"
         }
         "newest" => "p.created_at DESC",
         "score" => "score DESC",

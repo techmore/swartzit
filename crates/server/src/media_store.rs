@@ -5,7 +5,7 @@ use reqwest::{Client, Method, header};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, SqlitePool};
 use std::{
     cmp::Reverse,
     env,
@@ -82,7 +82,7 @@ pub struct StoredReplica {
 struct DbMediaSettings {
     primary_provider: String,
     secondary_provider: String,
-    secondary_providers: Vec<String>,
+    secondary_providers: sqlx::types::Json<Vec<String>>,
     cache_enabled: bool,
     cache_max_bytes: i64,
     share_provider: String,
@@ -175,7 +175,7 @@ fn env_provider_list(
     ))
 }
 
-pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
+pub async fn load_config(db: &SqlitePool) -> Result<MediaConfig, String> {
     let settings = sqlx::query_as::<_, DbMediaSettings>(
         "SELECT primary_provider, secondary_provider, secondary_providers,
                 cache_enabled, cache_max_bytes, share_provider
@@ -187,7 +187,7 @@ pub async fn load_config(db: &PgPool) -> Result<MediaConfig, String> {
     .unwrap_or(DbMediaSettings {
         primary_provider: "filesystem".to_owned(),
         secondary_provider: "disabled".to_owned(),
-        secondary_providers: Vec::new(),
+        secondary_providers: sqlx::types::Json(Vec::new()),
         cache_enabled: true,
         cache_max_bytes: 5 * 1024 * 1024 * 1024,
         share_provider: "disabled".to_owned(),
@@ -305,7 +305,7 @@ fn load_s3_config() -> Option<S3Config> {
     })
 }
 
-pub async fn settings_view(db: &PgPool) -> Result<Value, String> {
+pub async fn settings_view(db: &SqlitePool) -> Result<Value, String> {
     let config = load_config(db).await?;
     let cache = directory_stats(&config.cache_root).await?;
     Ok(serde_json::json!({
@@ -502,23 +502,23 @@ async fn backup_overview() -> Result<BackupOverview, String> {
     })
 }
 
-pub async fn storage_overview(db: &PgPool) -> Result<StorageOverview, String> {
+pub async fn storage_overview(db: &SqlitePool) -> Result<StorageOverview, String> {
     let config = load_config(db).await?;
     let backups = backup_overview().await?;
     let database_size_bytes: i64 =
-        sqlx::query_scalar("SELECT pg_database_size(current_database())")
+        sqlx::query_scalar("SELECT (SELECT page_count FROM pragma_page_count()) * (SELECT page_size FROM pragma_page_size())")
             .fetch_one(db)
             .await
             .map_err(|error| format!("could not measure database size: {error}"))?;
     let (canonical_media_assets, canonical_media_bytes): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint, COALESCE(SUM(byte_size), 0)::bigint
+        "SELECT COUNT(*), COALESCE(SUM(byte_size), 0)
          FROM media_assets WHERE status <> 'deleted'",
     )
     .fetch_one(db)
     .await
     .map_err(|error| format!("could not measure media size: {error}"))?;
     let content = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT media_type, COUNT(*)::bigint, COALESCE(SUM(byte_size), 0)::bigint
+        "SELECT media_type, COUNT(*), COALESCE(SUM(byte_size), 0)
          FROM media_assets
          WHERE status <> 'deleted'
          GROUP BY media_type
@@ -535,8 +535,8 @@ pub async fn storage_overview(db: &PgPool) -> Result<StorageOverview, String> {
     })
     .collect();
     let replicas = sqlx::query_as::<_, (String, String, String, i64, i64)>(
-        "SELECT provider, role, state, COUNT(*)::bigint,
-                COALESCE(SUM(byte_size), 0)::bigint
+        "SELECT provider, role, state, COUNT(*),
+                COALESCE(SUM(byte_size), 0)
          FROM media_replicas
          GROUP BY provider, role, state
          ORDER BY provider, role, state",
@@ -556,7 +556,7 @@ pub async fn storage_overview(db: &PgPool) -> Result<StorageOverview, String> {
     )
     .collect();
     let job_rows = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT status, COUNT(*)::bigint, COALESCE(SUM(attempts), 0)::bigint
+        "SELECT status, COUNT(*), COALESCE(SUM(attempts), 0)
          FROM media_replication_jobs
          GROUP BY status",
     )

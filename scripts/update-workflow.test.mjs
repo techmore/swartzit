@@ -20,7 +20,7 @@ test('Linux updater gates the update on a backup, a rehearsal, and health checks
   assert.match(entry, /bash "\$RELEASE_UPDATER"/);
 
   // Backup with the service credentials, then proved restorable.
-  assert.match(updater, /SWARTZIT_DB_BACKUP_MODE=native/);
+  assert.match(updater, /SWARTZIT_DB_BACKUP_MODE=auto/);
   assert.match(updater, /db-backup\.sh/);
   assert.match(updater, /db-restore-verify-postgres\.sh/);
 

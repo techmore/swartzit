@@ -54,25 +54,25 @@ pub struct Saved {
     created_at: DateTime<Utc>,
     moderation_status: String,
 }
-async fn owner(h: &HeaderMap, db: &PgPool) -> Result<i64, ApiError> {
+async fn owner(h: &HeaderMap, db: &SqlitePool) -> Result<i64, ApiError> {
     authenticated_author(h, db).await.map_err(|e| match e {
         ApiError::Invalid(_) => ApiError::Unauthorized,
         other => other,
     })
 }
 pub async fn folders(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
 ) -> Result<Json<Vec<Folder>>, ApiError> {
     let uid = owner(&h, &db).await?;
     Ok(Json(crate::operations::timed_query(
         "bookmarks.folders",
-        sqlx::query_as("SELECT f.id,f.name,f.parent_id,count(b.post_id) FILTER (WHERE p.moderation_status='approved' OR (p.author_id=$1 AND p.moderation_status='pending')) AS count FROM bookmark_folders f LEFT JOIN bookmarks b ON b.author_id=f.author_id AND b.folder_id=f.id LEFT JOIN posts p ON p.id=b.post_id WHERE f.author_id=$1 GROUP BY f.id ORDER BY lower(f.name),f.id").bind(uid).fetch_all(&db),
+        sqlx::query_as("SELECT f.id,f.name,f.parent_id,count(b.post_id) FILTER (WHERE p.moderation_status='approved' OR (p.author_id=?1 AND p.moderation_status='pending')) AS count FROM bookmark_folders f LEFT JOIN bookmarks b ON b.author_id=f.author_id AND b.folder_id=f.id LEFT JOIN posts p ON p.id=b.post_id WHERE f.author_id=?1 GROUP BY f.id ORDER BY lower(f.name),f.id").bind(uid).fetch_all(&db),
     ).await?))
 }
 
 pub async fn import_folder_path(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Json(input): Json<ImportFolderPathInput>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -91,15 +91,11 @@ pub async fn import_folder_path(
     {
         return Err(ApiError::Invalid("Folder names must be 1–80 characters"));
     }
-    let mut tx = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-        .bind(format!("bookmark-folders:{uid}"))
-        .execute(&mut *tx)
-        .await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     let mut parent_id = input.parent_id;
     if let Some(id) = parent_id {
         let owned: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM bookmark_folders WHERE author_id=$1 AND id=$2)",
+            "SELECT EXISTS(SELECT 1 FROM bookmark_folders WHERE author_id=?1 AND id=?2)",
         )
         .bind(uid)
         .bind(id)
@@ -111,13 +107,13 @@ pub async fn import_folder_path(
     }
     for name in path {
         let existing: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM bookmark_folders WHERE author_id=$1 AND parent_id IS NOT DISTINCT FROM $2 AND lower(name)=lower($3)",
+            "SELECT id FROM bookmark_folders WHERE author_id=?1 AND parent_id IS ?2 AND lower(name)=lower(?3)",
         ).bind(uid).bind(parent_id).bind(name).fetch_optional(&mut *tx).await?;
         let id = if let Some(id) = existing {
             id
         } else {
             sqlx::query_scalar::<_, i64>(
-                "INSERT INTO bookmark_folders(author_id,name,parent_id) VALUES ($1,$2,$3) RETURNING id",
+                "INSERT INTO bookmark_folders(author_id,name,parent_id) VALUES (?1,?2,?3) RETURNING id",
             ).bind(uid).bind(name).bind(parent_id).fetch_one(&mut *tx).await?
         };
         parent_id = Some(id);
@@ -126,7 +122,7 @@ pub async fn import_folder_path(
     Ok(Json(serde_json::json!({"id": parent_id})))
 }
 async fn write_folder(
-    db: &PgPool,
+    db: &SqlitePool,
     uid: i64,
     id: Option<i64>,
     name: String,
@@ -136,16 +132,12 @@ async fn write_folder(
     if name.is_empty() || name.chars().count() > 80 {
         return Err(ApiError::Invalid("Folder names must be 1–80 characters"));
     }
-    let mut tx = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-        .bind(format!("bookmark-folders:{uid}"))
-        .execute(&mut *tx)
-        .await?;
+    let mut tx = crate::db::begin_immediate(db).await?;
     let parent_id = if let Some(parent_id) = requested_parent {
         parent_id
     } else if let Some(id) = id {
         sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT parent_id FROM bookmark_folders WHERE author_id=$1 AND id=$2 FOR UPDATE",
+            "SELECT parent_id FROM bookmark_folders WHERE author_id=?1 AND id=?2",
         )
         .bind(uid)
         .bind(id)
@@ -158,7 +150,7 @@ async fn write_folder(
 
     if let Some(parent_id) = parent_id {
         let parent_exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM bookmark_folders WHERE author_id=$1 AND id=$2)",
+            "SELECT EXISTS(SELECT 1 FROM bookmark_folders WHERE author_id=?1 AND id=?2)",
         )
         .bind(uid)
         .bind(parent_id)
@@ -170,13 +162,13 @@ async fn write_folder(
         if let Some(id) = id {
             let would_cycle: bool = sqlx::query_scalar(
                 "WITH RECURSIVE descendants(id) AS (
-                     SELECT id FROM bookmark_folders WHERE author_id=$1 AND id=$2
+                     SELECT id FROM bookmark_folders WHERE author_id=?1 AND id=?2
                      UNION ALL
                      SELECT child.id FROM bookmark_folders child
                      JOIN descendants parent ON child.parent_id=parent.id
-                     WHERE child.author_id=$1
+                     WHERE child.author_id=?1
                  )
-                 SELECT EXISTS(SELECT 1 FROM descendants WHERE id=$3)",
+                 SELECT EXISTS(SELECT 1 FROM descendants WHERE id=?3)",
             )
             .bind(uid)
             .bind(id)
@@ -191,7 +183,7 @@ async fn write_folder(
 
     let result = if let Some(id) = id {
         sqlx::query_scalar::<_, i64>(
-            "UPDATE bookmark_folders SET name=$3,parent_id=$4 WHERE author_id=$1 AND id=$2 RETURNING id",
+            "UPDATE bookmark_folders SET name=?3,parent_id=?4 WHERE author_id=?1 AND id=?2 RETURNING id",
         )
         .bind(uid)
         .bind(id)
@@ -201,7 +193,7 @@ async fn write_folder(
         .await
     } else {
         sqlx::query_scalar::<_, i64>(
-            "INSERT INTO bookmark_folders(author_id,name,parent_id) VALUES ($1,$2,$3) RETURNING id",
+            "INSERT INTO bookmark_folders(author_id,name,parent_id) VALUES (?1,?2,?3) RETURNING id",
         )
         .bind(uid)
         .bind(name)
@@ -222,7 +214,7 @@ async fn write_folder(
     }
 }
 pub async fn create_folder(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Json(input): Json<FolderInput>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -230,7 +222,7 @@ pub async fn create_folder(
     write_folder(&db, uid, None, input.name, input.parent_id).await
 }
 pub async fn rename_folder(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<FolderInput>,
@@ -239,23 +231,18 @@ pub async fn rename_folder(
     write_folder(&db, uid, Some(id), input.name, input.parent_id).await
 }
 pub async fn delete_folder(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let uid = owner(&h, &db).await?;
-    let mut tx = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-        .bind(format!("bookmark-folders:{uid}"))
-        .execute(&mut *tx)
-        .await?;
-    let found: Option<Option<i64>> = sqlx::query_scalar(
-        "SELECT parent_id FROM bookmark_folders WHERE author_id=$1 AND id=$2 FOR UPDATE",
-    )
-    .bind(uid)
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
+    let found: Option<Option<i64>> =
+        sqlx::query_scalar("SELECT parent_id FROM bookmark_folders WHERE author_id=?1 AND id=?2")
+            .bind(uid)
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
     let parent_id = found.ok_or(ApiError::Missing)?;
     let has_promote_conflict: bool = sqlx::query_scalar(
         "SELECT EXISTS(
@@ -263,10 +250,10 @@ pub async fn delete_folder(
              FROM bookmark_folders child
              JOIN bookmark_folders sibling
                ON sibling.author_id=child.author_id
-              AND sibling.parent_id IS NOT DISTINCT FROM $3
+              AND sibling.parent_id IS ?3
               AND lower(sibling.name)=lower(child.name)
-              AND sibling.id<>$2
-             WHERE child.author_id=$1 AND child.parent_id=$2
+              AND sibling.id<>?2
+             WHERE child.author_id=?1 AND child.parent_id=?2
          )",
     )
     .bind(uid)
@@ -279,19 +266,19 @@ pub async fn delete_folder(
             "Rename the conflicting subfolder before deleting this folder",
         ));
     }
-    sqlx::query("UPDATE bookmarks SET folder_id=$3 WHERE author_id=$1 AND folder_id=$2")
+    sqlx::query("UPDATE bookmarks SET folder_id=?3 WHERE author_id=?1 AND folder_id=?2")
         .bind(uid)
         .bind(id)
         .bind(parent_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE bookmark_folders SET parent_id=$3 WHERE author_id=$1 AND parent_id=$2")
+    sqlx::query("UPDATE bookmark_folders SET parent_id=?3 WHERE author_id=?1 AND parent_id=?2")
         .bind(uid)
         .bind(id)
         .bind(parent_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM bookmark_folders WHERE author_id=$1 AND id=$2")
+    sqlx::query("DELETE FROM bookmark_folders WHERE author_id=?1 AND id=?2")
         .bind(uid)
         .bind(id)
         .execute(&mut *tx)
@@ -301,21 +288,21 @@ pub async fn delete_folder(
 }
 
 pub async fn import_x_source(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Json(input): Json<ImportXInput>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let uid = owner(&h, &db).await?;
     let source = crate::imports::canonical("x", &input.source_url)?;
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     let inserted: Option<i64> = sqlx::query_scalar(
         "INSERT INTO bookmarks(author_id,post_id,folder_id)
-         SELECT $1,p.id,$3
+         SELECT ?1,p.id,?3
          FROM external_posts e
          JOIN posts p ON p.id=e.post_id
-         WHERE e.source_url=$2
+         WHERE e.source_url=?2
            AND (p.moderation_status='approved'
-                OR (p.author_id=$1 AND p.moderation_status='pending'))
+                OR (p.author_id=?1 AND p.moderation_status='pending'))
          ON CONFLICT(author_id,post_id) DO UPDATE SET folder_id=excluded.folder_id
          RETURNING post_id",
     )
@@ -332,7 +319,7 @@ pub async fn import_x_source(
         tx.rollback().await?;
         return Ok(Json(serde_json::json!({"found": false, "saved": false})));
     };
-    let status: String = sqlx::query_scalar("SELECT moderation_status FROM posts WHERE id=$1")
+    let status: String = sqlx::query_scalar("SELECT moderation_status FROM posts WHERE id=?1")
         .bind(post_id)
         .fetch_one(&mut *tx)
         .await?;
@@ -345,14 +332,14 @@ pub async fn import_x_source(
     })))
 }
 pub async fn status(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let uid = owner(&h, &db).await?;
     let row: Option<(Option<i64>,)> = crate::operations::timed_query(
         "bookmarks.status",
-        sqlx::query_as("SELECT folder_id FROM bookmarks WHERE author_id=$1 AND post_id=$2")
+        sqlx::query_as("SELECT folder_id FROM bookmarks WHERE author_id=?1 AND post_id=?2")
             .bind(uid)
             .bind(id)
             .fetch_optional(&db),
@@ -363,7 +350,7 @@ pub async fn status(
     ))
 }
 pub async fn batch_status(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Query(input): Query<BatchStatusInput>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -384,10 +371,10 @@ pub async fn batch_status(
         sqlx::query_as(
             "SELECT post_id, folder_id
              FROM bookmarks
-             WHERE author_id = $1 AND post_id = ANY($2::bigint[])",
+             WHERE author_id = ?1 AND post_id IN (SELECT value FROM json_each(?2))",
         )
         .bind(uid)
-        .bind(&ids)
+        .bind(serde_json::json!(ids))
         .fetch_all(&db),
     )
     .await?;
@@ -403,14 +390,14 @@ pub async fn batch_status(
     Ok(Json(serde_json::json!({"items": saved})))
 }
 pub async fn save(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<SaveInput>,
 ) -> Result<StatusCode, ApiError> {
     let uid = owner(&h, &db).await?;
     // The composite foreign key enforces ownership even during concurrent folder changes.
-    let result=sqlx::query("INSERT INTO bookmarks(author_id,post_id,folder_id) SELECT $1,$2,$3 WHERE EXISTS (SELECT 1 FROM posts WHERE id=$2 AND (moderation_status='approved' OR (author_id=$1 AND moderation_status='pending'))) ON CONFLICT(author_id,post_id) DO UPDATE SET folder_id=excluded.folder_id").bind(uid).bind(id).bind(input.folder_id).execute(&db).await;
+    let result=sqlx::query("INSERT INTO bookmarks(author_id,post_id,folder_id) SELECT ?1,?2,?3 WHERE EXISTS (SELECT 1 FROM posts WHERE id=?2 AND (moderation_status='approved' OR (author_id=?1 AND moderation_status='pending'))) ON CONFLICT(author_id,post_id) DO UPDATE SET folder_id=excluded.folder_id").bind(uid).bind(id).bind(input.folder_id).execute(&db).await;
     match result {
         Ok(result) if result.rows_affected() == 1 => Ok(StatusCode::NO_CONTENT),
         Ok(_) => Err(ApiError::Missing),
@@ -419,12 +406,12 @@ pub async fn save(
     }
 }
 pub async fn remove(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     let uid = owner(&h, &db).await?;
-    sqlx::query("DELETE FROM bookmarks WHERE author_id=$1 AND post_id=$2")
+    sqlx::query("DELETE FROM bookmarks WHERE author_id=?1 AND post_id=?2")
         .bind(uid)
         .bind(id)
         .execute(&db)
@@ -432,7 +419,7 @@ pub async fn remove(
     Ok(StatusCode::NO_CONTENT)
 }
 pub async fn list(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     h: HeaderMap,
     Query(q): Query<ListInput>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -441,7 +428,7 @@ pub async fn list(
     if !(1..=100000).contains(&page) {
         return Err(ApiError::Invalid("Invalid page"));
     }
-    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at,p.moderation_status FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=$1 AND (p.moderation_status='approved' OR (p.author_id=$1 AND p.moderation_status='pending')) AND ($2::bigint IS NULL OR b.folder_id=$2) AND (NOT $3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET $4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
+    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at,p.moderation_status FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=?1 AND (p.moderation_status='approved' OR (p.author_id=?1 AND p.moderation_status='pending')) AND (?2 IS NULL OR b.folder_id=?2) AND (NOT ?3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET ?4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
     let has_more = rows.len() > 50;
     rows.truncate(50);
     Ok(Json(serde_json::json!({"items":rows,"has_more":has_more})))
@@ -465,9 +452,8 @@ mod tests {
         assert_eq!(nested.parent_id, Some(Some(7)));
     }
 
-    #[sqlx::test(migrations = "./migrations")]
-    #[ignore = "requires DATABASE_URL and permission to create an isolated test database"]
-    async fn private_bookmarks_and_folder_lifecycle(db: PgPool) {
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn private_bookmarks_and_folder_lifecycle(db: SqlitePool) {
         let a: i64 =
             sqlx::query_scalar("INSERT INTO authors(handle) VALUES ('alice') RETURNING id")
                 .fetch_one(&db)
@@ -479,7 +465,7 @@ mod tests {
             .unwrap();
         let mut headers = Vec::new();
         for (uid, token) in [(a, "a".repeat(64)), (b, "b".repeat(64))] {
-            sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES ($1,$2,now()+interval '1 hour')").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(uid).execute(&db).await.unwrap();
+            sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES (?1,?2,strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 hour'))").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(uid).execute(&db).await.unwrap();
             let mut h = HeaderMap::new();
             h.insert("authorization", format!("Bearer {token}").parse().unwrap());
             headers.push(h);
@@ -490,7 +476,7 @@ mod tests {
         .fetch_one(&db)
         .await
         .unwrap();
-        let post:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES ($1,$2,'Saved discussion','approved') RETURNING id").bind(c).bind(a).fetch_one(&db).await.unwrap();
+        let post:i64=sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES (?1,?2,'Saved discussion','approved') RETURNING id").bind(c).bind(a).fetch_one(&db).await.unwrap();
         assert!(matches!(
             list(
                 State(db.clone()),
@@ -535,7 +521,7 @@ mod tests {
             .0["id"]
             .as_i64()
             .unwrap();
-        sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,observed_at) VALUES ($1,'x','https://x.com/i/status/123','@alice',now())")
+        sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,observed_at) VALUES (?1,'x','https://x.com/i/status/123','@alice',strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
             .bind(post)
             .execute(&db)
             .await
@@ -641,7 +627,7 @@ mod tests {
         assert_eq!(status["saved"], true);
         assert!(status["folder_id"].is_null());
         let reparented: Option<i64> = sqlx::query_scalar(
-            "SELECT parent_id FROM bookmark_folders WHERE author_id=$1 AND id=$2",
+            "SELECT parent_id FROM bookmark_folders WHERE author_id=?1 AND id=?2",
         )
         .bind(a)
         .bind(child)
@@ -676,9 +662,8 @@ mod tests {
             0
         );
     }
-    #[sqlx::test(migrations = "./migrations")]
-    #[ignore = "requires DATABASE_URL and permission to create an isolated test database"]
-    async fn import_paths_and_pending_bookmarks(db: PgPool) {
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn import_paths_and_pending_bookmarks(db: SqlitePool) {
         let alice: i64 =
             sqlx::query_scalar("INSERT INTO authors(handle) VALUES ('alice') RETURNING id")
                 .fetch_one(&db)
@@ -691,7 +676,7 @@ mod tests {
                 .unwrap();
         let mut headers = Vec::new();
         for (uid, token) in [(alice, "a".repeat(64)), (bob, "b".repeat(64))] {
-            sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES ($1,$2,now()+interval '1 hour')").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(uid).execute(&db).await.unwrap();
+            sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES (?1,?2,strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 hour'))").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(uid).execute(&db).await.unwrap();
             let mut h = HeaderMap::new();
             h.insert("authorization", format!("Bearer {token}").parse().unwrap());
             headers.push(h);
@@ -714,7 +699,7 @@ mod tests {
         assert_eq!(second.unwrap().0["id"], folder);
         assert_eq!(
             sqlx::query_scalar::<_, i64>(
-                "SELECT count(*) FROM bookmark_folders WHERE author_id=$1"
+                "SELECT count(*) FROM bookmark_folders WHERE author_id=?1"
             )
             .bind(alice)
             .fetch_one(&db)
@@ -748,8 +733,8 @@ mod tests {
         .fetch_one(&db)
         .await
         .unwrap();
-        let mine: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES ($1,$2,'My pending import','pending') RETURNING id").bind(community).bind(alice).fetch_one(&db).await.unwrap();
-        let theirs: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES ($1,$2,'Other pending import','approved') RETURNING id").bind(community).bind(bob).fetch_one(&db).await.unwrap();
+        let mine: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES (?1,?2,'My pending import','pending') RETURNING id").bind(community).bind(alice).fetch_one(&db).await.unwrap();
+        let theirs: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) VALUES (?1,?2,'Other pending import','approved') RETURNING id").bind(community).bind(bob).fetch_one(&db).await.unwrap();
         for post in [mine, theirs] {
             save(
                 State(db.clone()),
@@ -762,7 +747,7 @@ mod tests {
             .await
             .unwrap();
         }
-        sqlx::query("UPDATE posts SET moderation_status='pending' WHERE id=$1")
+        sqlx::query("UPDATE posts SET moderation_status='pending' WHERE id=?1")
             .bind(theirs)
             .execute(&db)
             .await
@@ -797,7 +782,7 @@ mod tests {
             .await,
             Err(ApiError::Missing)
         ));
-        sqlx::query("UPDATE posts SET moderation_status='rejected' WHERE id=$1")
+        sqlx::query("UPDATE posts SET moderation_status='rejected' WHERE id=?1")
             .bind(mine)
             .execute(&db)
             .await

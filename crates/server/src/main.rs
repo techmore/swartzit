@@ -15,10 +15,11 @@ use chrono::{DateTime, Utc};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
+use sqlx::{FromRow, SqlitePool};
 use tower_http::cors::{Any, CorsLayer};
 mod admin;
 mod bookmarks;
+mod db;
 mod imports;
 mod media_store;
 mod moderation;
@@ -107,7 +108,7 @@ struct Post {
     /// Only populated by the private buddies feed.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    liked_by: Option<Vec<String>>,
+    liked_by: Option<serde_json::Value>,
     /// Most recent pinned-buddy upvote represented by this feed item.
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -456,7 +457,63 @@ impl FeedQuery {
         self.mature_only.unwrap_or(false)
     }
 }
-const POST_SELECT: &str = "SELECT (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id=p.id) AS source, p.content_rating, p.content_rating_source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
+// Translate the public search box syntax into bounded FTS5 input. A leading
+// internal ! marks an exclusions-only search for the CASE predicate below.
+fn fts_query(input: &str) -> String {
+    if input.trim().is_empty() {
+        return String::new();
+    }
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut phrase = false;
+    for ch in input.chars() {
+        match ch {
+            '"' => {
+                quoted = !quoted;
+                phrase = true;
+            }
+            ch if ch.is_whitespace() && !quoted => {
+                if !current.is_empty() {
+                    tokens.push((std::mem::take(&mut current), phrase));
+                    phrase = false;
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push((current, phrase));
+    }
+    let quote = |value: &str| format!("\"{}\"", value.replace('"', "\"\""));
+    let mut groups: Vec<Vec<String>> = vec![Vec::new()];
+    let mut excluded = Vec::new();
+    for (token, phrase) in tokens {
+        if token == "OR" && !phrase && !groups.last().is_some_and(Vec::is_empty) {
+            groups.push(Vec::new());
+        } else if let Some(term) = token.strip_prefix('-').filter(|value| !value.is_empty()) {
+            excluded.push(quote(term));
+        } else if !token.is_empty() {
+            groups.last_mut().unwrap().push(quote(&token));
+        }
+    }
+    let included = groups
+        .into_iter()
+        .filter(|group| !group.is_empty())
+        .map(|group| format!("({})", group.join(" AND ")))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let excluded = excluded.join(" OR ");
+    match (included.is_empty(), excluded.is_empty()) {
+        (true, false) => format!("!{excluded}"),
+        (false, false) => format!("({included}) NOT ({excluded})"),
+        (false, true) => included,
+        // Input made only of quotes still must be a valid, nonmatching query.
+        (true, true) => quote(input),
+    }
+}
+
+const POST_SELECT: &str = "SELECT (SELECT json_object('post_id',e.post_id, 'provider',e.provider, 'source_url',e.source_url, 'source_author',e.source_author, 'published_at',e.published_at, 'observed_at',e.observed_at, 'source_views',e.source_views, 'source_likes',e.source_likes, 'source_reposts',e.source_reposts, 'source_replies',e.source_replies, 'media',json(e.media), 'attribution',e.attribution, 'profile_image_url',e.profile_image_url, 'profile_image_cached_at',e.profile_image_cached_at, 'profile_url',e.profile_url, 'profile_display_name',e.profile_display_name, 'profile_bio',e.profile_bio, 'profile_followers',e.profile_followers, 'profile_following',e.profile_following, 'profile_verified',json(CASE WHEN e.profile_verified IS NULL THEN NULL WHEN e.profile_verified THEN 'true' ELSE 'false' END), 'source_comments',json(e.source_comments), 'generation_config',json(e.generation_config)) FROM external_posts e WHERE e.post_id=p.id) AS source, p.content_rating, p.content_rating_source, COALESCE(ps.view_count, p.view_count) AS view_count, COALESCE(ps.engaged_view_count, p.engaged_view_count) AS engaged_view_count, COALESCE(ps.deep_view_count, p.deep_view_count) AS deep_view_count, p.id, p.public_id, p.title, p.body, p.created_at, a.handle AS author, c.slug AS community, c.name AS community_name, COALESCE(ps.comment_count, 0) AS comment_count, COALESCE(ps.score, 0) AS score FROM posts p JOIN authors a ON a.id = p.author_id JOIN communities c ON c.id = p.community_id LEFT JOIN post_stats ps ON ps.post_id = p.id";
 
 fn validate_content_rating(value: Option<&str>) -> Result<String, ApiError> {
     let rating = value.unwrap_or("general").trim().to_ascii_lowercase();
@@ -485,35 +542,35 @@ fn is_draw_things_source(source: &Option<serde_json::Value>) -> bool {
 }
 
 async fn draw_things_feedback_summary(
-    db: &PgPool,
+    db: &SqlitePool,
     post_id: i64,
 ) -> Result<serde_json::Value, ApiError> {
     Ok(sqlx::query_scalar(
-        "SELECT json_build_object(
-           'responses', count(*)::bigint,
-           'overall', round(avg(overall)::numeric, 2),
-           'prompt_match', round(avg(prompt_match)::numeric, 2),
-           'natural_color', round(avg(natural_color)::numeric, 2),
-           'realism', round(avg(realism)::numeric, 2),
-           'likeness', round(avg(likeness)::numeric, 2),
-           'composition', round(avg(composition)::numeric, 2),
-           'detail', round(avg(detail)::numeric, 2)
+        "SELECT json_object(
+           'responses', count(*),
+           'overall', round(avg(overall), 2),
+           'prompt_match', round(avg(prompt_match), 2),
+           'natural_color', round(avg(natural_color), 2),
+           'realism', round(avg(realism), 2),
+           'likeness', round(avg(likeness), 2),
+           'composition', round(avg(composition), 2),
+           'detail', round(avg(detail), 2)
          )
          FROM draw_things_feedback
-         WHERE post_id = $1",
+         WHERE post_id = ?1",
     )
     .bind(post_id)
     .fetch_one(db)
     .await?)
 }
 
-async fn require_draw_things_post(db: &PgPool, post_id: i64) -> Result<(), ApiError> {
+async fn require_draw_things_post(db: &SqlitePool, post_id: i64) -> Result<(), ApiError> {
     let available: bool = sqlx::query_scalar(
         "SELECT EXISTS (
            SELECT 1
            FROM posts p
            JOIN external_posts e ON e.post_id = p.id
-           WHERE p.id = $1
+           WHERE p.id = ?1
              AND p.moderation_status = 'approved'
              AND e.provider = 'runner'
              AND e.generation_config->>'provider' = 'draw_things'
@@ -551,7 +608,7 @@ fn validate_draw_things_feedback(input: &DrawThingsFeedbackRequest) -> Result<()
 }
 
 async fn draw_things_feedback_get(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(post_id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -560,7 +617,7 @@ async fn draw_things_feedback_get(
     let mine: Option<DrawThingsFeedbackMine> = sqlx::query_as(
         "SELECT overall, prompt_match, natural_color, realism, likeness, composition, detail
          FROM draw_things_feedback
-         WHERE post_id = $1 AND author_id = $2",
+         WHERE post_id = ?1 AND author_id = ?2",
     )
     .bind(post_id)
     .bind(author_id)
@@ -573,7 +630,7 @@ async fn draw_things_feedback_get(
 }
 
 async fn draw_things_feedback_submit(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(post_id): Path<i64>,
     Json(input): Json<DrawThingsFeedbackRequest>,
@@ -585,7 +642,7 @@ async fn draw_things_feedback_submit(
         "INSERT INTO draw_things_feedback(
            post_id, author_id, overall, prompt_match, natural_color, realism,
            likeness, composition, detail
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
          ON CONFLICT (post_id, author_id) DO UPDATE SET
            overall = EXCLUDED.overall,
            prompt_match = EXCLUDED.prompt_match,
@@ -594,7 +651,7 @@ async fn draw_things_feedback_submit(
            likeness = EXCLUDED.likeness,
            composition = EXCLUDED.composition,
            detail = EXCLUDED.detail,
-           updated_at = now()",
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(post_id)
     .bind(author_id)
@@ -640,18 +697,21 @@ async fn profile_image(Path(id): Path<i64>) -> Result<Response, ApiError> {
     }
     Err(ApiError::Missing)
 }
-async fn runner_media(State(db): State<PgPool>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+async fn runner_media(
+    State(db): State<SqlitePool>,
+    Path(id): Path<i64>,
+) -> Result<Response, ApiError> {
     serve_media(db, id, "original").await
 }
 
 async fn runner_media_variant(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     Path((id, variant)): Path<(i64, String)>,
 ) -> Result<Response, ApiError> {
     serve_media(db, id, &variant).await
 }
 
-async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, ApiError> {
+async fn serve_media(db: SqlitePool, id: i64, variant: &str) -> Result<Response, ApiError> {
     if id <= 0 {
         return Err(ApiError::Missing);
     }
@@ -661,7 +721,7 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
     let row: Option<MediaServeRow> = sqlx::query_as(
         "SELECT content_hash, content_bytes, byte_size, mime_type, content_type,
                 storage_backend, object_key, status, variants
-         FROM media_assets WHERE id=$1",
+         FROM media_assets WHERE id=?1",
     )
     .bind(id)
     .fetch_optional(&db)
@@ -702,8 +762,8 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
     let secondaries: Vec<(String, String)> = sqlx::query_as(
         "SELECT provider, object_key
          FROM media_replicas
-         WHERE media_id = $1 AND role IN ('secondary', 'backup')
-           AND variant = $2 AND state = 'ready' AND object_key IS NOT NULL
+         WHERE media_id = ?1 AND role IN ('secondary', 'backup')
+           AND variant = ?2 AND state = 'ready' AND object_key IS NOT NULL
          ORDER BY CASE role WHEN 'secondary' THEN 0 ELSE 1 END,
                   last_verified_at DESC NULLS LAST, id DESC",
     )
@@ -744,7 +804,7 @@ async fn serve_media(db: PgPool, id: i64, variant: &str) -> Result<Response, Api
         .map_err(|_| ApiError::Missing)
         .unwrap())
 }
-async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn health(State(db): State<SqlitePool>) -> Result<Json<serde_json::Value>, ApiError> {
     operations::timed_query("health", sqlx::query("SELECT 1").execute(&db)).await?;
     let started_at = STARTED_AT.get().copied().unwrap_or_else(Utc::now);
     let uptime_seconds = Utc::now()
@@ -757,7 +817,7 @@ async fn health(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, Api
         "uptime_seconds": uptime_seconds
     })))
 }
-async fn ready(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn ready(State(db): State<SqlitePool>) -> Result<Json<serde_json::Value>, ApiError> {
     operations::timed_query("readiness", sqlx::query("SELECT 1").execute(&db)).await?;
     Ok(Json(serde_json::json!({"status": "ready"})))
 }
@@ -774,9 +834,9 @@ fn uptime_pulse_path() -> std::path::PathBuf {
     std::path::PathBuf::from(".local/uptime-pulse.json")
 }
 
-async fn instance_module_enabled(db: &PgPool, module_key: &str) -> Result<bool, ApiError> {
+async fn instance_module_enabled(db: &SqlitePool, module_key: &str) -> Result<bool, ApiError> {
     Ok(
-        sqlx::query_scalar::<_, bool>("SELECT enabled FROM instance_modules WHERE module_key = $1")
+        sqlx::query_scalar::<_, bool>("SELECT enabled FROM instance_modules WHERE module_key = ?1")
             .bind(module_key)
             .fetch_optional(db)
             .await?
@@ -784,9 +844,9 @@ async fn instance_module_enabled(db: &PgPool, module_key: &str) -> Result<bool, 
     )
 }
 
-async fn log_event(db: &PgPool, level: &str, event: &str, detail: serde_json::Value) {
+async fn log_event(db: &SqlitePool, level: &str, event: &str, detail: serde_json::Value) {
     if let Err(error) =
-        sqlx::query("INSERT INTO system_logs (level, event, detail) VALUES ($1, $2, $3) ON CONFLICT (slot) DO UPDATE SET id = EXCLUDED.id, level = EXCLUDED.level, event = EXCLUDED.event, detail = EXCLUDED.detail, created_at = EXCLUDED.created_at")
+        sqlx::query("INSERT INTO system_logs (level, event, detail) VALUES (?1, ?2, ?3) ON CONFLICT (slot) DO UPDATE SET id = EXCLUDED.id, level = EXCLUDED.level, event = EXCLUDED.event, detail = EXCLUDED.detail, created_at = EXCLUDED.created_at")
             .bind(level)
             .bind(event)
             .bind(detail)
@@ -802,7 +862,7 @@ async fn nodeinfo() -> Json<serde_json::Value> {
     )
 }
 async fn signup(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     Json(input): Json<SignupRequest>,
 ) -> Result<(StatusCode, Json<SignupResponse>), ApiError> {
     let handle = input.handle.trim().to_ascii_lowercase();
@@ -825,7 +885,7 @@ async fn signup(
         .hash_password(input.password.as_bytes(), &salt)
         .map_err(|_| ApiError::Invalid("Could not create account"))?
         .to_string();
-    let inserted = sqlx::query_scalar::<_, String>("INSERT INTO authors (handle, password_hash) VALUES ($1, $2) ON CONFLICT (handle) DO NOTHING RETURNING handle").bind(&handle).bind(hash).fetch_optional(&db).await?;
+    let inserted = sqlx::query_scalar::<_, String>("INSERT INTO authors (handle, password_hash) VALUES (?1, ?2) ON CONFLICT (handle) DO NOTHING RETURNING handle").bind(&handle).bind(hash).fetch_optional(&db).await?;
     if inserted.is_none() {
         return Err(ApiError::Invalid("That handle is already in use"));
     }
@@ -839,12 +899,12 @@ async fn signup(
     Ok((StatusCode::CREATED, Json(SignupResponse { handle })))
 }
 async fn login(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     Json(input): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
     let handle = input.handle.trim().to_ascii_lowercase();
     let hash: Option<(i64, String)> = sqlx::query_as(
-        "SELECT id, password_hash FROM authors WHERE handle = $1 AND password_hash IS NOT NULL",
+        "SELECT id, password_hash FROM authors WHERE handle = ?1 AND password_hash IS NOT NULL",
     )
     .bind(&handle)
     .fetch_optional(&db)
@@ -862,7 +922,7 @@ async fn login(
     let token = hex::encode(token_bytes);
     let token_hash = Sha256::digest(token.as_bytes()).to_vec();
     let expires_at = Utc::now() + chrono::Duration::days(30);
-    sqlx::query("INSERT INTO sessions (token_hash, author_id, expires_at) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO sessions (token_hash, author_id, expires_at) VALUES (?1, ?2, ?3)")
         .bind(token_hash)
         .bind(author_id)
         .bind(expires_at)
@@ -870,7 +930,7 @@ async fn login(
         .await?;
     Ok(Json(LoginResponse { token, expires_at }))
 }
-async fn authenticated_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, ApiError> {
+async fn authenticated_author(headers: &HeaderMap, db: &SqlitePool) -> Result<i64, ApiError> {
     let value = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -883,7 +943,7 @@ async fn authenticated_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, A
     }
     let token_hash = Sha256::digest(token.as_bytes()).to_vec();
     sqlx::query_scalar(
-        "SELECT author_id FROM sessions WHERE token_hash = $1 AND expires_at > now()",
+        "SELECT author_id FROM sessions WHERE token_hash = ?1 AND julianday(expires_at) > julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(token_hash)
     .fetch_optional(db)
@@ -891,10 +951,10 @@ async fn authenticated_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, A
     .ok_or(ApiError::Invalid("Authentication required"))
 }
 
-async fn active_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, ApiError> {
+async fn active_author(headers: &HeaderMap, db: &SqlitePool) -> Result<i64, ApiError> {
     let author_id = authenticated_author(headers, db).await?;
     let suspended_until: Option<DateTime<Utc>> =
-        sqlx::query_scalar("SELECT suspended_until FROM authors WHERE id = $1")
+        sqlx::query_scalar("SELECT suspended_until FROM authors WHERE id = ?1")
             .bind(author_id)
             .fetch_one(db)
             .await?;
@@ -905,16 +965,16 @@ async fn active_author(headers: &HeaderMap, db: &PgPool) -> Result<i64, ApiError
 }
 
 async fn analyze_user_content(
-    db: &PgPool,
+    db: &SqlitePool,
     author_id: i64,
     text: &str,
 ) -> Result<moderation::Analysis, ApiError> {
     let mut result = moderation::analyze(text);
     let recent: Vec<String> = sqlx::query_scalar(
         "SELECT body FROM (
-           SELECT body, created_at FROM posts WHERE author_id = $1 AND created_at > now() - interval '10 minutes'
+           SELECT body, created_at FROM posts WHERE author_id = ?1 AND julianday(created_at) > julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-10 minutes'))
            UNION ALL
-           SELECT body, created_at FROM comments WHERE author_id = $1 AND created_at > now() - interval '10 minutes'
+           SELECT body, created_at FROM comments WHERE author_id = ?1 AND julianday(created_at) > julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-10 minutes'))
          ) recent ORDER BY created_at DESC LIMIT 50",
     )
     .bind(author_id)
@@ -1033,10 +1093,13 @@ fn validate_github_link(value: Option<String>) -> Result<Option<String>, ApiErro
     Ok(value)
 }
 
-async fn me(State(db): State<PgPool>, headers: HeaderMap) -> Result<Json<CurrentUser>, ApiError> {
+async fn me(
+    State(db): State<SqlitePool>,
+    headers: HeaderMap,
+) -> Result<Json<CurrentUser>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let user = sqlx::query_as::<_, CurrentUser>(
-        "SELECT handle, is_admin, avatar_url FROM authors WHERE id = $1",
+        "SELECT handle, is_admin, avatar_url FROM authors WHERE id = ?1",
     )
     .bind(author_id)
     .fetch_optional(&db)
@@ -1046,22 +1109,22 @@ async fn me(State(db): State<PgPool>, headers: HeaderMap) -> Result<Json<Current
 }
 
 async fn profile_payload(
-    db: &PgPool,
+    db: &SqlitePool,
     handle: &str,
     tab: Option<&str>,
 ) -> Result<serde_json::Value, ApiError> {
     let profile = operations::timed_query(
         "profile.summary",
         sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT row_to_json(t) FROM (
+            "SELECT json_object('handle',t.handle,'display_name',t.display_name,'bio',t.bio,'avatar_url',t.avatar_url,'projects',json(t.projects),'joined_at',t.joined_at,'post_count',t.post_count,'comment_count',t.comment_count,'media_count',t.media_count,'pinned_post_id',t.pinned_post_id) FROM (
                SELECT a.handle,
                       NULLIF(a.display_name, '') AS display_name,
                       NULLIF(a.bio, '') AS bio,
                       a.avatar_url,
-                      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                      COALESCE((SELECT json_group_array(json_object(
                         'name', ap.name, 'url', ap.url, 'favicon_url', ap.favicon_url,
                         'github_url', ap.github_url
-                      ) ORDER BY ap.sort_order, ap.id) FROM author_projects ap WHERE ap.author_id = a.id), '[]'::jsonb) AS projects,
+                      ) ORDER BY ap.sort_order, ap.id) FROM author_projects ap WHERE ap.author_id = a.id), '[]') AS projects,
                       a.created_at AS joined_at,
                       (SELECT count(*) FROM posts p WHERE p.author_id = a.id AND p.moderation_status = 'approved') AS post_count,
                   (SELECT count(*)
@@ -1075,15 +1138,15 @@ async fn profile_payload(
                    JOIN external_posts e ON e.post_id = p.id
                    WHERE p.author_id = a.id
                      AND p.moderation_status = 'approved'
-                     AND jsonb_typeof(e.media) = 'array'
-                     AND jsonb_array_length(e.media) > 0) AS media_count,
+                     AND json_type(e.media) = 'array'
+                     AND json_array_length(e.media) > 0) AS media_count,
                       (SELECT p.public_id
                        FROM author_pinned_posts pin
                        JOIN posts p ON p.id = pin.post_id
                        WHERE pin.author_id = a.id
                          AND p.moderation_status = 'approved') AS pinned_post_id
                FROM authors a
-               WHERE a.handle = $1
+               WHERE a.handle = ?1
              ) t",
         )
         .bind(handle)
@@ -1101,20 +1164,20 @@ async fn profile_payload(
         activity = operations::timed_query(
             "profile.activity",
             sqlx::query_scalar(
-                "SELECT row_to_json(activity) FROM (
+                "SELECT json_object('kind',activity.kind,'public_id',activity.public_id,'title',activity.title,'body',activity.body,'created_at',activity.created_at,'community',activity.community) FROM (
                    SELECT kind, public_id, title, body, created_at, community FROM (
-                     SELECT 'post'::text AS kind, p.public_id, p.title, p.body, p.created_at, c.slug AS community
+                     SELECT 'post' AS kind, p.public_id, p.title, p.body, p.created_at, c.slug AS community
                      FROM posts p
                      JOIN communities c ON c.id = p.community_id
                      JOIN authors a ON a.id = p.author_id
-                     WHERE a.handle = $1 AND p.moderation_status = 'approved'
+                     WHERE a.handle = ?1 AND p.moderation_status = 'approved'
                      UNION ALL
-                     SELECT 'comment'::text AS kind, p.public_id, NULL::text AS title, cm.body, cm.created_at, c.slug AS community
+                     SELECT 'comment' AS kind, p.public_id, NULL AS title, cm.body, cm.created_at, c.slug AS community
                      FROM comments cm
                      JOIN posts p ON p.id = cm.post_id
                      JOIN communities c ON c.id = p.community_id
                      JOIN authors a ON a.id = cm.author_id
-                     WHERE a.handle = $1 AND cm.moderation_status = 'approved' AND p.moderation_status = 'approved'
+                     WHERE a.handle = ?1 AND cm.moderation_status = 'approved' AND p.moderation_status = 'approved'
                    ) activity
                    ORDER BY created_at DESC
                    LIMIT 20
@@ -1129,7 +1192,7 @@ async fn profile_payload(
         posts = operations::timed_query(
             "profile.posts",
             sqlx::query_scalar::<_, serde_json::Value>(
-                "SELECT row_to_json(t) FROM (
+                "SELECT json_object('public_id',t.public_id,'title',t.title,'body',t.body,'created_at',t.created_at,'community',t.community,'comment_count',t.comment_count,'score',t.score,'pinned',json(CASE WHEN t.pinned THEN 'true' ELSE 'false' END),'source',json(t.source)) FROM (
                    SELECT p.public_id,
                           p.title,
                           p.body,
@@ -1138,13 +1201,13 @@ async fn profile_payload(
                           COALESCE(ps.comment_count, 0) AS comment_count,
                           COALESCE(ps.score, 0) AS score,
                           (pin.post_id IS NOT NULL) AS pinned,
-                          (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id = p.id) AS source
+                          (SELECT json_object('post_id',e.post_id, 'provider',e.provider, 'source_url',e.source_url, 'source_author',e.source_author, 'published_at',e.published_at, 'observed_at',e.observed_at, 'source_views',e.source_views, 'source_likes',e.source_likes, 'source_reposts',e.source_reposts, 'source_replies',e.source_replies, 'media',json(e.media), 'attribution',e.attribution, 'profile_image_url',e.profile_image_url, 'profile_image_cached_at',e.profile_image_cached_at, 'profile_url',e.profile_url, 'profile_display_name',e.profile_display_name, 'profile_bio',e.profile_bio, 'profile_followers',e.profile_followers, 'profile_following',e.profile_following, 'profile_verified',json(CASE WHEN e.profile_verified IS NULL THEN NULL WHEN e.profile_verified THEN 'true' ELSE 'false' END), 'source_comments',json(e.source_comments), 'generation_config',json(e.generation_config)) FROM external_posts e WHERE e.post_id = p.id) AS source
                    FROM posts p
                    JOIN communities c ON c.id = p.community_id
                    JOIN authors a ON a.id = p.author_id
                    LEFT JOIN post_stats ps ON ps.post_id = p.id
                    LEFT JOIN author_pinned_posts pin ON pin.post_id = p.id
-                   WHERE a.handle = $1 AND p.moderation_status = 'approved'
+                   WHERE a.handle = ?1 AND p.moderation_status = 'approved'
                    ORDER BY (pin.post_id IS NOT NULL) DESC, p.created_at DESC, p.id DESC
                    LIMIT 50
                  ) t",
@@ -1158,7 +1221,7 @@ async fn profile_payload(
         replies = operations::timed_query(
             "profile.replies",
             sqlx::query_scalar::<_, serde_json::Value>(
-                "SELECT row_to_json(t) FROM (
+                "SELECT json_object('id',t.id,'body',t.body,'created_at',t.created_at,'post_public_id',t.post_public_id,'post_title',t.post_title,'community',t.community) FROM (
                    SELECT cm.id,
                           cm.body,
                           cm.created_at,
@@ -1169,7 +1232,7 @@ async fn profile_payload(
                    JOIN posts p ON p.id = cm.post_id
                    JOIN communities c ON c.id = p.community_id
                    JOIN authors a ON a.id = cm.author_id
-                   WHERE a.handle = $1
+                   WHERE a.handle = ?1
                      AND cm.moderation_status = 'approved'
                      AND p.moderation_status = 'approved'
                    ORDER BY cm.created_at DESC, cm.id DESC
@@ -1185,25 +1248,25 @@ async fn profile_payload(
         media = operations::timed_query(
             "profile.media",
             sqlx::query_scalar::<_, serde_json::Value>(
-                "SELECT row_to_json(t) FROM (
+                "SELECT json_object('public_id',t.public_id,'title',t.title,'created_at',t.created_at,'community',t.community,'pinned',json(CASE WHEN t.pinned THEN 'true' ELSE 'false' END),'source',json(t.source)) FROM (
                    SELECT p.public_id,
                           p.title,
                           p.created_at,
                           c.slug AS community,
                           (pin.post_id IS NOT NULL) AS pinned,
-                          (SELECT to_jsonb(e) FROM external_posts e WHERE e.post_id = p.id) AS source
+                          (SELECT json_object('post_id',e.post_id, 'provider',e.provider, 'source_url',e.source_url, 'source_author',e.source_author, 'published_at',e.published_at, 'observed_at',e.observed_at, 'source_views',e.source_views, 'source_likes',e.source_likes, 'source_reposts',e.source_reposts, 'source_replies',e.source_replies, 'media',json(e.media), 'attribution',e.attribution, 'profile_image_url',e.profile_image_url, 'profile_image_cached_at',e.profile_image_cached_at, 'profile_url',e.profile_url, 'profile_display_name',e.profile_display_name, 'profile_bio',e.profile_bio, 'profile_followers',e.profile_followers, 'profile_following',e.profile_following, 'profile_verified',json(CASE WHEN e.profile_verified IS NULL THEN NULL WHEN e.profile_verified THEN 'true' ELSE 'false' END), 'source_comments',json(e.source_comments), 'generation_config',json(e.generation_config)) FROM external_posts e WHERE e.post_id = p.id) AS source
                    FROM posts p
                    JOIN communities c ON c.id = p.community_id
                    JOIN authors a ON a.id = p.author_id
                    LEFT JOIN author_pinned_posts pin ON pin.post_id = p.id
-                   WHERE a.handle = $1
+                   WHERE a.handle = ?1
                      AND p.moderation_status = 'approved'
                      AND EXISTS (
                        SELECT 1
                        FROM external_posts e
                        WHERE e.post_id = p.id
-                         AND jsonb_typeof(e.media) = 'array'
-                         AND jsonb_array_length(e.media) > 0
+                         AND json_type(e.media) = 'array'
+                         AND json_array_length(e.media) > 0
                      )
                    ORDER BY (pin.post_id IS NOT NULL) DESC, p.created_at DESC, p.id DESC
                    LIMIT 50
@@ -1224,7 +1287,7 @@ async fn profile_payload(
 }
 
 async fn user_profile(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     Path(handle): Path<String>,
     Query(query): Query<ProfileQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -1244,11 +1307,11 @@ async fn user_profile(
 }
 
 async fn my_profile(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
-    let handle: String = sqlx::query_scalar("SELECT handle FROM authors WHERE id = $1")
+    let handle: String = sqlx::query_scalar("SELECT handle FROM authors WHERE id = ?1")
         .bind(author_id)
         .fetch_one(&db)
         .await?;
@@ -1262,25 +1325,25 @@ async fn my_profile(
 }
 
 async fn update_profile(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<ProfileUpdateRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = active_author(&headers, &db).await?;
     let (display_name, bio, avatar_url, projects) = validate_profile_update(input)?;
     let current: (String, String, Option<String>) =
-        sqlx::query_as("SELECT display_name, bio, avatar_url FROM authors WHERE id = $1")
+        sqlx::query_as("SELECT display_name, bio, avatar_url FROM authors WHERE id = ?1")
             .bind(author_id)
             .fetch_one(&db)
             .await?;
     if current == (display_name.clone(), bio.clone(), avatar_url.clone()) && projects.is_none() {
         return Err(ApiError::Invalid("There are no profile changes to submit"));
     }
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     sqlx::query(
         "UPDATE authors
-         SET display_name = $2, bio = $3, avatar_url = NULLIF($4, ''), profile_updated_at = now()
-         WHERE id = $1",
+         SET display_name = ?2, bio = ?3, avatar_url = NULLIF(?4, ''), profile_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1",
     )
     .bind(author_id)
     .bind(&display_name)
@@ -1289,12 +1352,12 @@ async fn update_profile(
     .execute(&mut *tx)
     .await?;
     if let Some(projects) = projects {
-        sqlx::query("DELETE FROM author_projects WHERE author_id = $1")
+        sqlx::query("DELETE FROM author_projects WHERE author_id = ?1")
             .bind(author_id)
             .execute(&mut *tx)
             .await?;
         for (sort_order, project) in projects.iter().enumerate() {
-            sqlx::query("INSERT INTO author_projects(author_id, name, url, favicon_url, github_url, sort_order) VALUES($1,$2,$3,$4,$5,$6)")
+            sqlx::query("INSERT INTO author_projects(author_id, name, url, favicon_url, github_url, sort_order) VALUES(?1,?2,?3,?4,?5,?6)")
                 .bind(author_id).bind(&project.name).bind(&project.url).bind(&project.favicon_url)
                 .bind(&project.github_url).bind(sort_order as i32).execute(&mut *tx).await?;
         }
@@ -1323,14 +1386,14 @@ async fn update_profile(
     })))
 }
 
-async fn require_admin(headers: &HeaderMap, db: &PgPool) -> Result<i64, ApiError> {
+async fn require_admin(headers: &HeaderMap, db: &SqlitePool) -> Result<i64, ApiError> {
     let author_id = authenticated_author(headers, db)
         .await
         .map_err(|e| match e {
             ApiError::Invalid(_) => ApiError::Unauthorized,
             other => other,
         })?;
-    let is_admin: bool = sqlx::query_scalar("SELECT is_admin FROM authors WHERE id = $1")
+    let is_admin: bool = sqlx::query_scalar("SELECT is_admin FROM authors WHERE id = ?1")
         .bind(author_id)
         .fetch_optional(db)
         .await?
@@ -1341,20 +1404,20 @@ async fn require_admin(headers: &HeaderMap, db: &PgPool) -> Result<i64, ApiError
     Ok(author_id)
 }
 async fn admin_overview(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<AdminOverview>, ApiError> {
     require_admin(&headers, &db).await?;
     let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)>(
         "SELECT
           (SELECT count(*) FROM authors WHERE password_hash IS NOT NULL),
-          (SELECT count(*) FROM sessions WHERE expires_at > now()),
+          (SELECT count(*) FROM sessions WHERE julianday(expires_at) > julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now'))),
           (SELECT count(*) FROM communities),
           (SELECT count(*) FROM posts WHERE moderation_status = 'approved'),
           (SELECT count(*) FROM comments WHERE moderation_status = 'approved'),
           (SELECT count(*) FROM reports WHERE resolved_at IS NULL),
           (SELECT count(*) FROM media_assets),
-          pg_database_size(current_database()),
+          (SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()),
           (SELECT count(*) FROM system_logs),
           (SELECT count(*) FROM moderation_items WHERE kind <> 'profile' AND status IN ('pending', 'escalated'))",
     )
@@ -1377,7 +1440,7 @@ async fn admin_overview(
 }
 
 async fn admin_uptime(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
@@ -1416,7 +1479,7 @@ async fn admin_uptime(
     })))
 }
 
-async fn activity(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn activity(State(db): State<SqlitePool>) -> Result<Json<serde_json::Value>, ApiError> {
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let windows = if let Some(value) = operations::public_cache_get("activity.windows") {
         value
@@ -1424,14 +1487,14 @@ async fn activity(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, A
         let value = operations::timed_query(
             "activity.windows",
             sqlx::query_scalar::<_, serde_json::Value>(
-                "SELECT jsonb_agg(jsonb_build_object(
+                "WITH windows(label, minutes) AS (VALUES ('last 5 minutes',5),('last 30 minutes',30),('last 4 hours',240)) SELECT json_group_array(json_object(
                     'label', label,
                     'minutes', minutes,
-                    'users', (SELECT count(DISTINCT author_id) FROM (SELECT author_id FROM posts WHERE created_at >= now()-make_interval(mins => minutes) UNION SELECT author_id FROM comments WHERE created_at >= now()-make_interval(mins => minutes)) active),
-                    'posts', (SELECT count(*) FROM posts WHERE created_at >= now()-make_interval(mins => minutes)),
-                    'comments', (SELECT count(*) FROM comments WHERE created_at >= now()-make_interval(mins => minutes))
+                    'users', (SELECT count(DISTINCT author_id) FROM (SELECT author_id FROM posts WHERE julianday(created_at) >= julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-'||minutes||' minutes')) UNION SELECT author_id FROM comments WHERE julianday(created_at) >= julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-'||minutes||' minutes'))) active),
+                    'posts', (SELECT count(*) FROM posts WHERE julianday(created_at) >= julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-'||minutes||' minutes'))),
+                    'comments', (SELECT count(*) FROM comments WHERE julianday(created_at) >= julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-'||minutes||' minutes')))
                  ) ORDER BY minutes)
-                 FROM (VALUES ('last 5 minutes',5),('last 30 minutes',30),('last 4 hours',240)) windows(label,minutes)",
+                 FROM windows",
             )
             .fetch_one(&db),
         )
@@ -1447,7 +1510,7 @@ async fn activity(State(db): State<PgPool>) -> Result<Json<serde_json::Value>, A
     })))
 }
 async fn subscriptions(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<String>>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
@@ -1457,7 +1520,7 @@ async fn subscriptions(
             "SELECT c.slug
              FROM community_subscriptions s
              JOIN communities c ON c.id = s.community_id
-             WHERE s.author_id = $1
+             WHERE s.author_id = ?1
              ORDER BY c.slug",
         )
         .bind(author_id)
@@ -1482,14 +1545,14 @@ fn normalize_x_author_handle(raw: &str) -> Result<String, ApiError> {
     Ok(handle.to_ascii_lowercase())
 }
 async fn x_author_subscriptions(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<String>>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let handles = operations::timed_query(
         "x_author_subscriptions.list",
         sqlx::query_scalar::<_, String>(
-            "SELECT handle FROM x_author_subscriptions WHERE author_id = $1 ORDER BY handle",
+            "SELECT handle FROM x_author_subscriptions WHERE author_id = ?1 ORDER BY handle",
         )
         .bind(author_id)
         .fetch_all(&db),
@@ -1498,14 +1561,14 @@ async fn x_author_subscriptions(
     Ok(Json(handles))
 }
 async fn follow_x_author(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<XAuthorSubscriptionRequest>,
 ) -> Result<Json<XAuthorSubscriptionResponse>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let handle = normalize_x_author_handle(&input.handle)?;
     sqlx::query(
-        "INSERT INTO x_author_subscriptions (author_id, handle) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "INSERT INTO x_author_subscriptions (author_id, handle) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
     )
     .bind(author_id)
     .bind(&handle)
@@ -1517,13 +1580,13 @@ async fn follow_x_author(
     }))
 }
 async fn unfollow_x_author(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<XAuthorSubscriptionRequest>,
 ) -> Result<Json<XAuthorSubscriptionResponse>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let handle = normalize_x_author_handle(&input.handle)?;
-    sqlx::query("DELETE FROM x_author_subscriptions WHERE author_id = $1 AND handle = $2")
+    sqlx::query("DELETE FROM x_author_subscriptions WHERE author_id = ?1 AND handle = ?2")
         .bind(author_id)
         .bind(&handle)
         .execute(&db)
@@ -1548,7 +1611,7 @@ fn normalize_buddy_handle(raw: &str) -> Result<String, ApiError> {
 }
 
 async fn buddy_list(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<Buddy>>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
@@ -1557,7 +1620,7 @@ async fn buddy_list(
                 f.pinned, f.created_at AS followed_at
          FROM buddy_follows f
          JOIN authors a ON a.id = f.followed_id
-         WHERE f.follower_id = $1
+         WHERE f.follower_id = ?1
          ORDER BY f.pinned DESC, a.handle",
     )
     .bind(author_id)
@@ -1567,13 +1630,13 @@ async fn buddy_list(
 }
 
 async fn follow_buddy(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(raw_handle): Path<String>,
 ) -> Result<Json<BuddyResponse>, ApiError> {
     let author_id = active_author(&headers, &db).await?;
     let handle = normalize_buddy_handle(&raw_handle)?;
-    let target_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle = $1")
+    let target_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle = ?1")
         .bind(&handle)
         .fetch_optional(&db)
         .await?
@@ -1582,7 +1645,7 @@ async fn follow_buddy(
         return Err(ApiError::Invalid("You cannot follow yourself"));
     }
     sqlx::query(
-        "INSERT INTO buddy_follows (follower_id, followed_id) VALUES ($1, $2)
+        "INSERT INTO buddy_follows (follower_id, followed_id) VALUES (?1, ?2)
          ON CONFLICT (follower_id, followed_id) DO NOTHING",
     )
     .bind(author_id)
@@ -1590,7 +1653,7 @@ async fn follow_buddy(
     .execute(&db)
     .await?;
     let pinned: bool = sqlx::query_scalar(
-        "SELECT pinned FROM buddy_follows WHERE follower_id = $1 AND followed_id = $2",
+        "SELECT pinned FROM buddy_follows WHERE follower_id = ?1 AND followed_id = ?2",
     )
     .bind(author_id)
     .bind(target_id)
@@ -1604,15 +1667,14 @@ async fn follow_buddy(
 }
 
 async fn unfollow_buddy(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(raw_handle): Path<String>,
 ) -> Result<Json<BuddyResponse>, ApiError> {
     let author_id = active_author(&headers, &db).await?;
     let handle = normalize_buddy_handle(&raw_handle)?;
     sqlx::query(
-        "DELETE FROM buddy_follows f USING authors a
-         WHERE f.followed_id = a.id AND f.follower_id = $1 AND a.handle = $2",
+        "DELETE FROM buddy_follows WHERE follower_id = ?1 AND followed_id = (SELECT id FROM authors WHERE handle = ?2)",
     )
     .bind(author_id)
     .bind(&handle)
@@ -1626,7 +1688,7 @@ async fn unfollow_buddy(
 }
 
 async fn pin_buddy(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(raw_handle): Path<String>,
     Json(input): Json<BuddyPinRequest>,
@@ -1634,9 +1696,7 @@ async fn pin_buddy(
     let author_id = active_author(&headers, &db).await?;
     let handle = normalize_buddy_handle(&raw_handle)?;
     let updated = sqlx::query(
-        "UPDATE buddy_follows f SET pinned = $3
-         FROM authors a
-         WHERE f.followed_id = a.id AND f.follower_id = $1 AND a.handle = $2",
+        "UPDATE buddy_follows SET pinned = ?3 WHERE follower_id = ?1 AND followed_id = (SELECT id FROM authors WHERE handle = ?2)",
     )
     .bind(author_id)
     .bind(&handle)
@@ -1654,20 +1714,20 @@ async fn pin_buddy(
 }
 
 async fn pin_profile_post(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(public_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = active_author(&headers, &db).await?;
     let result = sqlx::query(
         "INSERT INTO author_pinned_posts (author_id, post_id)
-         SELECT $1, p.id
+         SELECT ?1, p.id
          FROM posts p
-         WHERE p.public_id = $2
-           AND p.author_id = $1
+         WHERE p.public_id = ?2
+           AND p.author_id = ?1
            AND p.moderation_status = 'approved'
          ON CONFLICT (author_id) DO UPDATE
-         SET post_id = EXCLUDED.post_id, pinned_at = now()",
+         SET post_id = EXCLUDED.post_id, pinned_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(author_id)
     .bind(&public_id)
@@ -1685,17 +1745,13 @@ async fn pin_profile_post(
 }
 
 async fn unpin_profile_post(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(public_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = active_author(&headers, &db).await?;
     sqlx::query(
-        "DELETE FROM author_pinned_posts pin
-         USING posts p
-         WHERE pin.post_id = p.id
-           AND pin.author_id = $1
-           AND p.public_id = $2",
+        "DELETE FROM author_pinned_posts WHERE author_id = ?1 AND post_id = (SELECT id FROM posts WHERE public_id = ?2)",
     )
     .bind(author_id)
     .bind(&public_id)
@@ -1708,12 +1764,12 @@ async fn unpin_profile_post(
 }
 
 async fn my_post_preferences(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let copy_link_after_post: Option<bool> = sqlx::query_scalar(
-        "SELECT copy_link_after_post FROM author_post_preferences WHERE author_id = $1",
+        "SELECT copy_link_after_post FROM author_post_preferences WHERE author_id = ?1",
     )
     .bind(author_id)
     .fetch_optional(&db)
@@ -1724,17 +1780,17 @@ async fn my_post_preferences(
 }
 
 async fn update_post_preferences(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<PostPreferencesRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = active_author(&headers, &db).await?;
     sqlx::query(
         "INSERT INTO author_post_preferences (author_id, copy_link_after_post)
-         VALUES ($1, $2)
+         VALUES (?1, ?2)
          ON CONFLICT (author_id) DO UPDATE
          SET copy_link_after_post = EXCLUDED.copy_link_after_post,
-             updated_at = now()",
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(author_id)
     .bind(input.copy_link_after_post)
@@ -1746,14 +1802,14 @@ async fn update_post_preferences(
 }
 
 async fn my_like_sharing(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let preferences: Option<(String, bool)> = sqlx::query_as(
         "SELECT visibility,
                 CASE WHEN non_rated_only_configured THEN non_rated_only ELSE TRUE END
-         FROM author_like_privacy WHERE author_id = $1",
+         FROM author_like_privacy WHERE author_id = ?1",
     )
     .bind(author_id)
     .fetch_optional(&db)
@@ -1766,8 +1822,8 @@ async fn my_like_sharing(
          FROM buddy_follows f
          JOIN authors a ON a.id = f.follower_id
          LEFT JOIN author_like_share_recipients s
-                ON s.author_id = $1 AND s.recipient_id = a.id
-         WHERE f.followed_id = $1
+                ON s.author_id = ?1 AND s.recipient_id = a.id
+         WHERE f.followed_id = ?1
          ORDER BY a.handle",
     )
     .bind(author_id)
@@ -1781,7 +1837,7 @@ async fn my_like_sharing(
 }
 
 async fn update_like_sharing(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<LikeSharingRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -1795,12 +1851,12 @@ async fn update_like_sharing(
     sqlx::query(
         "INSERT INTO author_like_privacy
              (author_id, visibility, non_rated_only, non_rated_only_configured)
-         VALUES ($1, $2, $3, TRUE)
+         VALUES (?1, ?2, ?3, TRUE)
          ON CONFLICT (author_id) DO UPDATE
          SET visibility = EXCLUDED.visibility,
              non_rated_only = EXCLUDED.non_rated_only,
              non_rated_only_configured = TRUE,
-             updated_at = now()",
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(author_id)
     .bind(visibility)
@@ -1814,13 +1870,13 @@ async fn update_like_sharing(
 }
 
 async fn add_like_share_recipient(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(raw_handle): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = active_author(&headers, &db).await?;
     let handle = normalize_buddy_handle(&raw_handle)?;
-    let recipient_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle = $1")
+    let recipient_id: i64 = sqlx::query_scalar("SELECT id FROM authors WHERE handle = ?1")
         .bind(&handle)
         .fetch_optional(&db)
         .await?
@@ -1831,7 +1887,7 @@ async fn add_like_share_recipient(
     let follows: bool = sqlx::query_scalar(
         "SELECT EXISTS (
              SELECT 1 FROM buddy_follows
-             WHERE follower_id = $2 AND followed_id = $1
+             WHERE follower_id = ?2 AND followed_id = ?1
          )",
     )
     .bind(author_id)
@@ -1845,7 +1901,7 @@ async fn add_like_share_recipient(
     }
     sqlx::query(
         "INSERT INTO author_like_share_recipients (author_id, recipient_id)
-         VALUES ($1, $2) ON CONFLICT DO NOTHING",
+         VALUES (?1, ?2) ON CONFLICT DO NOTHING",
     )
     .bind(author_id)
     .bind(recipient_id)
@@ -1857,15 +1913,14 @@ async fn add_like_share_recipient(
 }
 
 async fn remove_like_share_recipient(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(raw_handle): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let author_id = active_author(&headers, &db).await?;
     let handle = normalize_buddy_handle(&raw_handle)?;
     sqlx::query(
-        "DELETE FROM author_like_share_recipients s USING authors a
-         WHERE s.recipient_id = a.id AND s.author_id = $1 AND a.handle = $2",
+        "DELETE FROM author_like_share_recipients WHERE author_id = ?1 AND recipient_id = (SELECT id FROM authors WHERE handle = ?2)",
     )
     .bind(author_id)
     .bind(&handle)
@@ -1877,7 +1932,7 @@ async fn remove_like_share_recipient(
 }
 
 async fn buddies_feed(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -1895,17 +1950,17 @@ async fn buddies_feed(
     let sql = format!(
         "WITH buddy_likes AS (
              SELECT v.post_id,
-                    ARRAY_AGG(DISTINCT buddy.handle ORDER BY buddy.handle) AS liked_by,
+                    json_group_array(DISTINCT buddy.handle ORDER BY buddy.handle) AS liked_by,
                     MAX(v.created_at) AS liked_at
              FROM post_votes v
              JOIN buddy_follows f ON f.followed_id = v.author_id
-                                  AND f.follower_id = $1 AND f.pinned
+                                  AND f.follower_id = ?1 AND f.pinned
              JOIN authors buddy ON buddy.id = f.followed_id
              JOIN posts liked_post ON liked_post.id = v.post_id
                                   AND liked_post.moderation_status = 'approved'
              LEFT JOIN author_like_privacy privacy ON privacy.author_id = f.followed_id
              LEFT JOIN author_like_share_recipients selected
-                    ON selected.author_id = f.followed_id AND selected.recipient_id = $1
+                    ON selected.author_id = f.followed_id AND selected.recipient_id = ?1
              WHERE v.value = 1
                AND COALESCE(privacy.visibility, 'followers') <> 'hidden'
                AND (COALESCE(privacy.visibility, 'followers') <> 'selected'
@@ -1918,23 +1973,23 @@ async fn buddies_feed(
          {post_select}
          JOIN buddy_likes ON buddy_likes.post_id = p.id
          WHERE p.moderation_status = 'approved'
-           AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2))
-           AND ($3::text IS NULL OR c.slug = $3)
-           AND (NOT $5 OR p.content_rating <> 'r')
-           AND (NOT $6 OR p.content_rating <> 'x')
-           AND (NOT $7 OR p.content_rating IN ('r', 'x'))
-           AND ($8::text IS NULL OR ($8 = 'r' AND p.content_rating = 'r')
-             OR ($8 = 'x' AND p.content_rating = 'x')
-             OR ($8 = 'rx' AND p.content_rating IN ('r', 'x')))
+           AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END)
+           AND (?3 IS NULL OR c.slug = ?3)
+           AND (NOT ?5 OR p.content_rating <> 'r')
+           AND (NOT ?6 OR p.content_rating <> 'x')
+           AND (NOT ?7 OR p.content_rating IN ('r', 'x'))
+           AND (?8 IS NULL OR (?8 = 'r' AND p.content_rating = 'r')
+             OR (?8 = 'x' AND p.content_rating = 'x')
+             OR (?8 = 'rx' AND p.content_rating IN ('r', 'x')))
          ORDER BY buddy_likes.liked_at DESC, p.id DESC
-         LIMIT {} OFFSET $4",
+         LIMIT {} OFFSET ?4",
         FEED_PAGE_SIZE + 1
     );
     let mut posts: Vec<Post> = operations::timed_query(
         "feed.buddies",
         sqlx::query_as(&sql)
             .bind(author_id)
-            .bind(query.q.as_deref().unwrap_or("").trim())
+            .bind(fts_query(query.q.as_deref().unwrap_or("").trim()))
             .bind(&query.community)
             .bind(offset)
             .bind(hide_r)
@@ -1950,7 +2005,7 @@ async fn buddies_feed(
     attach_your_votes(&db, &headers, &mut value).await;
     Ok(Json(value))
 }
-async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
+async fn logout(State(db): State<SqlitePool>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
     let value = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -1962,14 +2017,14 @@ async fn logout(State(db): State<PgPool>, headers: HeaderMap) -> Result<StatusCo
         return Err(ApiError::Invalid("Authentication required"));
     }
     let token_hash = Sha256::digest(token.as_bytes()).to_vec();
-    sqlx::query("DELETE FROM sessions WHERE token_hash = $1")
+    sqlx::query("DELETE FROM sessions WHERE token_hash = ?1")
         .bind(token_hash)
         .execute(&db)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 async fn create_community(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<CreateCommunityRequest>,
 ) -> Result<(StatusCode, Json<Community>), ApiError> {
@@ -1991,7 +2046,7 @@ async fn create_community(
             "Community name or description is outside the allowed length",
         ));
     }
-    let community = sqlx::query_as::<_, Community>("INSERT INTO communities (slug, name, description) VALUES ($1, $2, $3) RETURNING slug, name, description, 0::bigint AS post_count").bind(&slug).bind(name).bind(description).fetch_optional(&db).await.map_err(|e| if matches!(e, sqlx::Error::Database(ref db) if db.constraint() == Some("communities_slug_key")) { ApiError::Invalid("That community slug is already in use") } else { ApiError::Database(e) })?;
+    let community = sqlx::query_as::<_, Community>("INSERT INTO communities (slug, name, description) VALUES (?1, ?2, ?3) RETURNING slug, name, description, 0 AS post_count").bind(&slug).bind(name).bind(description).fetch_optional(&db).await.map_err(|e| if matches!(e, sqlx::Error::Database(ref db) if db.is_unique_violation()) { ApiError::Invalid("That community slug is already in use") } else { ApiError::Database(e) })?;
     operations::clear_public_cache();
     Ok((
         StatusCode::CREATED,
@@ -1999,16 +2054,16 @@ async fn create_community(
     ))
 }
 async fn subscribe(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<Json<SubscriptionResponse>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let community = slug.trim().to_ascii_lowercase();
-    let inserted = sqlx::query("INSERT INTO community_subscriptions (community_id, author_id) SELECT id, $1 FROM communities WHERE slug = $2 ON CONFLICT DO NOTHING").bind(author_id).bind(&community).execute(&db).await?;
+    let inserted = sqlx::query("INSERT INTO community_subscriptions (community_id, author_id) SELECT id, ?1 FROM communities WHERE slug = ?2 ON CONFLICT DO NOTHING").bind(author_id).bind(&community).execute(&db).await?;
     if inserted.rows_affected() == 0 {
         let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM communities WHERE slug = $1)")
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM communities WHERE slug = ?1)")
                 .bind(&community)
                 .fetch_one(&db)
                 .await?;
@@ -2022,41 +2077,41 @@ async fn subscribe(
     }))
 }
 async fn unsubscribe(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<Json<SubscriptionResponse>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let community = slug.trim().to_ascii_lowercase();
-    sqlx::query("DELETE FROM community_subscriptions WHERE author_id = $1 AND community_id = (SELECT id FROM communities WHERE slug = $2)").bind(author_id).bind(&community).execute(&db).await?;
+    sqlx::query("DELETE FROM community_subscriptions WHERE author_id = ?1 AND community_id = (SELECT id FROM communities WHERE slug = ?2)").bind(author_id).bind(&community).execute(&db).await?;
     Ok(Json(SubscriptionResponse {
         community,
         subscribed: false,
     }))
 }
 async fn subscription_status(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<Json<SubscriptionResponse>, ApiError> {
     let author_id = authenticated_author(&headers, &db).await?;
     let community = slug.trim().to_ascii_lowercase();
     let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM communities WHERE slug = $1)")
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM communities WHERE slug = ?1)")
             .bind(&community)
             .fetch_one(&db)
             .await?;
     if !exists {
         return Err(ApiError::Missing);
     }
-    let subscribed: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM community_subscriptions s JOIN communities c ON c.id = s.community_id WHERE s.author_id = $1 AND c.slug = $2)").bind(author_id).bind(&community).fetch_one(&db).await?;
+    let subscribed: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM community_subscriptions s JOIN communities c ON c.id = s.community_id WHERE s.author_id = ?1 AND c.slug = ?2)").bind(author_id).bind(&community).fetch_one(&db).await?;
     Ok(Json(SubscriptionResponse {
         community,
         subscribed,
     }))
 }
 async fn report(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<ReportRequest>,
 ) -> Result<(StatusCode, Json<ReportResponse>), ApiError> {
@@ -2072,13 +2127,13 @@ async fn report(
     }
     let valid: bool = if let Some(post_id) = input.post_id {
         sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM posts WHERE id = $1 AND moderation_status = 'approved')",
+            "SELECT EXISTS (SELECT 1 FROM posts WHERE id = ?1 AND moderation_status = 'approved')",
         )
         .bind(post_id)
         .fetch_one(&db)
         .await?
     } else {
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM comments WHERE id = $1 AND moderation_status = 'approved')")
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM comments WHERE id = ?1 AND moderation_status = 'approved')")
             .bind(input.comment_id)
             .fetch_one(&db)
             .await?
@@ -2086,11 +2141,11 @@ async fn report(
     if !valid {
         return Err(ApiError::Missing);
     }
-    let row = sqlx::query_as::<_, ReportResponse>("INSERT INTO reports (reporter_id, post_id, comment_id, reason) VALUES ($1, $2, $3, $4) RETURNING id, reason").bind(reporter_id).bind(input.post_id).bind(input.comment_id).bind(reason).fetch_one(&db).await?;
+    let row = sqlx::query_as::<_, ReportResponse>("INSERT INTO reports (reporter_id, post_id, comment_id, reason) VALUES (?1, ?2, ?3, ?4) RETURNING id, reason").bind(reporter_id).bind(input.post_id).bind(input.comment_id).bind(reason).fetch_one(&db).await?;
     Ok((StatusCode::CREATED, Json(row)))
 }
 async fn register_media(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<RegisterMediaRequest>,
 ) -> Result<(StatusCode, Json<MediaAsset>), ApiError> {
@@ -2116,11 +2171,11 @@ async fn register_media(
     {
         return Err(ApiError::Invalid("Magnet URI must start with magnet:?"));
     }
-    let row = sqlx::query_as::<_, MediaAsset>("INSERT INTO media_assets (content_hash, media_type, byte_size, magnet_uri) VALUES ($1, $2, $3, $4) ON CONFLICT (content_hash) DO UPDATE SET magnet_uri = COALESCE(EXCLUDED.magnet_uri, media_assets.magnet_uri) RETURNING id, content_hash, media_type, byte_size, magnet_uri").bind(hash).bind(media_type).bind(input.byte_size).bind(input.magnet_uri).fetch_one(&db).await?;
+    let row = sqlx::query_as::<_, MediaAsset>("INSERT INTO media_assets (content_hash, media_type, byte_size, magnet_uri) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (content_hash) DO UPDATE SET magnet_uri = COALESCE(EXCLUDED.magnet_uri, media_assets.magnet_uri) RETURNING id, content_hash, media_type, byte_size, magnet_uri").bind(hash).bind(media_type).bind(input.byte_size).bind(input.magnet_uri).fetch_one(&db).await?;
     Ok((StatusCode::CREATED, Json(row)))
 }
 async fn attach_media(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(post_id): Path<i64>,
     Json(input): Json<AttachMediaRequest>,
@@ -2130,20 +2185,20 @@ async fn attach_media(
     if position < 0 {
         return Err(ApiError::Invalid("Media position must be non-negative"));
     }
-    let result = sqlx::query("INSERT INTO post_media (post_id, media_id, position) SELECT p.id, m.id, $3 FROM posts p CROSS JOIN media_assets m WHERE p.id = $1 AND p.author_id = $2 AND m.id = $4 ON CONFLICT (post_id, media_id) DO UPDATE SET position = EXCLUDED.position").bind(post_id).bind(author_id).bind(position).bind(input.media_id).execute(&db).await?;
+    let result = sqlx::query("INSERT INTO post_media (post_id, media_id, position) SELECT p.id, m.id, ?3 FROM posts p CROSS JOIN media_assets m WHERE p.id = ?1 AND p.author_id = ?2 AND m.id = ?4 ON CONFLICT (post_id, media_id) DO UPDATE SET position = EXCLUDED.position").bind(post_id).bind(author_id).bind(position).bind(input.media_id).execute(&db).await?;
     if result.rows_affected() == 0 {
         return Err(ApiError::Invalid("Post or media asset was not found"));
     }
     Ok(StatusCode::NO_CONTENT)
 }
 async fn media(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let row: Option<MediaOverviewRow> = sqlx::query_as(
         "SELECT id, content_hash, media_type, byte_size, magnet_uri,
                 COALESCE(NULLIF(mime_type, ''), content_type), storage_backend, variants
-         FROM media_assets WHERE id = $1",
+         FROM media_assets WHERE id = ?1",
     )
     .bind(id)
     .fetch_optional(&db)
@@ -2165,7 +2220,7 @@ async fn media(
     })))
 }
 async fn create_post(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Json(input): Json<CreatePostRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
@@ -2195,15 +2250,15 @@ async fn create_post(
     } else {
         "approved"
     };
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     let result = sqlx::query_as::<_, CreatedPost>(
         "INSERT INTO posts (
            community_id, author_id, title, body, content_rating, content_rating_source, moderation_status
          )
-         SELECT id, $1, $2, $3, $5, $6, $7
+         SELECT id, ?1, ?2, ?3, ?5, ?6, ?7
          FROM communities
-         WHERE slug = $4
-         RETURNING id, public_id, title, $4::text AS community",
+         WHERE slug = ?4
+         RETURNING id, public_id, title, ?4 AS community",
     )
     .bind(author_id)
     .bind(title)
@@ -2219,7 +2274,7 @@ async fn create_post(
         let moderation_id: i64 = sqlx::query_scalar(
             "INSERT INTO moderation_items(
                kind, target_id, author_id, status, severity, flags, rule_version, urgent
-             ) VALUES ('post', $1, $2, 'pending', $3, $4, $5, $6)
+             ) VALUES ('post', ?1, ?2, 'pending', ?3, ?4, ?5, ?6)
              RETURNING id",
         )
         .bind(result.id)
@@ -2230,7 +2285,7 @@ async fn create_post(
         .bind(urgent)
         .fetch_one(&mut *tx)
         .await?;
-        sqlx::query("UPDATE posts SET moderation_item_id = $2 WHERE id = $1")
+        sqlx::query("UPDATE posts SET moderation_item_id = ?2 WHERE id = ?1")
             .bind(result.id)
             .bind(moderation_id)
             .execute(&mut *tx)
@@ -2275,7 +2330,7 @@ async fn create_post(
     ))
 }
 async fn create_comment(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(post_id): Path<i64>,
     Json(input): Json<CreateCommentRequest>,
@@ -2321,22 +2376,22 @@ async fn create_comment(
     } else {
         "approved"
     };
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     let result = sqlx::query_as::<_, CreatedComment>(
         "INSERT INTO comments (
            post_id, author_id, parent_id, body, source, moderation_status
          )
-         SELECT $1, $2, $3, $4, $5, $6
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6
          WHERE EXISTS (
-           SELECT 1 FROM posts WHERE id = $1 AND moderation_status = 'approved'
+           SELECT 1 FROM posts WHERE id = ?1 AND moderation_status = 'approved'
          )
          AND (
-           $3::bigint IS NULL OR EXISTS (
+           ?3 IS NULL OR EXISTS (
              SELECT 1 FROM comments
-             WHERE id = $3 AND post_id = $1 AND moderation_status = 'approved'
+             WHERE id = ?3 AND post_id = ?1 AND moderation_status = 'approved'
            )
          )
-         RETURNING id, post_id, parent_id, body, source, (SELECT handle FROM authors WHERE id = $2) AS author",
+         RETURNING id, post_id, parent_id, body, source, (SELECT handle FROM authors WHERE id = ?2) AS author",
     )
     .bind(post_id)
     .bind(author_id)
@@ -2353,7 +2408,7 @@ async fn create_comment(
         let moderation_id: i64 = sqlx::query_scalar(
             "INSERT INTO moderation_items(
                kind, target_id, author_id, status, severity, flags, rule_version, urgent
-             ) VALUES ('comment', $1, $2, 'pending', $3, $4, $5, $6)
+             ) VALUES ('comment', ?1, ?2, 'pending', ?3, ?4, ?5, ?6)
              RETURNING id",
         )
         .bind(result.id)
@@ -2364,7 +2419,7 @@ async fn create_comment(
         .bind(urgent)
         .fetch_one(&mut *tx)
         .await?;
-        sqlx::query("UPDATE comments SET moderation_item_id = $2 WHERE id = $1")
+        sqlx::query("UPDATE comments SET moderation_item_id = ?2 WHERE id = ?1")
             .bind(result.id)
             .bind(moderation_id)
             .execute(&mut *tx)
@@ -2411,7 +2466,7 @@ async fn create_comment(
     ))
 }
 async fn vote(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(post_id): Path<i64>,
     Json(input): Json<VoteRequest>,
@@ -2421,7 +2476,7 @@ async fn vote(
         return Err(ApiError::Invalid("Vote must be -1, 0, or 1"));
     }
     let approved: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM posts WHERE id = $1 AND moderation_status = 'approved')",
+        "SELECT EXISTS (SELECT 1 FROM posts WHERE id = ?1 AND moderation_status = 'approved')",
     )
     .bind(post_id)
     .fetch_one(&db)
@@ -2429,29 +2484,28 @@ async fn vote(
     if !approved {
         return Err(ApiError::Missing);
     }
-    let mut tx = db.begin().await?;
+    let mut tx = crate::db::begin_immediate(&db).await?;
     if input.value == 0 {
-        sqlx::query("DELETE FROM post_votes WHERE post_id = $1 AND author_id = $2")
+        sqlx::query("DELETE FROM post_votes WHERE post_id = ?1 AND author_id = ?2")
             .bind(post_id)
             .bind(author_id)
             .execute(&mut *tx)
             .await?;
     } else {
-        sqlx::query("INSERT INTO post_votes (post_id, author_id, value) VALUES ($1, $2, $3) ON CONFLICT (post_id, author_id) DO UPDATE SET value = EXCLUDED.value").bind(post_id).bind(author_id).bind(input.value).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO post_votes (post_id, author_id, value) VALUES (?1, ?2, ?3) ON CONFLICT (post_id, author_id) DO UPDATE SET value = EXCLUDED.value").bind(post_id).bind(author_id).bind(input.value).execute(&mut *tx).await?;
     }
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM posts WHERE id = $1)")
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM posts WHERE id = ?1)")
         .bind(post_id)
         .fetch_one(&mut *tx)
         .await?;
     if !exists {
         return Err(ApiError::Missing);
     }
-    let score: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(sum(value), 0)::bigint FROM post_votes WHERE post_id = $1",
-    )
-    .bind(post_id)
-    .fetch_one(&mut *tx)
-    .await?;
+    let score: i64 =
+        sqlx::query_scalar("SELECT COALESCE(sum(value), 0) FROM post_votes WHERE post_id = ?1")
+            .bind(post_id)
+            .fetch_one(&mut *tx)
+            .await?;
     tx.commit().await?;
     operations::clear_public_cache();
     Ok(Json(VoteResponse {
@@ -2460,7 +2514,7 @@ async fn vote(
         your_vote: (input.value != 0).then_some(input.value),
     }))
 }
-async fn communities(State(db): State<PgPool>) -> Result<Json<Vec<Community>>, ApiError> {
+async fn communities(State(db): State<SqlitePool>) -> Result<Json<Vec<Community>>, ApiError> {
     if let Some(value) = operations::public_cache_get("communities")
         && let Ok(rows) = serde_json::from_value::<Vec<Community>>(value)
     {
@@ -2477,10 +2531,10 @@ async fn communities(State(db): State<PgPool>) -> Result<Json<Vec<Community>>, A
     Ok(Json(rows))
 }
 async fn community(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     Path(slug): Path<String>,
 ) -> Result<Json<Community>, ApiError> {
-    Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count FROM communities c WHERE c.slug = $1").bind(slug).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
+    Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count FROM communities c WHERE c.slug = ?1").bind(slug).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
 }
 /// Stamp the viewer's own vote onto a post payload.
 ///
@@ -2488,7 +2542,7 @@ async fn community(
 /// per-viewer state. `payload` is either `{"posts": [...]}`, a bare post array,
 /// or a single post object. Anonymous and suspended viewers are left untouched
 /// rather than treated as an error, because a feed must still render.
-async fn attach_your_votes(db: &PgPool, headers: &HeaderMap, payload: &mut serde_json::Value) {
+async fn attach_your_votes(db: &SqlitePool, headers: &HeaderMap, payload: &mut serde_json::Value) {
     let Ok(author_id) = active_author(headers, db).await else {
         return;
     };
@@ -2515,13 +2569,11 @@ async fn attach_your_votes(db: &PgPool, headers: &HeaderMap, payload: &mut serde
         return;
     }
     let Ok(rows) = sqlx::query_as::<_, (i64, i16)>(
-        // The array element type is stated explicitly: `post_votes.post_id` is
-        // bigint, and leaving it to inference makes the statement's type depend
-        // on the planner rather than on the schema.
-        "SELECT post_id, value FROM post_votes WHERE author_id = $1 AND post_id = ANY($2::bigint[])",
+        // Bind the ID list as JSON and expand it within SQLite.
+        "SELECT post_id, value FROM post_votes WHERE author_id = ?1 AND post_id IN (SELECT value FROM json_each(?2))",
     )
     .bind(author_id)
-    .bind(&seen)
+    .bind(serde_json::json!(seen))
     .fetch_all(db)
     .await
     else {
@@ -2556,7 +2608,7 @@ async fn attach_your_votes(db: &PgPool, headers: &HeaderMap, payload: &mut serde
 }
 
 async fn posts(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -2570,7 +2622,7 @@ async fn posts(
     let hide_r = ratings.is_none() && !mature_only && query.hide_r();
     let hide_x = ratings.is_none() && !mature_only && query.hide_x();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND (NOT $4 OR p.content_rating <> 'r') AND (NOT $5 OR p.content_rating <> 'x') AND (NOT $6 OR p.content_rating IN ('r', 'x')) AND ($7::text IS NULL OR ($7 = 'r' AND p.content_rating = 'r') OR ($7 = 'x' AND p.content_rating = 'x') OR ($7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
         FEED_PAGE_SIZE + 1
     );
     // The cache is shared by every reader, so the key includes the exact rated
@@ -2599,7 +2651,7 @@ async fn posts(
         "feed.public",
         sqlx::query_as(&sql)
             .bind(&query.community)
-            .bind(q)
+            .bind(fts_query(q))
             .bind(offset)
             .bind(hide_r)
             .bind(hide_x)
@@ -2618,7 +2670,7 @@ async fn posts(
     Ok(Json(value))
 }
 async fn home_feed(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -2630,14 +2682,14 @@ async fn home_feed(
     let hide_r = ratings.is_none() && !mature_only && query.hide_r();
     let hide_x = ratings.is_none() && !mature_only && query.hide_x();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (EXISTS (SELECT 1 FROM community_subscriptions s WHERE s.community_id = p.community_id AND s.author_id = $1) OR EXISTS (SELECT 1 FROM external_posts e JOIN x_author_subscriptions xs ON xs.author_id = $1 AND xs.handle = lower(ltrim(btrim(e.source_author), '@')) WHERE e.post_id = p.id AND e.provider = 'x')) AND ($2 = '' OR p.search_document @@ websearch_to_tsquery('english', $2)) AND ($3::text IS NULL OR c.slug = $3) AND (NOT $5 OR p.content_rating <> 'r') AND (NOT $6 OR p.content_rating <> 'x') AND (NOT $7 OR p.content_rating IN ('r', 'x')) AND ($8::text IS NULL OR ($8 = 'r' AND p.content_rating = 'r') OR ($8 = 'x' AND p.content_rating = 'x') OR ($8 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET $4",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (EXISTS (SELECT 1 FROM community_subscriptions s WHERE s.community_id = p.community_id AND s.author_id = ?1) OR EXISTS (SELECT 1 FROM external_posts e JOIN x_author_subscriptions xs ON xs.author_id = ?1 AND xs.handle = lower(ltrim(trim(e.source_author), '@')) WHERE e.post_id = p.id AND e.provider = 'x')) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (?3 IS NULL OR c.slug = ?3) AND (NOT ?5 OR p.content_rating <> 'r') AND (NOT ?6 OR p.content_rating <> 'x') AND (NOT ?7 OR p.content_rating IN ('r', 'x')) AND (?8 IS NULL OR (?8 = 'r' AND p.content_rating = 'r') OR (?8 = 'x' AND p.content_rating = 'x') OR (?8 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?4",
         FEED_PAGE_SIZE + 1
     );
     let mut posts: Vec<Post> = operations::timed_query(
         "feed.following",
         sqlx::query_as(&sql)
             .bind(author_id)
-            .bind(query.q.as_deref().unwrap_or("").trim())
+            .bind(fts_query(query.q.as_deref().unwrap_or("").trim()))
             .bind(&query.community)
             .bind(offset)
             .bind(hide_r)
@@ -2654,20 +2706,20 @@ async fn home_feed(
     Ok(Json(value))
 }
 async fn post(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(raw_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let post: Post = if let Ok(id) = raw_id.parse::<i64>() {
         sqlx::query_as(&format!(
-            "{POST_SELECT} WHERE p.moderation_status = 'approved' AND p.id = $1"
+            "{POST_SELECT} WHERE p.moderation_status = 'approved' AND p.id = ?1"
         ))
         .bind(id)
         .fetch_optional(&db)
         .await?
     } else {
         sqlx::query_as(&format!(
-            "{POST_SELECT} WHERE p.moderation_status = 'approved' AND p.public_id = $1"
+            "{POST_SELECT} WHERE p.moderation_status = 'approved' AND p.public_id = ?1"
         ))
         .bind(&raw_id)
         .fetch_optional(&db)
@@ -2676,10 +2728,10 @@ async fn post(
     .ok_or(ApiError::Missing)?;
     let id = post.id;
     // Bounded for the initial reader; expose truncation instead of silently losing replies.
-    let mut comments: Vec<Comment> = sqlx::query_as("SELECT cm.id, cm.parent_id, cm.body, cm.source, a.handle AS author, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id WHERE cm.post_id = $1 AND cm.moderation_status = 'approved' ORDER BY cm.id LIMIT 501").bind(id).fetch_all(&db).await?;
+    let mut comments: Vec<Comment> = sqlx::query_as("SELECT cm.id, cm.parent_id, cm.body, cm.source, a.handle AS author, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id WHERE cm.post_id = ?1 AND cm.moderation_status = 'approved' ORDER BY cm.id LIMIT 501").bind(id).fetch_all(&db).await?;
     let comments_truncated = comments.len() > 500;
     comments.truncate(500);
-    let media: Vec<MediaAsset> = sqlx::query_as("SELECT m.id, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id WHERE pm.post_id = $1 ORDER BY pm.position, m.id").bind(id).fetch_all(&db).await?;
+    let media: Vec<MediaAsset> = sqlx::query_as("SELECT m.id, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id WHERE pm.post_id = ?1 ORDER BY pm.position, m.id").bind(id).fetch_all(&db).await?;
     let draw_feedback = if is_draw_things_source(&post.source) {
         Some(draw_things_feedback_summary(&db, id).await?)
     } else {
@@ -2693,7 +2745,7 @@ async fn post(
         (config.get("content_kind")?.as_str()? == "article").then_some((package_id, pack_id))
     }) {
         article_series = sqlx::query_as::<_, ArticleSeriesItem>(
-            "SELECT p.public_id,p.title,CASE WHEN e.generation_config->>'unit_order' ~ '^[0-9]+$' THEN (e.generation_config->>'unit_order')::int ELSE 0 END AS unit_order FROM posts p JOIN external_posts e ON e.post_id=p.id WHERE p.moderation_status='approved' AND e.provider='runner' AND e.generation_config->>'content_kind'='article' AND e.generation_config->>'package_id'=$1 AND e.generation_config->'pack'->>'id'=$2 ORDER BY unit_order,p.id LIMIT 64"
+            "SELECT p.public_id,p.title,CASE WHEN CAST(e.generation_config->>'unit_order' AS TEXT) <> '' AND CAST(e.generation_config->>'unit_order' AS TEXT) NOT GLOB '*[^0-9]*' THEN CAST(e.generation_config->>'unit_order' AS INTEGER) ELSE 0 END AS unit_order FROM posts p JOIN external_posts e ON e.post_id=p.id WHERE p.moderation_status='approved' AND e.provider='runner' AND e.generation_config->>'content_kind'='article' AND e.generation_config->>'package_id'=?1 AND e.generation_config->'pack'->>'id'=?2 ORDER BY unit_order,p.id LIMIT 64"
         )
         .bind(package_id)
         .bind(pack_id)
@@ -2705,17 +2757,17 @@ async fn post(
     Ok(Json(value))
 }
 async fn export(
-    State(db): State<PgPool>,
+    State(db): State<SqlitePool>,
     Query(query): Query<FeedQuery>,
 ) -> Result<Json<ExportBundle>, ApiError> {
     query.validate()?;
-    let communities: Vec<CommunityExport> = sqlx::query_as("SELECT slug, name, description FROM communities WHERE ($1::text IS NULL OR slug = $1) ORDER BY slug")
+    let communities: Vec<CommunityExport> = sqlx::query_as("SELECT slug, name, description FROM communities WHERE (?1 IS NULL OR slug = ?1) ORDER BY slug")
         .bind(&query.community).fetch_all(&db).await?;
-    let posts: Vec<PostExport> = sqlx::query_as("SELECT p.id, c.slug AS community, a.handle AS author, p.title, p.body, p.content_rating, p.created_at FROM posts p JOIN communities c ON c.id = p.community_id JOIN authors a ON a.id = p.author_id WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY p.id LIMIT 10000")
+    let posts: Vec<PostExport> = sqlx::query_as("SELECT p.id, c.slug AS community, a.handle AS author, p.title, p.body, p.content_rating, p.created_at FROM posts p JOIN communities c ON c.id = p.community_id JOIN authors a ON a.id = p.author_id WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) ORDER BY p.id LIMIT 10000")
         .bind(&query.community).fetch_all(&db).await?;
-    let comments: Vec<CommentExport> = sqlx::query_as("SELECT cm.id, cm.post_id, cm.parent_id, a.handle AS author, cm.body, cm.source, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id JOIN posts p ON p.id = cm.post_id JOIN communities c ON c.id = p.community_id WHERE cm.moderation_status = 'approved' AND p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY cm.id LIMIT 50000")
+    let comments: Vec<CommentExport> = sqlx::query_as("SELECT cm.id, cm.post_id, cm.parent_id, a.handle AS author, cm.body, cm.source, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id JOIN posts p ON p.id = cm.post_id JOIN communities c ON c.id = p.community_id WHERE cm.moderation_status = 'approved' AND p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) ORDER BY cm.id LIMIT 50000")
         .bind(&query.community).fetch_all(&db).await?;
-    let media: Vec<ExportMedia> = sqlx::query_as("SELECT pm.post_id, pm.media_id, pm.position, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id JOIN posts p ON p.id = pm.post_id JOIN communities c ON c.id = p.community_id WHERE p.moderation_status = 'approved' AND ($1::text IS NULL OR c.slug = $1) ORDER BY pm.post_id, pm.position LIMIT 50000")
+    let media: Vec<ExportMedia> = sqlx::query_as("SELECT pm.post_id, pm.media_id, pm.position, m.content_hash, m.media_type, m.byte_size, m.magnet_uri FROM post_media pm JOIN media_assets m ON m.id = pm.media_id JOIN posts p ON p.id = pm.post_id JOIN communities c ON c.id = p.community_id WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) ORDER BY pm.post_id, pm.position LIMIT 50000")
         .bind(&query.community).fetch_all(&db).await?;
     Ok(Json(ExportBundle {
         format: "swartzit-public-v1",
@@ -2726,7 +2778,7 @@ async fn export(
         media,
     }))
 }
-async fn feed(State(db): State<PgPool>) -> Result<axum::response::Response, ApiError> {
+async fn feed(State(db): State<SqlitePool>) -> Result<axum::response::Response, ApiError> {
     let posts: Vec<Post> = sqlx::query_as(&format!(
         "{POST_SELECT} WHERE p.moderation_status = 'approved' ORDER BY p.created_at DESC, p.id DESC LIMIT 50"
     ))
@@ -2757,7 +2809,7 @@ async fn shutdown() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-fn spawn_maintenance(db: PgPool) {
+fn spawn_maintenance(db: SqlitePool) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         // Do not make startup wait on housekeeping. The first tick is consumed
@@ -2766,18 +2818,21 @@ fn spawn_maintenance(db: PgPool) {
         loop {
             interval.tick().await;
             for (label, statement) in [
-                ("sessions", "DELETE FROM sessions WHERE expires_at <= now()"),
+                (
+                    "sessions",
+                    "DELETE FROM sessions WHERE julianday(expires_at) <= julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+                ),
                 (
                     "view visits",
-                    "DELETE FROM post_view_visits WHERE started_at < now() - interval '1 hour'",
+                    "DELETE FROM post_view_visits WHERE julianday(started_at) < julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour'))",
                 ),
                 (
                     "ip activity",
-                    "DELETE FROM ip_activity WHERE created_at < now() - interval '7 days'",
+                    "DELETE FROM ip_activity WHERE julianday(created_at) < julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days'))",
                 ),
                 (
                     "content runner logs",
-                    "DELETE FROM content_runner_runs r USING content_runners c WHERE r.runner_id=c.id AND r.finished_at IS NOT NULL AND r.finished_at < now() - make_interval(days => c.retention_days)",
+                    "DELETE FROM content_runner_runs WHERE finished_at IS NOT NULL AND julianday(finished_at) < julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-'||(SELECT retention_days FROM content_runners WHERE id=content_runner_runs.runner_id)||' days'))",
                 ),
             ] {
                 if let Err(error) = sqlx::query(statement).execute(&db).await {
@@ -2787,7 +2842,7 @@ fn spawn_maintenance(db: PgPool) {
             if let Err(error) = admin::process_media_replication_jobs(&db).await {
                 tracing::warn!(%error, maintenance = "media replication", "periodic maintenance failed");
             }
-            if let Err(error) = sqlx::query("UPDATE content_runner_runs SET status=CASE WHEN control_request='pause' THEN 'paused' WHEN control_request='cancel' THEN 'cancelled' ELSE 'failed' END, finished_at=now(), error=CASE WHEN control_request='pause' THEN 'Worker lease expired while pause was requested' WHEN control_request='cancel' THEN 'Worker lease expired while cancellation was requested' ELSE 'Worker lease expired' END, detail=CASE WHEN control_request IN ('pause','cancel') AND detail ? 'checkpoint' THEN jsonb_build_object('reaped', true, 'checkpoint', detail->'checkpoint') ELSE jsonb_build_object('reaped', true) END, progress_phase=CASE WHEN control_request='pause' THEN 'paused' WHEN control_request='cancel' THEN 'cancelled' ELSE 'failed' END, eta_seconds=NULL, progress_updated_at=now() WHERE status='running' AND COALESCE(progress_updated_at, started_at) < now() - interval '2 hours'").execute(&db).await {
+            if let Err(error) = sqlx::query("UPDATE content_runner_runs SET status=CASE WHEN control_request='pause' THEN 'paused' WHEN control_request='cancel' THEN 'cancelled' ELSE 'failed' END, finished_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), error=CASE WHEN control_request='pause' THEN 'Worker lease expired while pause was requested' WHEN control_request='cancel' THEN 'Worker lease expired while cancellation was requested' ELSE 'Worker lease expired' END, detail=CASE WHEN control_request IN ('pause','cancel') AND json_type(detail,'$.checkpoint') IS NOT NULL THEN json_object('reaped', json('true'), 'checkpoint', json_extract(detail,'$.checkpoint')) ELSE json_object('reaped', json('true')) END, progress_phase=CASE WHEN control_request='pause' THEN 'paused' WHEN control_request='cancel' THEN 'cancelled' ELSE 'failed' END, eta_seconds=NULL, progress_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE status='running' AND julianday(COALESCE(progress_updated_at, started_at)) < julianday(strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours'))").execute(&db).await {
                 tracing::warn!(%error, maintenance = "content runner leases", "periodic maintenance failed");
             }
         }
@@ -2809,11 +2864,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|value| value.parse::<u32>().ok())
         .unwrap_or(5)
         .clamp(1, 32);
-    let db = PgPoolOptions::new()
-        .max_connections(max_connections)
-        .connect(&database_url)
-        .await?;
-    sqlx::migrate!().run(&db).await?;
+    let db = crate::db::connect(&database_url, max_connections).await?;
     if std::env::args().any(|a| a == "--seed-communities") {
         let inserted = sqlx::raw_sql(include_str!("../starter-communities.sql"))
             .execute(&db)
@@ -2832,18 +2883,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or_else(|_| "techmore".into())
             .trim()
             .to_ascii_lowercase();
-        let mut tx = db.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(738129)")
-            .execute(&mut *tx)
-            .await?;
+        let mut tx = crate::db::begin_immediate(&db).await?;
         let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM authors WHERE handle = $1 AND password_hash IS NOT NULL)",
+            "SELECT EXISTS(SELECT 1 FROM authors WHERE handle = ?1 AND password_hash IS NOT NULL)",
         )
         .bind(&handle)
         .fetch_one(&mut *tx)
         .await?;
         if exists && std::env::var("RESET_ADMIN_PASSWORD").as_deref() != Ok("1") {
-            sqlx::query("UPDATE authors SET is_admin = TRUE WHERE handle = $1")
+            sqlx::query("UPDATE authors SET is_admin = TRUE WHERE handle = ?1")
                 .bind(&handle)
                 .execute(&mut *tx)
                 .await?;
@@ -2879,10 +2927,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .hash_password(password.as_bytes(), &salt)
             .map_err(|_| "could not hash administrator password")?
             .to_string();
-        sqlx::query("INSERT INTO authors (handle, password_hash, is_admin) VALUES ($1, $2, TRUE) ON CONFLICT (handle) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_admin = TRUE")
+        sqlx::query("INSERT INTO authors (handle, password_hash, is_admin) VALUES (?1, ?2, TRUE) ON CONFLICT (handle) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_admin = TRUE")
             .bind(&handle).bind(hash).execute(&mut *tx).await?;
         sqlx::query(
-            "DELETE FROM sessions WHERE author_id = (SELECT id FROM authors WHERE handle = $1)",
+            "DELETE FROM sessions WHERE author_id = (SELECT id FROM authors WHERE handle = ?1)",
         )
         .bind(&handle)
         .execute(&mut *tx)
@@ -2905,7 +2953,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         seed(&db).await?;
         return Ok(());
     }
-    spawn_maintenance(db.clone());
+    if std::env::var("SWARTZIT_DISABLE_MAINTENANCE").as_deref() != Ok("1") {
+        spawn_maintenance(db.clone());
+    }
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -3186,13 +3236,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     Ok(())
 }
-async fn seed(db: &PgPool) -> Result<(), sqlx::Error> {
-    let mut tx = db.begin().await?;
+async fn seed(db: &SqlitePool) -> Result<(), sqlx::Error> {
+    let mut tx = crate::db::begin_immediate(db).await?;
     // Serialize seed runs; starter list is idempotent so demo and
     // post-install seeding can coexist in any order.
-    sqlx::query("LOCK TABLE communities, authors, posts IN EXCLUSIVE MODE")
-        .execute(&mut *tx)
-        .await?;
     sqlx::raw_sql(include_str!("../starter-communities.sql"))
         .execute(&mut *tx)
         .await?;
@@ -3343,7 +3390,7 @@ mod tests {
         assert!(handler.contains("admin.content_rating_corrected"));
         // The rating is what the feed's hide filters read, so a correction has to
         // bump the update time; the original value is logged, not discarded.
-        assert!(handler.contains("content_rating_updated_at = now()"));
+        assert!(handler.contains("content_rating_updated_at = strftime("));
         assert!(handler.contains("\"from\": previous"));
         // It must not quietly publish or unpublish a post as a side effect.
         assert!(!handler.contains("moderation_status"));

@@ -1,3 +1,6 @@
+See [SQLite single-instance deployment](sqlite-single-instance.md) for the current
+storage model and the one-time PostgreSQL cutover.
+
 # Prototype, backup, and production updates
 
 Swartzit uses the Mac as the change-and-recovery environment and the Ubuntu
@@ -9,12 +12,12 @@ bind, WireGuard address, database URL, and origin operator-owned.
 ## 1. Prototype on the Mac or in an Apple VM
 
 Use the Mac checkout, an Incus macOS/Linux VM, or another disposable runtime
-that has the same PostgreSQL and Node versions as production. The VM should
+that has the same SQLite-enabled server and Node versions as production. The VM should
 mount its own persistent state directory; never mount the live production
 database directory into a prototype.
 
 Before testing an upgrade, make a real backup and verify that it can be
-restored into a disposable database container:
+restored into a disposable SQLite file:
 
 ```sh
 swartzit backup

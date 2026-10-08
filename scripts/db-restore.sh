@@ -60,34 +60,36 @@ if [[ -f "$BACKUP_DIR/SHA256SUMS" ]]; then
   (cd "$BACKUP_DIR" && shasum -a 256 -c SHA256SUMS)
 fi
 
-container inspect "$CONTAINER" >/dev/null 2>&1 || {
-  echo "Database container $CONTAINER was not found." >&2
+[[ "$(head -c 15 "$BACKUP")" == 'SQLite format 3' ]] || {
+  echo 'This runtime restores SQLite snapshots. Restore retained PostgreSQL dumps with the legacy PostgreSQL tools.' >&2
   exit 1
 }
-container exec "$CONTAINER" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
-
-cleanup() {
-  container exec "$CONTAINER" rm -f "$TEMP_DUMP" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
+DATABASE_URL=${DATABASE_URL:-sqlite:$STATE_DIR/swartzit.sqlite}
+DB_PATH=$(python3 "$SCRIPT_HOME/sqlite-db.py" path "$DATABASE_URL")
+python3 "$SCRIPT_HOME/sqlite-db.py" verify "$BACKUP"
 echo "Stopping Swartzit before restoring the database."
 "$LAUNCHER" stop
-
+# Direct children must exit before replacing a WAL database.
+for attempt in {1..20}; do
+  if ! curl -fsS --max-time 1 "${API_URL:-http://127.0.0.1:18080}/ready" >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+if curl -fsS --max-time 1 "${API_URL:-http://127.0.0.1:18080}/ready" >/dev/null 2>&1; then
+  echo 'The API is still running; refusing to replace its database.' >&2
+  exit 1
+fi
 echo "Creating a pre-rollback backup."
-backup_output=$(SWARTZIT_BACKUP_DIR="$BACKUP_ROOT" "$SCRIPT_HOME/db-backup.sh")
+backup_output=$(DATABASE_URL="$DATABASE_URL" SWARTZIT_DB_BACKUP_MODE=sqlite SWARTZIT_BACKUP_DIR="$BACKUP_ROOT" "$SCRIPT_HOME/db-backup.sh")
 printf '%s\n' "$backup_output"
 pre_restore_path=$(printf '%s\n' "$backup_output" | sed -n 's/^Backup: //p' | head -n 1)
 pre_restore_archive=$(printf '%s\n' "$backup_output" | sed -n 's/^Archive: //p' | head -n 1)
-[[ -n "$pre_restore_path" && -f "$pre_restore_path" ]] || {
-  echo "The pre-rollback backup path could not be determined." >&2
-  exit 1
-}
-
-echo "Restoring $BACKUP into $CONTAINER."
-container cp "$BACKUP" "$CONTAINER:$TEMP_DUMP"
-container exec "$CONTAINER" pg_restore -U "$DB_USER" -d "$DB_NAME" \
-  --clean --if-exists --no-owner --exit-on-error "$TEMP_DUMP"
+[[ -f "$pre_restore_path" ]] || { echo 'The pre-rollback snapshot is missing.' >&2; exit 1; }
+STAGED_RESTORE=$(mktemp -d "$(dirname "$DB_PATH")/.swartzit-restore.XXXXXX")
+trap 'rm -rf "$STAGED_RESTORE"' EXIT
+python3 "$SCRIPT_HOME/sqlite-db.py" backup "sqlite:$BACKUP" "$STAGED_RESTORE/database.sqlite"
+[[ ! -L "$DB_PATH" && ! -L "$DB_PATH-wal" && ! -L "$DB_PATH-shm" ]] || { echo 'Refusing database symlink replacement.' >&2; exit 1; }
+rm -f "$DB_PATH-wal" "$DB_PATH-shm"
+mv -f "$STAGED_RESTORE/database.sqlite" "$DB_PATH"
 
 if (( LEAVE_STOPPED )); then
   final_status=database-restored
