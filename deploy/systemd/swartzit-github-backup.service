@@ -1,5 +1,5 @@
 [Unit]
-Description=Verify and push a rolling Swartzit PostgreSQL backup to GitHub
+Description=Verify and push a rolling Swartzit database backup to GitHub
 After=network-online.target
 Wants=network-online.target
 

@@ -24,46 +24,20 @@ whose checksums do not match.
 
 ## Local Mac rehearsal
 
-The whole upgrade path can be rehearsed on the Mac against a real PostgreSQL
-cluster, with no container runtime and no production host involved:
+The upgrade path uses a consistent SQLite backup and a disposable copy. The
+candidate runs against the copy with maintenance disabled. See
+[SQLite deployment](sqlite-single-instance.md) for the complete one-time
+PostgreSQL import and root cutover tool.
 
 ```sh
-# A local cluster (Homebrew is shown here; any PostgreSQL 16 works).
-brew install postgresql@16
-brew services start postgresql@16
-
-# Point the scripts at a scratch database.
-export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
-export SWARTZIT_DB_USER="$(id -un)"
-export SWARTZIT_DB_NAME=swartzit_rehearsal
-export SWARTZIT_DB_HOST=127.0.0.1
-export SWARTZIT_DB_PORT=5432
-export SWARTZIT_DATABASE_URL="postgres://$(id -un)@127.0.0.1:5432/swartzit_rehearsal"
-export SWARTZIT_BACKUP_DIR="$PWD/.local/backups"
-
-# The backup uses the service credentials, so it needs no superuser session.
-SWARTZIT_DB_BACKUP_MODE=native bash scripts/db-backup.sh
-bash scripts/db-restore-verify-postgres.sh .local/backups/<archive>.tgz
-bash scripts/preflight-release.sh ./target/release/swartzit-server .local/backups/<stamp>/swartzit.dump
+export DATABASE_URL="sqlite:/absolute/path/to/state/swartzit.sqlite"
+bash scripts/db-backup.sh
+bash scripts/db-restore-verify-postgres.sh /path/to/swartzit-backup.tgz
+bash scripts/preflight-release.sh /path/to/candidate-server /path/to/swartzit.dump
 ```
 
-The backup is the same `scripts/db-backup.sh` used on the Mac and in CI. It
-picks the container or native backend automatically, and
-`SWARTZIT_DB_BACKUP_MODE=native` selects native PostgreSQL explicitly, which is
-what an Ubuntu host uses.
-
-`preflight-release.sh` is the database-compatibility gate. It restores the
-backup into a throwaway database, starts the candidate binary against that copy,
-and waits for `/health`. A migration that cannot apply to the current data fails
-here with a non-zero exit, before any live service is touched.
-
-The rehearsal role and database are always removed, including on failure. A
-crashed candidate can leave a session attached, so teardown terminates leftover
-backends and retries before warning.
-
-For the container-backed local database, the original `scripts/db-backup.sh` and
-`scripts/db-restore-verify.sh` remain in place and are driven by
-`bash scripts/run-local.sh`.
+`SWARTZIT_DB_BACKUP_MODE=auto` detects SQLite from the URL. Native PostgreSQL
+mode is retained for pre-cutover dumps; it is not required by the new runtime.
 
 ## Production upgrade
 
@@ -81,7 +55,7 @@ The updater performs these steps in order:
 2. Confirms the checkout has no tracked modifications.
 3. Downloads the tagged release assets, including `VERSION` and `SHA256SUMS`.
 4. Verifies every checksum and refuses a partial release.
-5. Dumps PostgreSQL in custom format with row counts, a media archive, and a
+5. Snapshots SQLite consistently with row counts, a media archive, and a
    checksum manifest.
 6. Restores the dump into a throwaway database owned by a disposable role.
 7. Starts the candidate server on that restored copy and waits for `/health`,

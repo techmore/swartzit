@@ -1,6 +1,9 @@
+See [SQLite storage and cutover](sqlite-single-instance.md) for current backup
+formats and retained PostgreSQL recovery copies.
+
 # Rolling GitHub database backups
 
-The Ubuntu Ser8 host can publish a daily PostgreSQL snapshot to a dedicated
+The Ubuntu Ser8 host can publish a daily SQLite snapshot to a dedicated
 private GitHub repository. Each snapshot contains `swartzit.dump`, its SHA256
 checksum, table row counts, and a creation manifest. It does not include media
 files or `/etc/swartzit` environment files. The GitHub branch shows only the
@@ -45,7 +48,7 @@ Both operations use the default SSH remote
 `git@github.com:techmore/ser8-database-backups.git`; the workflow input can
 override it for another private repository.
 
-The backup contains the complete PostgreSQL database configured by
+The backup contains the complete SQLite database configured by
 `DATABASE_URL`, including account data and password hashes. Keep the GitHub
 repository private and limit access to the operators who need database recovery.
 
@@ -62,8 +65,8 @@ It uses a dedicated local-backup directory instead of the application's
 
 Clone the backup repository and select a date under `snapshots/`. Run the
 project's `scripts/db-restore-verify-postgres.sh` against that snapshot's
-`swartzit.dump` on a machine with PostgreSQL client tools installed.
-For native PostgreSQL on Ser8, use the usual maintenance procedure, stop the
+`swartzit.dump` on a machine with Python 3 and the committed SQLite helper/schema installed.
+For SQLite on Ser8, use the offline restore procedure, stop the
 app services, and restore the selected dump with:
 
 ```sh
