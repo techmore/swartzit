@@ -78,5 +78,6 @@
   .follow-button{margin-top:12px;border:1px solid var(--border,#9aaba3);border-radius:6px;padding:8px 12px;background:var(--surface,#fff);color:var(--text,#1d2a27);cursor:pointer}
   .compose{margin:40px 0;max-width:650px}
   @media(max-width:900px){.community-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:700px){.community-directory{padding:28px 18px 110px}h1{font-size:2.2rem;line-height:1.1}}
   @media(max-width:600px){.community-grid{grid-template-columns:1fr}}
 </style>

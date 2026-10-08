@@ -9,6 +9,7 @@
   export let selectedCommunity = 'general';
   export let open = false;
   export let mode = 'post';
+  export let showVisitorLauncher = true;
 
   let token = '';
   let community = 'general';
@@ -91,7 +92,8 @@
   }
 </script>
 
-<div class="composer-launcher" aria-label="Create a post">
+{#if token || showVisitorLauncher}
+<div class="composer-launcher" class:visitor={!token} aria-label="Create a post">
   {#if token}
     <button type="button" class="launcher-x" onclick={() => { open = true; selectMode('x'); }} aria-label="Cross-post from X" aria-controls="compose-panel" aria-expanded={open && mode === 'x'}>𝕏 Post</button>
     <button type="button" class="launcher-post" onclick={() => { open = true; selectMode('post'); }} aria-label="Create a post" aria-controls="compose-panel" aria-expanded={open && mode === 'post'}>＋ Post</button>
@@ -99,6 +101,7 @@
     <a class="launcher-post" href="/login">Sign in to post</a>
   {/if}
 </div>
+{/if}
 
 {#if open && token}
   <section class="compose-panel" id="compose-panel" aria-labelledby="compose-title">
@@ -125,6 +128,9 @@
 
 <style>
   .composer-launcher{position:fixed;right:24px;bottom:132px;z-index:40;display:grid;gap:8px}
+  .composer-launcher.visitor{position:static;display:flex;justify-content:flex-end;margin:20px 0}
+  .composer-launcher.visitor a{box-shadow:none}
+  @media(max-width:700px){.composer-launcher.visitor{margin:20px 18px}}
   .composer-launcher button,.composer-launcher a{min-width:106px;height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--accent,#575d3d);border-radius:999px;padding:0 14px;background:var(--surface,#fff);color:var(--heading,#173d34);box-shadow:0 7px 20px #0002;font:750 .8rem ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer}
   .composer-launcher .launcher-x{background:var(--heading,#173d34);border-color:var(--heading,#173d34);color:#fff}
   .composer-launcher button:hover,.composer-launcher button:focus-visible{transform:translateY(-2px);box-shadow:0 10px 24px #0003}

@@ -155,22 +155,23 @@
 <div class="layout">
   <aside class="community-nav">
     <div class="sidebar-heading"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div>
-    <a class="selected" href={communityHref()}>All discussions</a>
-    {#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}
+    <a class:selected={!data.community} aria-current={!data.community ? "page" : undefined} href={communityHref()}>All discussions</a>
+    {#each data.communities as community}<a class:selected={data.community === community.slug} aria-current={data.community === community.slug ? "page" : undefined} href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}
   </aside>
   <section class="feed">
     <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a><a class:active={data.feed === 'buddies'} href={feedHref('buddies')}>Buddies</a><a class:active={data.feed === 'rated'} href={feedHref('rated')}>Rated</a></nav>
     {#if data.feed === 'following'}<FollowingXAuthors />{/if}
     {#if data.feed === 'buddies' && token}<BuddiesPanel />{/if}
-    <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class="selected" href={communityHref()}>All discussions</a>{#each data.communities as community}<a href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
+    <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class:selected={!data.community} aria-current={!data.community ? "page" : undefined} href={communityHref()}>All discussions</a>{#each data.communities as community}<a class:selected={data.community === community.slug} aria-current={data.community === community.slug ? "page" : undefined} href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
     <div class="feed-head">
       <div><p class="eyebrow">{data.community ? `c/${data.community}` : data.feed === 'buddies' ? 'YOUR PEOPLE' : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : data.feed === 'buddies' ? 'Buddies' : data.feed === 'rated' ? 'Rated posts' : 'Timeline'}</h1></div>
       <div class="feed-head-actions">
+        {#if !token}<a class="visitor-post-link" href="/login">Sign in to post</a>{/if}
         {#if data.feed !== 'buddies'}<details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else if data.hideR}<input type="hidden" name="hide_r" value="true" />{/if}{#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>{/if}
         {#if data.ratings}
           <form class="rated-filter" method="GET"><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="community" value={data.community} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label for="rated-selection">Show</label><select id="rated-selection" name="ratings" aria-label="Choose ratings to show" value={data.ratings}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select><button type="submit">Apply</button></form>
         {:else}
-          <details class="feed-options content-filters"><summary><span>Content</span>{#if data.hideR}<span class="filter-count">R hidden</span>{:else if data.hideX}<span class="filter-count">X hidden</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Show X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR}<a class="clear-content-filters" href={clearRHref()}>Clear R filter</a>{/if}</form></details>
+          <details class="feed-options content-filters"><summary><span>Content</span>{#if data.hideR}<span class="filter-count">R-rated hidden</span>{:else if data.hideX}<span class="filter-count">X-rated hidden</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="hide_r" value="true" checked={data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Hide R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Show X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR}<a class="clear-content-filters" href={clearRHref()}>Clear R filter</a>{/if}</form></details>
         {/if}
       </div>
     </div>
@@ -221,7 +222,7 @@
     {/if}
   </section>
 </div>
-<PostComposer communities={data.communities} selectedCommunity={data.community || 'general'} bind:open={composeOpen} bind:mode={composeMode} />
+<PostComposer communities={data.communities} selectedCommunity={data.community || 'general'} bind:open={composeOpen} bind:mode={composeMode} showVisitorLauncher={false} />
 </main>
 <MediaDock />
 <style>
@@ -266,6 +267,8 @@
   .feed-head .eyebrow{margin:0 0 5px}
   .feed-head h1{margin:0;color:var(--heading,#173d34);font:500 clamp(2rem,3vw,2.7rem)/1.05 Georgia,serif;letter-spacing:-.04em}
   .feed-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+  .visitor-post-link{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:.78rem;font-weight:700;color:var(--heading)}
+  .visitor-post-link:hover{background:var(--hover)}
   .feed-options{position:relative;flex:none}
   .feed-options>summary{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--border,#c7ccc3);border-radius:8px;color:var(--muted,#66766c);font-size:.78rem;font-weight:700;cursor:pointer;list-style:none}
   .feed-options>summary::-webkit-details-marker{display:none}
@@ -321,9 +324,9 @@
   .timeline-preview-card.no-image{grid-template-columns:minmax(0,1fr)}
   .timeline-preview-copy p{font-size:.78rem;-webkit-line-clamp:3;line-clamp:3}
     .feed-context time{margin-left:0}
-    .feed-tabs{padding:0 18px;margin-bottom:20px}
-    .feed-head{padding:0 18px;margin-bottom:16px}
-    .feed-head-actions{justify-content:space-between;margin-top:12px}
+    .feed-tabs{padding:0 18px;margin-bottom:20px;gap:12px;overflow-x:auto}
+    .feed-head{padding:0 18px;margin-bottom:16px;flex-direction:column;align-items:stretch;gap:12px}
+    .feed-head-actions{justify-content:flex-start;margin-top:0}
     .feed-head h1{font-size:2rem}
     .feed-options>summary{padding:7px 8px}
     .mobile-community-nav{display:none}

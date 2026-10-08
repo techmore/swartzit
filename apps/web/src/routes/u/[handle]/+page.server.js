@@ -1,8 +1,8 @@
 import { error } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
+import { apiUrl } from '#lib/server/api-url.mjs';
 
 export async function load({ fetch, params, url }) {
-  const api = env.API_URL ?? '';
+  const api = apiUrl('');
   const candidate = url.searchParams.get('tab');
   const requestedTab = ['posts', 'replies', 'media', 'activity'].includes(candidate) ? candidate : 'posts';
   const response = await fetch(`${api}/api/users/${encodeURIComponent(params.handle)}?tab=${requestedTab}`);
