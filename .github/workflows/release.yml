@@ -12,7 +12,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: sqlite:${{ runner.temp }}/swartzit-release.sqlite
+      DATABASE_URL: sqlite:/tmp/swartzit-release.sqlite
     steps:
       - uses: actions/checkout@v7
         with:

@@ -6,7 +6,7 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: sqlite:${{ runner.temp }}/swartzit-ci.sqlite
+      DATABASE_URL: sqlite:/tmp/swartzit-ci.sqlite
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
