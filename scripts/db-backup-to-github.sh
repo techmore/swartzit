@@ -53,14 +53,24 @@ WORK_DIR=$(mktemp -d "$STATE_DIR/git-work.XXXXXXXX")
 
 validate_dump() {
   local dump="$1"
-  if [[ "$(head -c 15 "$dump")" == 'SQLite format 3' ]]; then
+  local format
+  # PostgreSQL headers contain NUL bytes; shell substitutions must only carry
+  # the text label, never binary header data.
+  format=$(python3 - "$dump" <<'PY_FORMAT'
+import sys
+with open(sys.argv[1], 'rb') as source:
+    header = source.read(16)
+print('sqlite' if header == b'SQLite format 3\x00' else 'postgres' if header.startswith(b'PGDMP') else 'unknown')
+PY_FORMAT
+)
+  if [[ "$format" == sqlite ]]; then
     python3 "$ROOT/scripts/sqlite-db.py" verify "$dump" >/dev/null
-  elif command -v pg_restore >/dev/null 2>&1; then
+  elif [[ "$format" == postgres ]] && command -v pg_restore >/dev/null 2>&1; then
     pg_restore --list "$dump" >/dev/null
   else
     # Historical PG snapshots remain checksum-protected and restorable with
     # PostgreSQL client tools. New runtime backups are checked as SQLite.
-    [[ "$(head -c 5 "$dump")" == PGDMP ]]
+    [[ "$format" == postgres ]]
   fi
 }
 

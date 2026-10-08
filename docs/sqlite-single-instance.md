@@ -66,3 +66,6 @@ The daily private GitHub backup accepts SQLite snapshots and retains older
 PostgreSQL snapshots. On SER8 its URL refers to the host's bind-mounted state
 file. Install the committed helper and SQLite schema alongside the root-owned
 release tools; application releases cannot replace those privileged tools.
+
+The [SER8 production cutover receipt](sqlite-cutover-2026-10-08.md) records the
+active release, preserved data, backup confirmation and retained recovery paths.
