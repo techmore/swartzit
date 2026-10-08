@@ -3,7 +3,7 @@
   import Icon from '#lib/Icon.svelte';
   import ThemeToggle from '#lib/ThemeToggle.svelte';
   import AutoplayToggle from '#lib/AutoplayToggle.svelte';
-  export let compact = false;
+  export let compact = true;
   let handle = '', avatarUrl = '', isAdmin = false;
   const profileUpdated = event => { avatarUrl = event.detail?.avatar_url ?? ''; };
   onMount(() => {
@@ -20,11 +20,12 @@
   });
 </script>
 <nav class:compact class="session-nav" aria-label="Account and navigation">
-  <span class="preferences" aria-label="Display preferences"><ThemeToggle compact /><AutoplayToggle compact /></span>
   {#if compact}
     <details class="compact-menu">
       <summary aria-label="More navigation" title="More navigation"><Icon name="menu" /></summary>
       <div class="compact-menu-panel">
+        <div class="menu-preferences" aria-label="Display preferences"><span>Display</span><ThemeToggle compact /><AutoplayToggle compact /></div>
+        {#if !handle}<a href="/signup"><Icon name="user" />Create account</a>{/if}
         <a href="/about"><Icon name="info" />About</a>
         <a href="/communities"><Icon name="grid" />Communities</a>
         <a href="/history"><Icon name="clock" />History</a>
@@ -41,16 +42,20 @@
       <a href="/signup" class="compact-signup" aria-label="Create account" title="Create account">Join</a>
     {/if}
   {:else}
+    <span class="preferences" aria-label="Display preferences"><ThemeToggle compact /><AutoplayToggle compact /></span>
     <a href="/about">About</a><a href="/communities">Communities</a><a href="/history">History</a>
     {#if handle}<a href="/?feed=buddies">Buddies</a><a href="/bookmarks">Favorites</a><a class="profile-link" href={'/u/' + handle}>{#if avatarUrl}<img src={avatarUrl} alt="" />{/if}u/{handle}</a>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
     {:else}<a href="/login">Sign in</a><a href="/signup">Create account</a>{/if}
   {/if}
 </nav>
 <style>
+  .menu-preferences{display:flex;align-items:center;gap:6px;padding:5px 8px 10px;margin-bottom:4px;border-bottom:1px solid var(--border)}
+  .menu-preferences>span{margin-right:auto;color:var(--muted);font-size:.8rem}
+  @media(max-width:700px){.session-nav.compact .compact-signup{display:none}}
   .preferences{display:flex;align-items:center;gap:2px;margin-right:2px}
   .profile-link{display:inline-flex!important;align-items:center;gap:7px}.profile-link img{width:25px;height:25px;border-radius:50%;object-fit:cover}
   :global(.preferences button){color:var(--muted,#66766c)}
-  .session-nav.compact{display:flex;align-items:center;gap:3px;margin-left:4px}
+  .session-nav.compact{display:flex;align-items:center;gap:3px;margin-left:auto}
   .compact-menu{position:relative}
   .compact-menu>summary{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;color:var(--muted,#66766c);cursor:pointer;list-style:none}
   .compact-menu>summary::-webkit-details-marker{display:none}

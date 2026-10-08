@@ -1,11 +1,12 @@
 <script>
   const version = __SWARTZIT_VERSION__;
+  const displayVersion = version.split('-')[0];
 </script>
 
 <div class="brand-lockup">
   <a class="brand" href="/" aria-label={`Swartzit version ${version}`} title={`Swartzit version ${version}`}>
     <span class="brand-name">swartzit</span>
-    <span class="brand-version">v{version}</span>
+    <span class="brand-version">v{displayVersion}</span>
   </a>
   <a
     class="github-link"
@@ -53,4 +54,5 @@
     width: 20px;
     height: 20px;
   }
+  @media(max-width:700px){:global(header .brand .brand-version){display:none}.brand-lockup{gap:8px}}
 </style>

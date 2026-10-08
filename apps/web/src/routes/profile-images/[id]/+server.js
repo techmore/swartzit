@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private';
+import { apiUrl } from '#lib/server/api-url.mjs';
 
 const imageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const notFound = () => new Response('Not found', { status: 404 });
@@ -23,7 +23,7 @@ export async function GET({ params, url }) {
   if (!/^\d+$/.test(params.id)) return new Response('Not found', { status: 404 });
   let response;
   try {
-    response = await fetch(`${env.API_URL || 'http://127.0.0.1:8080'}/profile-images/${params.id}`, {
+    response = await fetch(`${apiUrl()}/profile-images/${params.id}`, {
       signal: AbortSignal.timeout(10000),
       redirect: 'error'
     });

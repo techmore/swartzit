@@ -1,9 +1,9 @@
-import { env } from '$env/dynamic/private';
+import { apiUrl } from '#lib/server/api-url.mjs';
 
 // One origin in both development and the standalone Node deployment.
 // Never accept an upstream host from the request or forward browser cookies.
 async function proxy({ request, params, url }) {
-  const upstream = new URL(`/api/${params.path}`, env.API_URL || 'http://127.0.0.1:8080');
+  const upstream = new URL(`/api/${params.path}`, apiUrl());
   upstream.search = url.search;
   const headers = new Headers();
   for (const name of ['content-type', 'authorization']) {
