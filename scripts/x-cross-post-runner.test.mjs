@@ -47,3 +47,13 @@ test('collects, filters, deduplicates, and bounds posts for the worker contract'
   assert.equal(posts[0].source_likes, 8);
   assert.ok(!Object.hasOwn(posts[0], '_runner_source'));
 });
+
+test('candidate pool remains larger than publication limit so the worker can skip existing posts', async () => {
+  const posts = await collectCrossPosts({accounts: ['alpha'], limit: 1, candidateLimit: 20}, {
+    now: '2026-10-08T21:00:00Z',
+    collector: async () => Array.from({length: 20}, (_, i) => ({source_url: `https://x.com/alpha/status/${i + 1}`, published_at: '2026-10-08T20:00:00Z', source_likes: 20 - i}))
+  });
+  assert.equal(posts.length, 20);
+  assert.equal(posts[0].source_url, 'https://x.com/alpha/status/1');
+  await assert.rejects(collectCrossPosts({accounts: ['alpha'], limit: 2, candidateLimit: 1}), /candidate limit/);
+});
