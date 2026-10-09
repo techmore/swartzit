@@ -248,7 +248,7 @@ has the models.
 ## X cross-post runner
 
 `scripts/x-cross-post-runner.mjs` is a generic `cross_post` runner command. It
-uses `X_BEARER_TOKEN` with the official X API through `crawler-adapters.mjs` and
+uses the official X API by default through `crawler-adapters.mjs` and
 prints the bounded `{ "posts": [...] }` contract expected by the worker. It
 supports:
 
@@ -264,7 +264,7 @@ supports:
   already imported on this instance and continue down the list to fill the
   requested one-to-eight posts per execution.
 
-The runner outputs `max_posts` separately from the candidate list. Before
+The CLI outputs `max_posts` separately from the candidate list. `--limit` bounds publication (one to fifteen); `--candidate-limit` bounds the ranked pool (up to 100, default 100). The default collection limit is 50 posts per source. Before
 showing a dry-run preview or publishing, the worker checks the candidate source
 URLs against the instance and selects the first fresh results up to that limit.
 The publication endpoint still performs its own locked duplicate check.
@@ -276,10 +276,12 @@ storing their values in the database:
 X_BEARER_TOKEN, X_RUNNER_ACCOUNTS, X_RUNNER_TOPICS
 ```
 
-The normal X recent-search API has its own availability window and plan limits;
+On a Linux worker with a dedicated signed-in X profile, set `X_SOURCE_MODE=playwright` to use the browser provider instead. It supports account profiles and public Latest search results, translates reply/retweet/media operators for the browser, and enforces exact timestamps after source resolution. The scan is bounded to fourteen scrolls and at most 100 candidates per source. Posts keep their original author's canonical status URL, full text, quoted/thread context and trusted media through the shared resolver. Empty search results are a no-content success; missing sign-in and unavailable source context remain errors. Do not copy cookies into Git or runner command arguments.
+
+The profile-backed provider requires the pinned Playwright runtime and OS dependencies described below. The normal X recent-search API has its own availability window and plan limits;
 the runner does not pretend to retrieve content the API cannot return. An empty
 window is a successful no-content result, while authentication, query, and API
-errors are recorded as a failed runner attempt.
+errors are recorded as a failed runner attempt. Recent-search reply/retweet exclusions are query operators; the separate `exclude` parameter is used only for account timelines.
 
 ### Read-only Ego Lite browser session
 

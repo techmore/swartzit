@@ -1,8 +1,7 @@
-import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { appendXContext, resolveXPost, xPostText } from '../apps/web/src/lib/x-source.mjs';
+import { appendXContext, parseXStatusUrl, resolveXPost, xPostText } from '../apps/web/src/lib/x-source.mjs';
 
-const require = createRequire(import.meta.url);
+import { launchPlaywrightContext } from './x-playwright-recommended-runner.mjs';
 const now=()=>new Date().toISOString();
 const titleOf=t=>t.split(/\r?\n/,1)[0].trim().slice(0,300)||'Imported post';
 async function getJson(url,headers={}){const r=await fetch(url,{headers:{accept:'application/json',...headers},signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error(`${url}: HTTP ${r.status}`);return r.json();}
@@ -55,40 +54,53 @@ export function normalizeXBearerToken(value) {
   }
 }
 
-async function collectXFromPlaywright(job) {
+export function xBrowserPlan(job, now = Date.now()) {
   const source = String(job.source || '').trim();
-  if (/^search:/i.test(source)) throw Error('Playwright X fallback supports account profiles, not search queries');
-  const handle = source.replace(/^@/, '').replace(/^https?:\/\/(?:www\.)?x\.com\//i, '').split(/[/?#]/)[0];
-  if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) throw Error('X browser source must be an account handle or profile URL');
+  const search = /^search:/i.test(source);
+  const handle = search ? null : source.replace(/^@/, '').replace(/^https?:\/\/(?:www\.)?x\.com\//i, '').split(/[/?#]/)[0];
+  if (!search && !/^[A-Za-z0-9_]{1,15}$/.test(handle)) throw Error('X browser source must be an account handle, profile URL, or search: query');
+  const start = job.start_time ?? job.startTime;
+  const end = job.end_time ?? job.endTime;
+  const startMs = start ? Date.parse(start) : Number(now) - Number(job.hours || 24) * 3600000;
+  const endMs = end ? Date.parse(end) : Number(now);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) throw Error('X browser source window is invalid');
+  const limit = Number(job.max_items ?? 15);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw Error('X browser max_items must be an integer from 1 to 100');
+  const exclusions = [...new Set((Array.isArray(job.exclude) ? job.exclude : String(job.exclude || '').split(',')).map(value => String(value).trim().toLowerCase()).filter(Boolean))];
+  let url = 'https://x.com/' + handle;
+  if (search) {
+    const query = source.replace(/^search:\s*/i, '').trim();
+    if (!query || query.length > 512) throw Error('X search source must contain a query of at most 512 characters');
+    // Translate API operators outside quoted phrases to the public search UI.
+    const translated = query.split(/("(?:\\.|[^"\\])*")/).map((part, index) => index % 2 ? part : part
+      .replace(/(^|[\s(])(-?)is:retweet(?=[\s)]|$)/g, '$1$2filter:retweets')
+      .replace(/(^|[\s(])(-?)is:reply(?=[\s)]|$)/g, '$1$2filter:replies')
+      .replace(/(^|[\s(])(-?)has:(media|images|videos)(?=[\s)]|$)/g, '$1$2filter:$3')).join('');
+    const since = new Date(startMs).toISOString().slice(0, 10);
+    const until = new Date(Math.ceil(endMs / 86400000) * 86400000).toISOString().slice(0, 10);
+    const filters = exclusions.map(value => value === 'replies' ? '-filter:replies' : value === 'retweets' ? '-filter:retweets' : '').filter(Boolean);
+    url = 'https://x.com/search?' + new URLSearchParams({q: [translated, ...filters, 'since:' + since, 'until:' + until].join(' '), src: 'typed_query', f: 'live'});
+  }
+  return {url, search, handle, startMs, endMs, limit, exclusions};
+}
+
+export async function collectXFromPlaywright(job, {launch = launchPlaywrightContext, resolve = resolveXPost, now = Date.now()} = {}) {
+  const plan = xBrowserPlan(job, now);
   const profileDir = process.env.X_PLAYWRIGHT_USER_DATA_DIR || join(process.env.SWARTZIT_WORKER_STATE_DIR || process.cwd(), 'x-playwright-profile');
-  let resolved;
-  try { resolved = require.resolve(process.env.SWARTZIT_PLAYWRIGHT_MODULE || 'playwright'); }
-  catch (error) { throw Error(`Playwright is unavailable for the X browser fallback: ${error.message}`); }
-  const { chromium } = require(resolved);
-  const headless = !['0', 'false', 'off', 'no'].includes(String(process.env.X_PLAYWRIGHT_HEADLESS ?? 'true').trim().toLowerCase());
-  const context = await chromium.launchPersistentContext(profileDir, {
-    headless,
-    ...(process.env.X_PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.X_PLAYWRIGHT_EXECUTABLE_PATH } : {}),
-    viewport: { width: 1280, height: 900 },
-    locale: 'en-US'
-  });
+  const context = await launch({userDataDir: profileDir});
   try {
     const page = await context.newPage();
-    await page.goto(`https://x.com/${handle}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(plan.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     try {
       await page.waitForSelector('article[data-testid="tweet"]', { state: 'visible', timeout: 20000 });
     } catch {
       const body = await page.locator('body').innerText().catch(() => '');
+      if (/no results for|try searching for something else|hasn[’']t posted/i.test(body)) return [];
       if (/sign\s*in|log\s*in/i.test(body)) throw Error('The dedicated X Playwright profile is not signed in');
-      throw Error(`X did not load the public profile @${handle}`);
+      throw Error(plan.search ? 'X did not load the Latest search results' : `X did not load the public profile @${plan.handle}`);
     }
-    const start = job.start_time ?? job.startTime;
-    const end = job.end_time ?? job.endTime;
-    const startMs = start ? Date.parse(start) : Date.now() - Number(job.hours || 24) * 3600000;
-    const endMs = end ? Date.parse(end) : Date.now();
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) throw Error('X browser source window is invalid');
-    const exclusions = new Set((Array.isArray(job.exclude) ? job.exclude : String(job.exclude || '').split(',')).map(value => String(value).trim().toLowerCase()).filter(Boolean));
-    const limit = Math.min(15, Math.max(1, Number(job.max_items) || 15));
+    const {startMs, endMs, limit} = plan;
+    const exclusions = new Set(plan.exclusions);
     const candidates = new Map();
     let reachedStart = false;
     for (let scroll = 0; scroll < 14 && candidates.size < limit && !reachedStart; scroll += 1) {
@@ -104,9 +116,9 @@ async function collectXFromPlaywright(job) {
       for (const row of rows) {
         const timestamp = Date.parse(row.published_at || '');
         if (!row.id || !Number.isFinite(timestamp) || row.pinned) continue;
-        if (timestamp < startMs) { reachedStart = true; continue; }
+        if (timestamp < startMs) { if (!plan.search) reachedStart = true; continue; }
         if (timestamp > endMs || (exclusions.has('replies') && row.replying) || (exclusions.has('retweets') && row.reposted)) continue;
-        candidates.set(row.id, `https://x.com/${handle}/status/${row.id}`);
+        try { candidates.set(row.id, parseXStatusUrl(row.href).source_url); } catch { /* Only canonical public status links are eligible. */ }
       }
       if (candidates.size >= limit || reachedStart || scroll === 13) break;
       await page.evaluate(() => window.scrollBy(0, Math.max(650, Math.floor(window.innerHeight * 0.8))));
@@ -115,7 +127,7 @@ async function collectXFromPlaywright(job) {
     const posts = [];
     const ordered = [...candidates.values()].slice(0, limit);
     for (const sourceUrl of ordered) {
-      const post = await resolveXPost(sourceUrl);
+      const post = await resolve(sourceUrl);
       const timestamp = Date.parse(post.published_at || '');
       if (!Number.isFinite(timestamp) || timestamp < startMs || timestamp > endMs) continue;
       posts.push({
@@ -143,7 +155,12 @@ export async function collectX(job) {
   if (/^search:/i.test(job.source)) {
     if (!query || query.length > 512) throw Error('X search source must contain a query of at most 512 characters');
     const params=new URLSearchParams({query, max_results:String(Math.max(10,Math.min(job.max_items,100))), 'tweet.fields':fields, expansions:'author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id', 'user.fields':'protected,profile_image_url,name,username,description,public_metrics,verified', 'media.fields':mediaFields});
-    applyXWindow(params, job);
+    applyXWindow(params, {...job, exclude: []});
+    const excluded = new Set(Array.isArray(job.exclude) ? job.exclude : String(job.exclude || '').split(','));
+    const filters = [excluded.has('replies') ? '-is:reply' : '', excluded.has('retweets') ? '-is:retweet' : ''].filter(Boolean);
+    const searchQuery = [query, ...filters].join(' ');
+    if (searchQuery.length > 512) throw Error('X search query including exclusions must be at most 512 characters');
+    params.set('query', searchQuery);
     const d=await getJson(`https://api.x.com/2/tweets/search/recent?${params}`,h);
     tweets=d.data||[]; users=d.includes?.users||[]; media=d.includes?.media||[];
     relatedTweets=d.includes?.tweets||[];

@@ -42,8 +42,10 @@ for the command contract and lifecycle behavior.
    checkpoint. Missing metrics remain `null`; a runner must not guess them.
 4. The worker and public API adapters are cross-platform Node code. Browser
    collection still belongs on a Mac host with a dedicated signed-in Ego Lite
-   session; hosted Linux jobs use the official API adapters and their
-   environment-file credentials, and never scrape browser cookies.
+   session; hosted Linux jobs can use the official API or the dedicated signed-in
+   Playwright profile described in the content-runner guide. Credentials and
+   browser profiles stay on the worker, outside Git. The browser collectors
+   only read public posts and never send account actions to X.
 5. The profile-image cache is bounded maintenance, not a media mirror. It runs
    after a successful worker pass and never blocks publication of unrelated
    content.
