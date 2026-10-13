@@ -1,5 +1,5 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use image::ImageFormat;
 use reqwest::{Client, Method, header};
 use serde::{Deserialize, Serialize};
@@ -1538,5 +1538,38 @@ mod tests {
         assert!(valid_ipfs_key("bafybeigdyrzt"));
         assert!(!valid_ipfs_key("https://gateway.example/ipfs/bafy"));
         assert!(!valid_ipfs_key(""));
+    }
+
+    // Known-answer tests: the hash/HMAC crates changed major versions (sha2 0.11, hmac 0.13), and these values
+    // guard session-token hashes and S3 request signing against any change in output.
+    #[test]
+    fn sha256_matches_the_published_vector() {
+        assert_eq!(
+            hex::encode(Sha256::digest(b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_matches_rfc_4231_case_2() {
+        assert_eq!(
+            hmac_hex(b"Jefe", b"what do ya want for nothing?").unwrap(),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+    }
+
+    #[test]
+    fn sigv4_signing_key_matches_the_aws_documented_example() {
+        let key = signing_key(
+            "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+            "20120215",
+            "us-east-1",
+            "iam",
+        )
+        .unwrap();
+        assert_eq!(
+            hex::encode(key),
+            "f4780e2d9f65fa895f9c67b32ce1baf0b0d8a43505a000a1a9e090d414db404d"
+        );
     }
 }
