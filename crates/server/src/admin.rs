@@ -83,9 +83,10 @@ impl Filter {
         Ok(q.to_owned())
     }
 }
+// `sql` must be a literal: sqlx 0.9 refuses non-static SQL strings unless they are explicitly marked audited.
 async fn rows(
     db: &SqlitePool,
-    sql: &str,
+    sql: &'static str,
     q: &str,
     before: Option<i64>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
@@ -1605,6 +1606,8 @@ fn validate_environment_keys(keys: &serde_json::Value) -> Result<(), ApiError> {
     Ok(())
 }
 
+// SQL audit (sqlx 0.9 AssertSqlSafe): RUNNER_SELECT is a constant and the ORDER BY / WHERE suffixes are literals;
+// the runner id is a bound parameter.
 const RUNNER_SELECT: &str = "SELECT json_object('id',t.id,'name',t.name,'kind',t.kind,'command',json(t.command),'prompt',t.prompt,'author',t.author,'community',t.community,'interval_seconds',t.interval_seconds,'days_of_week',json(t.days_of_week),'priority',t.priority,'enabled',json(CASE WHEN t.enabled IS NULL THEN NULL WHEN t.enabled THEN 'true' ELSE 'false' END),'state',t.state,'test_requested',json(CASE WHEN t.test_requested IS NULL THEN NULL WHEN t.test_requested THEN 'true' ELSE 'false' END),'timeout_seconds',t.timeout_seconds,'max_attempts',t.max_attempts,'retry_backoff_seconds',t.retry_backoff_seconds,'failure_threshold',t.failure_threshold,'consecutive_failures',t.consecutive_failures,'current_attempt',t.current_attempt,'retention_days',t.retention_days,'environment_keys',json(t.environment_keys),'capture_output',json(CASE WHEN t.capture_output IS NULL THEN NULL WHEN t.capture_output THEN 'true' ELSE 'false' END),'max_log_bytes',t.max_log_bytes,'paused_reason',t.paused_reason,'archived_at',t.archived_at,'last_success_at',t.last_success_at,'next_run_at',t.next_run_at,'last_run_at',t.last_run_at,'last_status',t.last_status,'last_error',t.last_error,'config_version',t.config_version,'created_at',t.created_at,'updated_at',t.updated_at,'latest_run',json(t.latest_run),'run_count',t.run_count) FROM (SELECT r.id,r.name,r.kind,r.command,r.prompt,a.handle AS author,c.slug AS community,r.interval_seconds,r.days_of_week,r.priority,r.enabled,r.state,r.test_requested,r.timeout_seconds,r.max_attempts,r.retry_backoff_seconds,r.failure_threshold,r.consecutive_failures,r.current_attempt,r.retention_days,r.environment_keys,r.capture_output,r.max_log_bytes,r.paused_reason,r.archived_at,r.last_success_at,r.next_run_at,r.last_run_at,r.last_status,r.last_error,r.config_version,r.created_at,r.updated_at,(SELECT json_object('id',x.id,'status',x.status,'attempt',x.attempt,'config_version',x.config_version,'dry_run',json(CASE WHEN x.dry_run IS NULL THEN NULL WHEN x.dry_run THEN 'true' ELSE 'false' END),'started_at',x.started_at,'finished_at',x.finished_at,'post_id',x.post_id,'error',x.error,'exit_code',x.exit_code,'duration_ms',x.duration_ms,'timed_out',json(CASE WHEN x.timed_out IS NULL THEN NULL WHEN x.timed_out THEN 'true' ELSE 'false' END),'retry_at',x.retry_at,'stdout',x.stdout,'stderr',x.stderr,'detail',json(x.detail),'progress_percent',x.progress_percent,'progress_phase',x.progress_phase,'progress_message',x.progress_message,'current_step',x.current_step,'total_steps',x.total_steps,'eta_seconds',x.eta_seconds,'progress_updated_at',x.progress_updated_at,'control_request',x.control_request) FROM (SELECT id,status,attempt,config_version,dry_run,started_at,finished_at,post_id,error,exit_code,duration_ms,timed_out,retry_at,stdout,stderr,detail,progress_percent,progress_phase,progress_message,current_step,total_steps,eta_seconds,progress_updated_at,control_request FROM content_runner_runs WHERE runner_id=r.id ORDER BY id DESC LIMIT 1) x) AS latest_run,(SELECT count(*) FROM content_runner_runs WHERE runner_id=r.id) AS run_count FROM content_runners r JOIN authors a ON a.id=r.author_id JOIN communities c ON c.id=r.community_id";
 
 pub async fn content_runners(
@@ -1612,7 +1615,7 @@ pub async fn content_runners(
     headers: HeaderMap,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     require_admin(&headers, &db).await?;
-    Ok(Json(sqlx::query_scalar(&format!("{} ORDER BY CASE r.state WHEN 'enabled' THEN 0 WHEN 'retrying' THEN 1 WHEN 'paused' THEN 2 WHEN 'draft' THEN 3 ELSE 4 END,r.priority,r.id DESC) t", RUNNER_SELECT)).fetch_all(&db).await?))
+    Ok(Json(sqlx::query_scalar(sqlx::AssertSqlSafe(format!("{} ORDER BY CASE r.state WHEN 'enabled' THEN 0 WHEN 'retrying' THEN 1 WHEN 'paused' THEN 2 WHEN 'draft' THEN 3 ELSE 4 END,r.priority,r.id DESC) t", RUNNER_SELECT))).fetch_all(&db).await?))
 }
 
 pub async fn content_runner(
@@ -1621,12 +1624,15 @@ pub async fn content_runner(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_admin(&headers, &db).await?;
-    sqlx::query_scalar::<_, serde_json::Value>(&format!("{} WHERE r.id=?1) t", RUNNER_SELECT))
-        .bind(id)
-        .fetch_optional(&db)
-        .await?
-        .map(Json)
-        .ok_or(ApiError::Missing)
+    sqlx::query_scalar::<_, serde_json::Value>(sqlx::AssertSqlSafe(format!(
+        "{} WHERE r.id=?1) t",
+        RUNNER_SELECT
+    )))
+    .bind(id)
+    .fetch_optional(&db)
+    .await?
+    .map(Json)
+    .ok_or(ApiError::Missing)
 }
 
 /// Let the worker remove already-imported provider posts before a runner's

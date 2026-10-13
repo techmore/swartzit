@@ -1987,7 +1987,7 @@ async fn buddies_feed(
     );
     let mut posts: Vec<Post> = operations::timed_query(
         "feed.buddies",
-        sqlx::query_as(&sql)
+        sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(author_id)
             .bind(fts_query(query.q.as_deref().unwrap_or("").trim()))
             .bind(&query.community)
@@ -2649,7 +2649,7 @@ async fn posts(
     }
     let mut posts: Vec<Post> = operations::timed_query(
         "feed.public",
-        sqlx::query_as(&sql)
+        sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(&query.community)
             .bind(fts_query(q))
             .bind(offset)
@@ -2687,7 +2687,7 @@ async fn home_feed(
     );
     let mut posts: Vec<Post> = operations::timed_query(
         "feed.following",
-        sqlx::query_as(&sql)
+        sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(author_id)
             .bind(fts_query(query.q.as_deref().unwrap_or("").trim()))
             .bind(&query.community)
@@ -2711,16 +2711,16 @@ async fn post(
     Path(raw_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let post: Post = if let Ok(id) = raw_id.parse::<i64>() {
-        sqlx::query_as(&format!(
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "{POST_SELECT} WHERE p.moderation_status = 'approved' AND p.id = ?1"
-        ))
+        )))
         .bind(id)
         .fetch_optional(&db)
         .await?
     } else {
-        sqlx::query_as(&format!(
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "{POST_SELECT} WHERE p.moderation_status = 'approved' AND p.public_id = ?1"
-        ))
+        )))
         .bind(&raw_id)
         .fetch_optional(&db)
         .await?
@@ -2778,10 +2778,11 @@ async fn export(
         media,
     }))
 }
+// SQL audit (sqlx 0.9 AssertSqlSafe): the dynamic parts of these queries are only compile-time constants
+// (POST_SELECT, FEED_PAGE_SIZE) and `imports::order()`, which maps the client's sort key to a fixed &'static str
+// from a whitelist. No request-supplied text is ever interpolated; values are always bound parameters.
 async fn feed(State(db): State<SqlitePool>) -> Result<axum::response::Response, ApiError> {
-    let posts: Vec<Post> = sqlx::query_as(&format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' ORDER BY p.created_at DESC, p.id DESC LIMIT 50"
-    ))
+    let posts: Vec<Post> = sqlx::query_as(sqlx::AssertSqlSafe(format!("{POST_SELECT} WHERE p.moderation_status = 'approved' ORDER BY p.created_at DESC, p.id DESC LIMIT 50")))
     .fetch_all(&db)
     .await?;
     fn xml(value: &str) -> String {
