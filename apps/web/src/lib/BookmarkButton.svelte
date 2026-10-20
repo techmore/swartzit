@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import Icon from '#lib/Icon.svelte';
   import { getBookmarkFolders, getBookmarkStatus, setBookmarkStatus } from '#lib/bookmark-state.js';
   export let id;
   let token = '', saved = false, folder = '', folders = [], busy = false, ready = false, error = '';
@@ -36,7 +37,7 @@
 </script>
 {#if token}
   <div class="bookmark-control">
-    <button class="vote-button" disabled={busy || !ready} aria-label={saved ? 'Remove bookmark' : 'Bookmark post'} title={saved ? 'Remove bookmark' : 'Bookmark post'} aria-pressed={saved} on:click={() => save(saved)}>{saved ? '★' : '☆'}</button>
+    <button class="vote-button icon-button bookmark-toggle" class:saved disabled={busy || !ready} aria-label={saved ? 'Remove bookmark' : 'Bookmark post'} title={saved ? 'Remove bookmark' : 'Bookmark post'} aria-pressed={saved} on:click={() => save(saved)}><Icon name="bookmark" size={22} /></button>
     {#if saved}<details on:toggle={e => { if (e.currentTarget.open) loadFolders(); }}>
       <summary>Save to folder</summary>
       <form on:submit|preventDefault={() => save()}>
@@ -50,5 +51,7 @@
 {/if}
 <style>
   .bookmark-control{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:12px 0;font-size:.85rem}
+  .bookmark-toggle.saved{color:var(--accent);border-color:var(--accent)}
+  .bookmark-toggle.saved :global(svg){fill:currentColor}
   summary{cursor:pointer} form{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 0} select{max-width:220px} [role=alert]{color:var(--error,#973c35)}
 </style>

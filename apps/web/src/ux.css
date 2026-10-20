@@ -13,9 +13,18 @@ main:focus{outline:none}
   .open-discussion{margin-left:0}
 }
 @media(pointer:coarse){
-  .post-actions .vote-button.icon-button,.vote-button.icon-button{width:44px!important;height:44px!important}
+  .post-actions .vote-button.icon-button,.vote-button.icon-button{width:40px!important;height:40px!important}
   .header-icon,.session-nav.compact a,.compact-menu>summary,.theme-toggle.compact{min-width:40px;min-height:40px}
   .feed-tabs a{padding-top:10px}
 }
 .vote-button.icon-button.signed-out{cursor:pointer}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+@media(max-width:700px){
+  .post-actions{flex-wrap:wrap!important;overflow-x:visible!important;row-gap:8px;gap:6px!important}
+}
+@media(max-width:700px){main.post-page h1{font-size:1.75rem;line-height:1.2}}
+.post-actions .bookmark-toggle{width:34px;height:34px;padding:6px;background:transparent;color:var(--muted);border:1px solid var(--border);display:inline-grid;place-items:center}
+@media(pointer:coarse){.post-actions .bookmark-toggle{width:40px;height:40px}}
+.auth .link-button{justify-self:start;padding:4px 0;background:none;color:var(--heading);text-decoration:underline;text-underline-offset:3px;font-size:.85rem}
+.auth button:disabled{opacity:.7;cursor:progress}
+.auth .form-error{padding:10px 12px;border-radius:6px;background:var(--error-bg);margin:0}
