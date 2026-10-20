@@ -1,11 +1,38 @@
 <script>
   import { onMount } from 'svelte';
   import Brand from '#lib/Brand.svelte';
-  onMount(() => { if (new URLSearchParams(location.search).has('created')) message = 'Account created. Sign in with your new password.'; });
-  let handle = '', password = '', message = '', error = '';
-  function destinationAfterSignIn() { const next = new URLSearchParams(location.search).get('next'); return next && next.startsWith('/') && !next.startsWith('//') ? next : '/'; }
-  async function submit() { error = ''; message = ''; const response = await fetch('/api/sessions', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ handle, password }) }); const data = await response.json(); if (!response.ok) { error = data.error ?? 'Could not sign in'; return; } localStorage.setItem('swartzit_session', data.token); window.location.assign(destinationAfterSignIn()); }
+  import { safeNextPath, signIn, storeSessionToken } from '#lib/auth-session.mjs';
+  let handle = '', password = '', message = '', error = '', busy = false, next = '/';
+  onMount(() => {
+    next = safeNextPath(location.search);
+    if (new URLSearchParams(location.search).has('created')) message = 'Account created. Sign in with your new password.';
+  });
+  async function submit(event) {
+    event.preventDefault();
+    if (busy) return;
+    error = ''; message = ''; busy = true;
+    try {
+      const result = await signIn({ handle, password });
+      if (!result.ok) { error = result.error; return; }
+      if (!storeSessionToken(result.token)) {
+        error = 'Signed in, but this browser blocks site storage, so the session could not be kept. Allow storage for this site and try again.';
+        return;
+      }
+      window.location.assign(next);
+    } finally { busy = false; }
+  }
 </script>
 <svelte:head><title>Sign in — Swartzit</title></svelte:head>
-<header><Brand /><span>Read freely. Participate under a pseudonym. Take your community with you.</span><a class="login" href="/signup">Create account</a></header>
-<main class="auth"><p class="eyebrow">WELCOME BACK</p><h1>Sign in</h1><p class="lede">Your public reading never depended on an account. Sign in when you’re ready to participate.</p><form on:submit|preventDefault={submit}><label>Handle<input id="login-username" name="username" bind:value={handle} autocomplete="username" autocapitalize="none" spellcheck="false" required /></label><label>Password<input id="login-password" name="password" type="password" bind:value={password} autocomplete="current-password" required /></label><button>Sign in</button></form>{#if error}<p class="form-error">{error}</p>{/if}{#if message}<p class="form-message">{message}</p>{/if}<p class="switch">New here? <a href="/signup">Create an account</a>.</p></main>
+<header><Brand /><span>Read freely. Participate under a pseudonym. Take your community with you.</span><a class="login" href={next === '/' ? '/signup' : `/signup?next=${encodeURIComponent(next)}`}>Create account</a></header>
+<main class="auth">
+  <p class="eyebrow">WELCOME BACK</p><h1>Sign in</h1>
+  <p class="lede">Your public reading never depended on an account. Sign in when you’re ready to participate.</p>
+  <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? 'login-error' : undefined}>
+    <label>Handle<input id="login-username" name="username" bind:value={handle} autocomplete="username" autocapitalize="none" spellcheck="false" required disabled={busy} /></label>
+    <label>Password<input id="login-password" name="password" type="password" bind:value={password} autocomplete="current-password" required disabled={busy} /></label>
+    <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+  </form>
+  {#if error}<p id="login-error" class="form-error" role="alert">{error}</p>{/if}
+  {#if message}<p class="form-message" role="status">{message}</p>{/if}
+  <p class="switch">New here? <a href={next === '/' ? '/signup' : `/signup?next=${encodeURIComponent(next)}`}>Create an account</a>.</p>
+</main>

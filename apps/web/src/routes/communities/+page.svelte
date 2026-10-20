@@ -2,27 +2,29 @@
   import { onMount } from 'svelte';
   import SessionNav from '#lib/SessionNav.svelte';
   import Brand from '#lib/Brand.svelte';
+  import { loginHref } from '#lib/auth-session.mjs';
   export let data;
-  let token = '', slug = '', name = '', description = '', error = '', busy = false, busySlug = '', following = {};
+  let token = '', slug = '', name = '', description = '', error = '', followError = '', busy = false, busySlug = '', following = {}, signInHref = '/login';
   onMount(async () => {
     token = localStorage.getItem('swartzit_session') ?? '';
+    signInHref = loginHref(location.pathname + location.search);
     if (!token) return;
     try {
       const response = await fetch('/api/subscriptions', {headers:{authorization:'Bearer '+token}});
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not load followed communities.');
       following = Object.fromEntries(result.map(slug => [slug, true]));
-    } catch (e) { error = e.message || 'Could not load followed communities.'; }
+    } catch (e) { followError = e.message || 'Could not load followed communities.'; }
   });
   async function toggleFollow(community) {
-    if (!token) { window.location.assign('/login'); return; }
-    busySlug = community.slug; error = '';
+    if (!token) { window.location.assign(signInHref); return; }
+    busySlug = community.slug; followError = '';
     try {
       const response = await fetch(`/api/communities/${community.slug}/subscription`,{method:following[community.slug]?'DELETE':'POST',headers:{authorization:'Bearer '+token}});
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not update followed communities.');
       following = {...following,[community.slug]:result.subscribed};
-    } catch (e) { error = e.message || 'Could not reach Swartzit.'; }
+    } catch (e) { followError = e.message || 'Could not reach Swartzit.'; }
     finally { busySlug = ''; }
   }
   async function create() {
@@ -44,9 +46,10 @@
   <p class="eyebrow">FIND YOUR PEOPLE</p><h1>Browse communities</h1>
   <p>Explore a topic, read a conversation, or start a place of your own.</p>
   <form method="GET" class="community-search"><input name="q" value={data.q} placeholder="Search topics and communities" aria-label="Search communities" maxlength="200" /><button>Search</button></form>
-  <p class="muted">{data.total} communities {data.q ? 'matching “' + data.q + '”' : 'to explore'}</p>
+  <p class="muted" role="status">{data.total} {data.total === 1 ? 'community' : 'communities'} {data.q ? 'matching “' + data.q + '”' : 'to explore'}</p>
+  {#if followError}<p class="form-error" role="alert">{followError}</p>{/if}
   <div class="community-grid">{#each data.communities as community}
-    <article><small>c/{community.slug}</small><h2><a href={'/?community=' + community.slug}>{community.name}</a></h2><p>{community.description}</p><a href={'/?community=' + community.slug}>{community.post_count} posts · Browse →</a><button class="follow-button" disabled={busySlug === community.slug} onclick={() => toggleFollow(community)}>{busySlug === community.slug ? 'Saving…' : following[community.slug] ? 'Following' : 'Follow'}</button></article>
+    <article><small>c/{community.slug}</small><h2><a href={'/?community=' + community.slug}>{community.name}</a></h2><p>{community.description}</p><a href={'/?community=' + community.slug}>{community.post_count} posts · Browse →</a><button class="follow-button" class:following={following[community.slug]} disabled={busySlug === community.slug} aria-pressed={Boolean(following[community.slug])} aria-label={`${following[community.slug] ? 'Unfollow' : 'Follow'} c/${community.slug}`} onclick={() => toggleFollow(community)}>{busySlug === community.slug ? 'Saving…' : following[community.slug] ? 'Following' : 'Follow'}</button></article>
   {/each}</div>
   {#if !data.communities.length}<p>No communities found. Try another search or create one below.</p>{/if}
   <nav class="community-pages" aria-label="Community result pages">
@@ -62,7 +65,7 @@
       <button disabled={busy}>{busy ? 'Creating…' : 'Create community'}</button>
       {#if error}<p class="form-error" role="alert">{error}</p>{/if}
     </form>
-    {:else}<p><a href="/login">Sign in</a> to create a community. Everyone can browse without an account.</p>{/if}
+    {:else}<p><a href={signInHref}>Sign in</a> to create a community. Everyone can browse without an account.</p>{/if}
   </section>
 </main>
 <style>
@@ -76,6 +79,8 @@
   article small{color:var(--accent,#9b5e38)}
   .community-pages{display:flex;gap:24px;margin-top:24px}
   .follow-button{margin-top:12px;border:1px solid var(--border,#9aaba3);border-radius:6px;padding:8px 12px;background:var(--surface,#fff);color:var(--text,#1d2a27);cursor:pointer}
+  .follow-button.following{border-color:var(--accent,#575d3d);color:var(--accent,#575d3d);font-weight:700}
+  .follow-button:disabled{cursor:wait;opacity:.6}
   .compose{margin:40px 0;max-width:650px}
   @media(max-width:900px){.community-grid{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:700px){.community-directory{padding:28px 18px 110px}h1{font-size:2.2rem;line-height:1.1}}
