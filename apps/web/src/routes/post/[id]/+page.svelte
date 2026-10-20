@@ -87,7 +87,7 @@
   <Brand />
   <SessionNav />
 </header>
-<main class="post-page" class:article-page={Boolean(article)}>
+<main id="main-content" class="post-page" class:article-page={Boolean(article)}>
   <div class="post-context">
     <a class="back" href="/?community={data.post.community}">← c/{data.post.community}</a>
     <a class="community-export" href="/api/export?community={data.post.community}" download="swartzit-community-export.json">Export data ↓</a>

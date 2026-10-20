@@ -21,6 +21,8 @@
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
   function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
+  $: activeCommunities = data.communities.filter(community => community.post_count > 0 || community.slug === data.community).sort((a, b) => b.post_count - a.post_count || a.slug.localeCompare(b.slug));
+  $: quietCommunities = data.communities.filter(community => community.post_count === 0 && community.slug !== data.community);
   let token = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedPage = data.page, feedLoading = false, feedError = '';
   let feedKey = '', activeFeedKey = '', feedRequestController, followingInitialKey = '', initialPosts = data.posts;
@@ -151,12 +153,13 @@
     </form>
   {/if}
 </header>
-<main class="home">
+<main id="main-content" class="home">
 <div class="layout">
   <aside class="community-nav">
     <div class="sidebar-heading"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div>
     <a class:selected={!data.community} aria-current={!data.community ? "page" : undefined} href={communityHref()}>All discussions</a>
-    {#each data.communities as community}<a class:selected={data.community === community.slug} aria-current={data.community === community.slug ? "page" : undefined} href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}
+    {#each activeCommunities as community}<a class:selected={data.community === community.slug} aria-current={data.community === community.slug ? "page" : undefined} href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} {community.post_count === 1 ? 'post' : 'posts'}</small></a>{/each}
+    {#if quietCommunities.length}<details class="quiet-communities" open={quietCommunities.some(community => community.slug === data.community)}><summary>{quietCommunities.length} with no posts yet</summary>{#each quietCommunities as community}<a class:selected={data.community === community.slug} aria-current={data.community === community.slug ? "page" : undefined} href={communityHref(community.slug)}><strong>c/{community.slug}</strong></a>{/each}</details>{/if}
   </aside>
   <section class="feed">
     <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} href={feedHref('timeline')}>Timeline</a><a class:active={data.feed === 'following'} href={feedHref('following')}>Following</a><a class:active={data.feed === 'buddies'} href={feedHref('buddies')}>Buddies</a><a class:active={data.feed === 'rated'} href={feedHref('rated')}>Rated</a></nav>
@@ -182,12 +185,12 @@
           {#if data.feed === 'buddies' && post.liked_by?.length}<div class="buddy-like-context"><span>Upvoted by</span>{#each post.liked_by as handle}<a href={'/u/' + handle}>u/{handle}</a>{/each}{#if post.liked_at}<time datetime={post.liked_at}>{new Date(post.liked_at).toLocaleString()}</time>{/if}</div>{/if}
           {#if isTimelinePreview(post)}
             {#if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
-              <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
+              <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span class="sep" aria-hidden="true">·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
               {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
             {:else}
               <div class="meta">
-                {#if post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From Reddit</strong><span> · </span><span>{post.source.source_author}</span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
-                {:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span> · </span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
+                {#if post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From Reddit</strong><span class="sep" aria-hidden="true">·</span><span>{post.source.source_author}</span><span class="sep" aria-hidden="true">·</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
+                {:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span class="sep" aria-hidden="true">·</span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span class="sep" aria-hidden="true">·</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
               </div>
               {#if !redundantSourceTitle(post)}<h3><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
             {/if}
@@ -197,13 +200,13 @@
             </div>
             <PostActions {post} />
           {:else if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
-            <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span>·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
+            <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span class="sep" aria-hidden="true">·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
             {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
             <SourcePost source={post.source} text={post.body} post={post} embedded={true} />
           {:else}
             <div class="meta">
-              {#if post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From Reddit</strong><span> · </span><span>{post.source.source_author}</span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
-              {:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span> · </span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span> · </span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
+              {#if post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From Reddit</strong><span class="sep" aria-hidden="true">·</span><span>{post.source.source_author}</span><span class="sep" aria-hidden="true">·</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
+              {:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span class="sep" aria-hidden="true">·</span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span class="sep" aria-hidden="true">·</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
             </div>
             {#if !redundantSourceTitle(post)}<h3><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
             <PostBody body={post.body} />
@@ -247,7 +250,14 @@
   .sidebar-heading h2{margin:0}
   .sidebar-heading a{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:var(--muted,#66766c)}
   .sidebar-heading a:hover{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
-  .community-nav>a{padding:8px 10px;border-radius:8px}
+  .community-nav>a,.quiet-communities>a{padding:8px 10px;border-radius:8px}
+  .quiet-communities{margin-top:8px;border-top:1px solid var(--border,#dedfd7);padding-top:6px}
+  .quiet-communities>summary{cursor:pointer;padding:8px 10px;color:var(--muted);font-size:.78rem;font-weight:700;list-style:none}
+  .quiet-communities>summary::before{content:'▸';display:inline-block;width:1.1em}
+  .quiet-communities[open]>summary::before{content:'▾'}
+  .quiet-communities>summary::-webkit-details-marker{display:none}
+  .quiet-communities>a{display:flex;flex-direction:column;color:var(--muted)}
+  .quiet-communities>a.selected{background:var(--subtle);color:var(--heading)}
   .feed{min-width:0;max-width:720px}
   .feed>article.source-article{padding:20px 22px}
   .feed-context{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;color:var(--muted,#66766c);font-size:.76rem;font-weight:650}

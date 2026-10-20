@@ -148,7 +148,7 @@
 </svelte:head>
 
 <header><Brand /><span>Member profile</span><SessionNav /></header>
-<main class="profile-page">
+<main id="main-content" class="profile-page">
   <section class="profile-card">
     <div class="profile-identity">
       {#if data.profile.avatar_url}

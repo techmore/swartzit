@@ -63,5 +63,5 @@
   });
 </script>
 <span bind:this={element} class="post-views" title="Opens and visible reading milestones. Repeat visits count; these are not unique people.">
-  {counts.view_count} views · {counts.engaged_view_count} engaged (10s) · {counts.deep_view_count} deeper reads (30s)
+  {counts.view_count} views<span class="post-views-extra"> · {counts.engaged_view_count} engaged (10s) · {counts.deep_view_count} deeper reads (30s)</span>
 </span>

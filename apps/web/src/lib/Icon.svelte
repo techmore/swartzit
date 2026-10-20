@@ -30,6 +30,8 @@
     <circle cx="12" cy="12" r="8" /><path d="M12 10.5v5M12 7.5h.01" />
   {:else if name === 'login'}
     <path d="M13 5h6v14h-6M11 12h9M11 12l3-3M11 12l3 3M5 5h3M5 19h3" />
+  {:else if name === 'home'}
+    <path d="M4 11l8-6.5 8 6.5M6 10v9h4v-5h4v5h4v-9" />
   {:else}
     <circle cx="12" cy="12" r="8" />
   {/if}
