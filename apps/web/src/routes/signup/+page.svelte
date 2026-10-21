@@ -13,7 +13,7 @@
 </script>
 <svelte:head><title>Create account — Swartzit</title></svelte:head>
 <header><Brand /><a href="/communities">Browse communities</a><a class="login" href="/login">Sign in</a></header>
-<main class="auth">
+<main id="main-content" class="auth">
   <p class="eyebrow">PARTICIPATE UNDER A PSEUDONYM</p><h1>Create your account</h1>
   <p class="lede">Choose a handle for your conversations. No real name or external identity provider is required.</p>
   <form method="POST" action="/signup" autocomplete="on">

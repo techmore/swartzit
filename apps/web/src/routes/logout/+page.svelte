@@ -21,4 +21,4 @@
 </script>
 <svelte:head><title>Signed out — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
 <header><Brand /><span>Read freely. Participate under a pseudonym. Take your community with you.</span></header>
-<main class="auth"><h1 aria-live="polite">{message}</h1><p class="lede">Public discussions remain available without an account.</p>{#if note}<p class="form-message" role="status">{note}</p>{/if}<a href="/">Return to the commons →</a></main>
+<main id="main-content" class="auth"><h1 aria-live="polite">{message}</h1><p class="lede">Public discussions remain available without an account.</p>{#if note}<p class="form-message" role="status">{note}</p>{/if}<a href="/">Return to the commons →</a></main>

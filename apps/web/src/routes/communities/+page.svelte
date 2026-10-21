@@ -42,7 +42,7 @@
 </script>
 <svelte:head><title>Browse communities · Swartzit</title></svelte:head>
 <header><Brand /><SessionNav /></header>
-<main class="community-directory">
+<main id="main-content" class="community-directory">
   <p class="eyebrow">FIND YOUR PEOPLE</p><h1>Browse communities</h1>
   <p>Explore a topic, read a conversation, or start a place of your own.</p>
   <form method="GET" class="community-search"><input name="q" value={data.q} placeholder="Search topics and communities" aria-label="Search communities" maxlength="200" /><button>Search</button></form>

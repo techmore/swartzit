@@ -14,7 +14,10 @@ export const SESSION_STORAGE_KEY = 'swartzit_session';
 export function safeNextPath(search, fallback = '/') {
   let next = '';
   try { next = new URLSearchParams(search ?? '').get('next') ?? ''; } catch { return fallback; }
-  if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return fallback;
+  // Browsers drop tabs and newlines from URLs and treat `\` like `/`, so
+  // `/\t/evil.example` would become the protocol-relative `//evil.example`.
+  if (/[\u0000-\u001f\u007f\\]/.test(next)) return fallback;
+  if (!next.startsWith('/') || next.startsWith('//')) return fallback;
   return next;
 }
 

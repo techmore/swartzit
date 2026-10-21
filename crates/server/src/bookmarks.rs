@@ -55,10 +55,7 @@ pub struct Saved {
     moderation_status: String,
 }
 async fn owner(h: &HeaderMap, db: &SqlitePool) -> Result<i64, ApiError> {
-    authenticated_author(h, db).await.map_err(|e| match e {
-        ApiError::Invalid(_) => ApiError::Unauthorized,
-        other => other,
-    })
+    authenticated_author(h, db).await
 }
 pub async fn folders(
     State(db): State<SqlitePool>,

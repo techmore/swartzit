@@ -57,6 +57,9 @@ test('next paths stay on this origin', () => {
   assert.equal(safeNextPath('?next=https://evil.example/'), '/');
   assert.equal(safeNextPath('?next=//evil.example'), '/');
   assert.equal(safeNextPath('?next=/\\evil.example'), '/');
+  assert.equal(safeNextPath('?next=%2F%09%2Fevil.example'), '/');
+  assert.equal(safeNextPath('?next=%2F%0A%2Fevil.example'), '/');
+  assert.equal(safeNextPath('?next=/x%5C..%5C%5Cevil.example'), '/');
   assert.equal(safeNextPath(''), '/');
   assert.equal(safeNextPath(undefined, '/communities'), '/communities');
 });

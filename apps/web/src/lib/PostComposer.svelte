@@ -98,8 +98,8 @@
 {#if token || showVisitorLauncher}
 <div class="composer-launcher" class:visitor={!token} aria-label="Create a post">
   {#if token}
-    <button type="button" class="launcher-x" onclick={() => { open = true; selectMode('x'); }} aria-label="Cross-post from X" aria-controls="compose-panel" aria-expanded={open && mode === 'x'}>𝕏 Post</button>
-    <button type="button" class="launcher-post" onclick={() => { open = true; selectMode('post'); }} aria-label="Create a post" aria-controls="compose-panel" aria-expanded={open && mode === 'post'}>＋ Post</button>
+    <button type="button" class="launcher-x" onclick={() => { open = true; selectMode('x'); }} aria-label="Cross-post from X" aria-controls="compose-panel" aria-expanded={open && mode === 'x'}>𝕏<span class="launcher-label"> Post</span></button>
+    <button type="button" class="launcher-post" onclick={() => { open = true; selectMode('post'); }} aria-label="Create a post" aria-controls="compose-panel" aria-expanded={open && mode === 'post'}>＋<span class="launcher-label"> Post</span></button>
   {:else}
     <a class="launcher-post" href={signInHref}>Sign in to post</a>
   {/if}
@@ -133,7 +133,7 @@
   .composer-launcher{position:fixed;right:24px;bottom:132px;z-index:40;display:grid;gap:8px}
   .composer-launcher.visitor{position:static;display:flex;justify-content:flex-end;margin:20px 0}
   .composer-launcher.visitor a{box-shadow:none}
-  @media(max-width:700px){.composer-launcher.visitor{margin:20px 18px}}
+  @media(max-width:700px){.composer-launcher.visitor{margin:20px 18px}.composer-launcher:not(.visitor){right:14px;bottom:calc(78px + env(safe-area-inset-bottom))}.composer-launcher:not(.visitor) button{min-width:48px;width:48px;height:48px;padding:0;font-size:1.1rem}.composer-launcher:not(.visitor) .launcher-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.compose-panel{bottom:calc(138px + env(safe-area-inset-bottom));right:16px}}
   .composer-launcher button,.composer-launcher a{min-width:106px;height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--accent,#575d3d);border-radius:999px;padding:0 14px;background:var(--surface,#fff);color:var(--heading,#173d34);box-shadow:0 7px 20px #0002;font:750 .8rem ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer}
   .composer-launcher .launcher-x{background:var(--heading,#173d34);border-color:var(--heading,#173d34);color:var(--accent-fg,#fff)}
   .composer-launcher button:hover,.composer-launcher button:focus-visible{transform:translateY(-2px);box-shadow:0 10px 24px #0003}

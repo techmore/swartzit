@@ -1,6 +1,6 @@
 <script>
   export let data;
-  import '../app.css'; import '../forms.css'; import '../admin.css';
+  import '../app.css'; import '../forms.css'; import '../admin.css'; import '../ux.css';
   import AdSenseLoader from '#lib/AdSenseLoader.svelte';
   import MobileNav from '#lib/MobileNav.svelte';
 import { afterNavigate } from '$app/navigation';
@@ -22,5 +22,5 @@ function skipToContent(event) {
 }
 </script>
 <svelte:head><script src="/project-analytics.js" defer></script></svelte:head>
-<a class="skip-link" href="#main" onclick={skipToContent}>Skip to content</a>
+<a class="skip-link" href="#main-content" onclick={skipToContent}>Skip to content</a>
 <AdSenseLoader clientId={data.adsenseClientId} /><slot /><MobileNav />
