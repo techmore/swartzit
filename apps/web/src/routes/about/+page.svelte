@@ -11,7 +11,7 @@
   <SessionNav />
 </header>
 
-<main class="about-page">
+<main id="main-content" class="about-page">
   <section class="about-hero">
     <p class="eyebrow">THE OPEN DISCUSSION NETWORK</p>
     <h1>Conversations that belong to their communities.</h1>

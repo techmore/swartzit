@@ -17,7 +17,7 @@
 
 <svelte:head><title>Reading history — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
 <header><Brand /><SessionNav /></header>
-<main>
+<main id="main-content">
   <div class="heading"><div><h1>Reading history</h1><p>Posts you’ve paused on in your feed or opened. Stored in this browser.</p></div>{#if ready && items.length}<button on:click={clearHistory}>Clear history</button>{/if}</div>
   {#if !ready}<p role="status">Loading history…</p>
   {:else if !items.length}<p>Your history is empty. Posts you stop on in the feed will show up here.</p>

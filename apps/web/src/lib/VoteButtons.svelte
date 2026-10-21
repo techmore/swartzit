@@ -7,6 +7,7 @@
    * instead of doing nothing.
    */
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { nextVote, optimisticScore } from '#lib/vote-toggle.mjs';
   export let id;
   export let score = 0;
@@ -45,7 +46,8 @@
   $: downvoted = currentVote === -1;
 
   async function cast(direction) {
-    if (!token || busy) return;
+    if (busy) return;
+    if (!token) { goto('/login?next=' + encodeURIComponent(location.pathname + location.search)); return; }
     const postId = id;
     const next = nextVote(currentVote, direction);
     const previousScore = currentScore;
@@ -90,7 +92,8 @@
   <button
     class="vote-button icon-button upvote"
     class:active={upvoted}
-    disabled={busy || !token}
+    class:signed-out={!token}
+    disabled={busy}
     aria-pressed={upvoted}
     aria-label={token ? (upvoted ? 'Remove your upvote' : 'Upvote') : 'Sign in to upvote'}
     title={token ? (upvoted ? 'Remove your upvote' : 'Upvote') : 'Sign in to upvote'}
@@ -102,7 +105,8 @@
   <button
     class="vote-button icon-button downvote"
     class:active={downvoted}
-    disabled={busy || !token}
+    class:signed-out={!token}
+    disabled={busy}
     aria-pressed={downvoted}
     aria-label={token ? (downvoted ? 'Remove your downvote' : 'Downvote') : 'Sign in to downvote'}
     title={token ? (downvoted ? 'Remove your downvote' : 'Downvote') : 'Sign in to downvote'}

@@ -370,7 +370,7 @@
 <svelte:head><title>Administration · Swartzit</title></svelte:head>
 {#if authState !== 'authenticated'}
   <header><Brand /><span>Instance administration</span></header>
-  <main class="auth admin-auth" aria-live="polite">
+  <main id="main-content" class="auth admin-auth" aria-live="polite">
     {#if authState === 'checking'}
       <p role="status">Checking administrator access…</p>
     {:else if authState === 'forbidden'}
@@ -388,7 +388,7 @@
   </main>
 {:else}
 <header><Brand /><span>Instance administration</span><SessionNav /></header>
-<main class="admin">
+<main id="main-content" class="admin">
   <div class="admin-heading"><div><p class="eyebrow">YOUR COMMUNITY, YOUR INSTANCE</p><h1>Control room</h1><p class="muted">People, conversations, and the services that keep them connected.</p></div>
     <div class="refresh-controls"><button onclick={() => { paused = !paused; }}>{paused ? 'Resume live updates' : 'Pause live updates'}</button><button onclick={refresh}>Refresh</button><small>{refreshed ? 'Updated ' + refreshed.toLocaleTimeString() : 'Connecting…'}</small></div>
   </div>

@@ -117,7 +117,7 @@
 </script>
 <svelte:head><title>Bookmarks — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
 <header><Brand /><SessionNav /></header>
-<main>
+<main id="main-content">
   <h1>Your bookmarks</h1><p>Private to your account. Save discussions and organize them into folders.</p>
   {#if !loaded}<p role="status">Loading bookmarks…</p>
   {:else if !token}<p><a href="/login">Sign in</a> to save posts and manage folders.</p>
