@@ -947,10 +947,10 @@ async fn authenticated_author(headers: &HeaderMap, db: &SqlitePool) -> Result<i6
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let Some(token) = value.strip_prefix("Bearer ") else {
-        return Err(ApiError::Invalid("Authentication required"));
+        return Err(ApiError::Unauthorized);
     };
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(ApiError::Invalid("Authentication required"));
+        return Err(ApiError::Unauthorized);
     }
     let token_hash = Sha256::digest(token.as_bytes()).to_vec();
     sqlx::query_scalar(
@@ -959,7 +959,7 @@ async fn authenticated_author(headers: &HeaderMap, db: &SqlitePool) -> Result<i6
     .bind(token_hash)
     .fetch_optional(db)
     .await?
-    .ok_or(ApiError::Invalid("Authentication required"))
+    .ok_or(ApiError::Unauthorized)
 }
 
 async fn active_author(headers: &HeaderMap, db: &SqlitePool) -> Result<i64, ApiError> {
@@ -1115,7 +1115,7 @@ async fn me(
     .bind(author_id)
     .fetch_optional(&db)
     .await?
-    .ok_or(ApiError::Invalid("Authentication required"))?;
+    .ok_or(ApiError::Unauthorized)?;
     Ok(Json(user))
 }
 
@@ -1398,17 +1398,12 @@ async fn update_profile(
 }
 
 async fn require_admin(headers: &HeaderMap, db: &SqlitePool) -> Result<i64, ApiError> {
-    let author_id = authenticated_author(headers, db)
-        .await
-        .map_err(|e| match e {
-            ApiError::Invalid(_) => ApiError::Unauthorized,
-            other => other,
-        })?;
+    let author_id = authenticated_author(headers, db).await?;
     let is_admin: bool = sqlx::query_scalar("SELECT is_admin FROM authors WHERE id = ?1")
         .bind(author_id)
         .fetch_optional(db)
         .await?
-        .ok_or(ApiError::Invalid("Authentication required"))?;
+        .ok_or(ApiError::Unauthorized)?;
     if !is_admin {
         return Err(ApiError::Forbidden);
     }
@@ -2022,10 +2017,10 @@ async fn logout(State(db): State<SqlitePool>, headers: HeaderMap) -> Result<Stat
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let Some(token) = value.strip_prefix("Bearer ") else {
-        return Err(ApiError::Invalid("Authentication required"));
+        return Err(ApiError::Unauthorized);
     };
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(ApiError::Invalid("Authentication required"));
+        return Err(ApiError::Unauthorized);
     }
     let token_hash = Sha256::digest(token.as_bytes()).to_vec();
     sqlx::query("DELETE FROM sessions WHERE token_hash = ?1")
@@ -3271,6 +3266,65 @@ async fn seed(db: &SqlitePool) -> Result<(), sqlx::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn authentication_failures_are_401_not_400() {
+        assert_eq!(
+            ApiError::Unauthorized.into_response().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            ApiError::Invalid("bad input").into_response().status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn missing_malformed_and_expired_sessions_are_unauthorized(db: SqlitePool) {
+        let author: i64 =
+            sqlx::query_scalar("INSERT INTO authors(handle) VALUES ('alice') RETURNING id")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let live = "a".repeat(64);
+        let expired = "b".repeat(64);
+        for (token, offset) in [(&live, "+1 hour"), (&expired, "-1 hour")] {
+            sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES (?1,?2,strftime('%Y-%m-%dT%H:%M:%fZ','now',?3))")
+                .bind(Sha256::digest(token.as_bytes()).to_vec())
+                .bind(author)
+                .bind(offset)
+                .execute(&db)
+                .await
+                .unwrap();
+        }
+        let header = |value: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert("authorization", value.parse().unwrap());
+            headers
+        };
+        assert_eq!(
+            authenticated_author(&header(&format!("Bearer {live}")), &db)
+                .await
+                .unwrap(),
+            author
+        );
+        for (name, headers) in [
+            ("missing", HeaderMap::new()),
+            ("wrong scheme", header(&format!("Basic {live}"))),
+            ("malformed", header("Bearer not-a-token")),
+            ("unknown", header(&format!("Bearer {}", "c".repeat(64)))),
+            ("expired", header(&format!("Bearer {expired}"))),
+        ] {
+            let error = authenticated_author(&headers, &db).await.unwrap_err();
+            assert!(
+                matches!(error, ApiError::Unauthorized),
+                "{name} token produced {error:?}"
+            );
+            assert_eq!(
+                error.into_response().status(),
+                StatusCode::UNAUTHORIZED,
+                "{name} token"
+            );
+        }
+    }
     #[test]
     fn password_hashes_from_argon2_0_5_still_verify() {
         // Produced by argon2 0.5.3 before the 0.6 upgrade. Existing accounts

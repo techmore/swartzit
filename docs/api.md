@@ -17,7 +17,10 @@ reader opts in. `ratings=r`, `ratings=x`, or `ratings=rx` selects only that
 rating (or both), and takes precedence over the hide options. The older
 `mature_only=true` parameter remains an alias for `ratings=rx`.
 
-Participation endpoints use `Authorization: Bearer <token>`:
+Participation endpoints use `Authorization: Bearer <token>`. A missing,
+malformed, unknown, or expired token is answered with `401 Unauthorized` and
+`{"error":"Authentication required"}`; a suspended account receives `403`.
+Validation problems with the request body itself use `400`.
 
 - `POST /api/accounts` — create a handle and Argon2 password hash
 - `POST /api/sessions` — receive a 30-day session token
