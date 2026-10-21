@@ -13,6 +13,7 @@
   import PostComposer from '#lib/PostComposer.svelte';
   import ContentRatingControl from '#lib/ContentRatingControl.svelte';
   import { parseCommentDraft } from '#lib/comment-source.mjs';
+  import { loginHref } from '#lib/auth-session.mjs';
   let commentOrder = 'oldest';
   export let data;
   let token = '', body = '', parent = null, message = '', busy = false, showAllComments = false;
@@ -29,7 +30,7 @@
   $: previewTitle = `${data.post.title} — Swartzit`;
   $: previewDescription = (data.post.body || '').replace(/\s+/g, ' ').trim().slice(0, 240) || 'A public discussion on Swartzit.';
   $: previewMedia = mediaValue(data.post.source?.media?.[0]);
-  $: canonicalUrl = `https://stoverparc.org/post/${data.post.public_id}`;
+  $: canonicalUrl = data.canonical_url;
   onMount(() => {
     token = localStorage.getItem('swartzit_session') || '';
     const commentId = window.location.hash.match(/^#comment-(\d+)$/)?.[1];
@@ -129,7 +130,7 @@
           <div class="comment-submit"><button disabled={busy || Boolean(commentDraft.error) || (!commentDraft.body && !commentDraft.sourceUrl)}>{busy ? 'Posting…' : 'Post comment'}</button></div>
         </form>
       </section>
-    {:else}<p class="join-prompt"><a href="/login">Sign in</a> to join the discussion.</p>{/if}
+    {:else}<p class="join-prompt"><a href={loginHref(`/post/${data.post.public_id}#reply`)}>Sign in</a> to join the discussion.</p>{/if}
     {#if data.post.source}<p class="source-replies-note">Comments here belong to Swartzit. <a href={data.post.source.source_url} target="_blank" rel="noopener noreferrer">See the original {data.post.source.provider === 'reddit' ? 'Reddit discussion' : data.post.source.provider === 'x' ? 'X replies' : 'source'} ↗</a></p>{/if}
     {#snippet thread(parentId, depth)}
       {#each children(parentId, commentOrder) as item (item.id)}

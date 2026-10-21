@@ -2,19 +2,14 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import Icon from '#lib/Icon.svelte';
+  import { currentUser, loadCurrentUser } from '#lib/session-store.js';
   const pathname = $derived(page.url.pathname);
-  let handle = $state('');
-  onMount(async () => {
-    const token = localStorage.getItem('swartzit_session');
-    if (!token) return;
-    try {
-      const response = await fetch('/api/me', { headers: { authorization: `Bearer ${token}` } });
-      if (response.ok) handle = (await response.json()).handle ?? '';
-    } catch { /* The bottom bar keeps working for signed-out navigation. */ }
-  });
-  const accountHref = $derived(handle ? `/u/${handle}` : '/login');
-  const accountLabel = $derived(handle ? 'Profile' : 'Sign in');
-  const accountActive = $derived(['/login', '/signup'].includes(pathname) || pathname.startsWith('/u/'));
+  const user = $derived($currentUser || null);
+  // Signed-in visitors land on their profile; everyone else on the sign-in page.
+  const accountHref = $derived(user ? `/u/${encodeURIComponent(user.handle)}` : '/login');
+  const accountLabel = $derived(user ? 'Profile' : 'Sign in');
+  const accountActive = $derived(user ? pathname === `/u/${user.handle}` : ['/login', '/signup'].includes(pathname) || pathname.startsWith('/u/'));
+  onMount(() => { loadCurrentUser(); });
 </script>
 <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
   <a href="/" class:active={pathname === '/'} aria-current={pathname === '/' ? 'page' : undefined}><Icon name="home" size={22} /><small>Timeline</small></a>

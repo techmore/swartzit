@@ -3,20 +3,20 @@
   import Icon from '#lib/Icon.svelte';
   import ThemeToggle from '#lib/ThemeToggle.svelte';
   import AutoplayToggle from '#lib/AutoplayToggle.svelte';
+  import { loadCurrentUser } from '#lib/session-store.js';
+  import { loginHref } from '#lib/auth-session.mjs';
   export let compact = true;
-  let handle = '', avatarUrl = '', isAdmin = false;
+  let handle = '', avatarUrl = '', isAdmin = false, signInHref = '/login';
   const profileUpdated = event => { avatarUrl = event.detail?.avatar_url ?? ''; };
   onMount(() => {
+    signInHref = loginHref(location.pathname + location.search);
     window.addEventListener('swartzit:profile-updated', profileUpdated);
     return () => window.removeEventListener('swartzit:profile-updated', profileUpdated);
   });
   onMount(async () => {
-    const token = localStorage.getItem('swartzit_session');
-    if (!token) return;
-    try {
-      const response = await fetch('/api/me', { headers: { authorization: `Bearer ${token}` } });
-      if (response.ok) { const user = await response.json(); handle = user.handle; avatarUrl = user.avatar_url ?? ''; isAdmin = user.is_admin; }
-    } catch { /* Public navigation stays usable when the API is unavailable. */ }
+    // Shared with the mobile bottom bar, so the account is fetched once per page.
+    const user = await loadCurrentUser();
+    if (user) { handle = user.handle; avatarUrl = user.avatar_url ?? ''; isAdmin = Boolean(user.is_admin); }
   });
 </script>
 <nav class:compact class="session-nav" aria-label="Account and navigation">
@@ -38,14 +38,14 @@
       <a class="profile-link" href={'/u/' + handle} aria-label={'Profile for u/' + handle} title={'u/' + handle}>{#if avatarUrl}<img src={avatarUrl} alt="" />{:else}<Icon name="user" />{/if}</a>
       <a href="/logout" aria-label="Sign out" title="Sign out"><Icon name="login" /></a>
     {:else}
-      <a href="/login" aria-label="Sign in" title="Sign in"><Icon name="login" /></a>
+      <a href={signInHref} aria-label="Sign in" title="Sign in"><Icon name="login" /></a>
       <a href="/signup" class="compact-signup" aria-label="Create account" title="Create account">Join</a>
     {/if}
   {:else}
     <span class="preferences" aria-label="Display preferences"><ThemeToggle compact /><AutoplayToggle compact /></span>
     <a href="/about">About</a><a href="/communities">Communities</a><a href="/history">History</a>
     {#if handle}<a href="/?feed=buddies">Buddies</a><a href="/bookmarks">Favorites</a><a class="profile-link" href={'/u/' + handle}>{#if avatarUrl}<img src={avatarUrl} alt="" />{/if}u/{handle}</a>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
-    {:else}<a href="/login">Sign in</a><a href="/signup">Create account</a>{/if}
+    {:else}<a href={signInHref}>Sign in</a><a href="/signup">Create account</a>{/if}
   {/if}
 </nav>
 <style>

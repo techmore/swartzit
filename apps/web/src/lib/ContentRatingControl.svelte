@@ -132,7 +132,7 @@
   .rating-admin-form input[type=text]{font:inherit;padding:7px 9px;border:1px solid var(--border,#bbc5bc);border-radius:6px}
   .rating-admin-actions{display:flex;gap:8px}
   .rating-admin-actions button{font:inherit;padding:7px 13px;border-radius:6px;cursor:pointer}
-  .rating-admin-actions button[type=submit]{border:1px solid var(--link,#215e47);background:var(--link,#215e47);color:#fff}
+  .rating-admin-actions button[type=submit]{border:1px solid var(--link,#215e47);background:var(--link,#215e47);color:var(--accent-fg,#fff)}
   .rating-admin-actions button[type=submit]:disabled{opacity:.55;cursor:not-allowed}
   .rating-admin-message{margin:0;color:var(--link,#215e47)}
   .rating-admin-error{margin:0;color:var(--error,#973c35)}

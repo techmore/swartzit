@@ -4,6 +4,7 @@
   import QuickCrossPost from '#lib/QuickCrossPost.svelte';
   import { preferredCommunity } from '#lib/community-picker-logic.mjs';
   import { copyPostLink, loadCopyLinkPreference } from '#lib/post-preferences.mjs';
+  import { loginHref } from '#lib/auth-session.mjs';
 
   export let communities = [];
   export let selectedCommunity = 'general';
@@ -23,6 +24,7 @@
   let copyLinkAfterPost = true;
   let preferencesLoaded = false;
   let createdPostUrl = '';
+  let signInHref = '/login';
 
   $: if (!communityInitialized && communities.length) {
     community = preferredCommunity(communities, selectedCommunity);
@@ -31,6 +33,7 @@
 
   onMount(async () => {
     token = localStorage.getItem('swartzit_session') || '';
+    signInHref = loginHref(location.pathname + location.search);
     copyLinkAfterPost = await loadCopyLinkPreference(fetch, token);
     preferencesLoaded = true;
     if (!communities.length) {
@@ -98,7 +101,7 @@
     <button type="button" class="launcher-x" onclick={() => { open = true; selectMode('x'); }} aria-label="Cross-post from X" aria-controls="compose-panel" aria-expanded={open && mode === 'x'}>𝕏<span class="launcher-label"> Post</span></button>
     <button type="button" class="launcher-post" onclick={() => { open = true; selectMode('post'); }} aria-label="Create a post" aria-controls="compose-panel" aria-expanded={open && mode === 'post'}>＋<span class="launcher-label"> Post</span></button>
   {:else}
-    <a class="launcher-post" href="/login">Sign in to post</a>
+    <a class="launcher-post" href={signInHref}>Sign in to post</a>
   {/if}
 </div>
 {/if}
@@ -132,7 +135,7 @@
   .composer-launcher.visitor a{box-shadow:none}
   @media(max-width:700px){.composer-launcher.visitor{margin:20px 18px}.composer-launcher:not(.visitor){right:14px;bottom:calc(78px + env(safe-area-inset-bottom))}.composer-launcher:not(.visitor) button{min-width:48px;width:48px;height:48px;padding:0;font-size:1.1rem}.composer-launcher:not(.visitor) .launcher-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.compose-panel{bottom:calc(138px + env(safe-area-inset-bottom));right:16px}}
   .composer-launcher button,.composer-launcher a{min-width:106px;height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--accent,#575d3d);border-radius:999px;padding:0 14px;background:var(--surface,#fff);color:var(--heading,#173d34);box-shadow:0 7px 20px #0002;font:750 .8rem ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer}
-  .composer-launcher .launcher-x{background:var(--heading,#173d34);border-color:var(--heading,#173d34);color:#fff}
+  .composer-launcher .launcher-x{background:var(--heading,#173d34);border-color:var(--heading,#173d34);color:var(--accent-fg,#fff)}
   .composer-launcher button:hover,.composer-launcher button:focus-visible{transform:translateY(-2px);box-shadow:0 10px 24px #0003}
   .compose-panel{position:fixed;right:24px;bottom:230px;z-index:41;width:min(430px,calc(100vw - 32px));max-height:calc(100dvh - 250px);overflow-y:auto;overscroll-behavior:contain;padding:19px;border:1px solid var(--border,#c7ccc3);border-radius:14px;background:var(--surface,#fff);box-shadow:0 16px 45px #0003}
   .compose-panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px}

@@ -1,7 +1,8 @@
 import { error } from '@sveltejs/kit';
 import { apiUrl } from '#lib/server/api-url.mjs';
+import { canonicalPostUrl, publicOrigin } from '#lib/server/public-origin.mjs';
 
-export async function load({ fetch, params }) {
+export async function load({ fetch, params, url }) {
   // Use the configured server-side API for crawlers and link unfurlers. The
   // browser still uses the same-origin proxy after hydration.
   const api = apiUrl('');
@@ -18,5 +19,8 @@ export async function load({ fetch, params }) {
       related_posts = related.posts.filter(post => post.public_id !== result.post.public_id).slice(0, 4);
     }
   }
-  return { ...result, related_posts };
+  // Canonical and social-preview links point at this instance (or the
+  // operator-configured SWARTZIT_ORIGIN), never at a hard-coded domain.
+  const canonical_url = canonicalPostUrl(publicOrigin(url), result.post.public_id);
+  return { ...result, related_posts, canonical_url };
 }
