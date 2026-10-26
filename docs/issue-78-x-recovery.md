@@ -31,7 +31,7 @@ response operation remains `Bookmarks`. Do not collect the adjacent Likes view.
 2. Repeat a no-publish collector test after release. Do not enable a previously paused content
    runner until its destination and schedule have been checked.
 3. Capture Bookmarks using the signed-in source, including pagination through a
-   termination marker, or obtain an owner-supplied archive. Preserve folder
+   verified end-of-list response, or obtain an owner-supplied archive. Preserve folder
    mappings when available. Keep source data and sessions outside Git.
 4. Use the existing resumable transfer procedure in
    [bookmark-transfer-workflow.md](bookmark-transfer-workflow.md), confirming
@@ -47,7 +47,7 @@ response operation remains `Bookmarks`. Do not collect the adjacent Likes view.
 `scripts/capture-x-bookmarks.mjs` uses the existing dedicated Playwright profile
 and records only response bodies actually delivered by the Bookmarks page.
 It stores captures in a new private directory, scrolls within a configured bound,
-and exits nonzero unless an explicit timeline termination marker was observed.
+and exits nonzero unless an explicit termination marker or an empty repeated-cursor final page was observed.
 It refuses an existing directory so a stale marker cannot establish completeness.
 
 ```sh

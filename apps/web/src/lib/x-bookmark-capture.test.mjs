@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readXBookmarkCapture } from './x-bookmark-capture.mjs';
+import { readXBookmarkCapture, bookmarkPageTerminated } from './x-bookmark-capture.mjs';
 const at = '2026-09-29T20:00:00Z';
 const tweet = () => ({ rest_id: '2105001803142074742', legacy: { id_str: '2105001803142074742', full_text: 'Preview', possibly_sensitive: true, created_at: at, extended_entities: { media: [{ type: 'video', media_url_https: 'https://pbs.twimg.com/media/test.jpg', video_info: { variants: [{ content_type: 'video/mp4', bitrate: 10, url: 'https://video.twimg.com/a.mp4' }, { content_type: 'video/mp4', bitrate: 20, url: 'https://evil.test/a.mp4' }] } }] } }, core: { user_results: { result: { core: { screen_name: 'source', name: 'Source' }, privacy: { protected: false } } } }, note_tweet: { note_tweet_results: { result: { text: 'The complete long post', entity_set: {} } } } });
 const wrap = t => ({ data: { bookmark_timeline_v2: { timeline: { instructions: [{ entries: [{ entryId: 'tweet-2105001803142074742', content: { itemContent: { tweet_results: { result: t } } } }, { content: { cursorType: 'Bottom', value: 'next' } }] }] } } } });
@@ -19,4 +19,15 @@ test('protected, missing long text, mismatched IDs and unavailable posts are rep
 test('requires explicit capture timestamps and the bookmark timeline structure', () => {
   assert.throws(() => readXBookmarkCapture(wrap(tweet())), /timestamp/);
   assert.throws(() => readXBookmarkCapture({}, { observedAt: at }), /timeline/);
+});
+
+test('only an explicit marker or an empty repeated-cursor page proves termination', () => {
+  const payload = wrap(tweet());
+  payload.data.bookmark_timeline_v2.timeline.instructions[0].entries.shift();
+  const empty = readXBookmarkCapture(payload, {observedAt: at});
+  assert.equal(bookmarkPageTerminated(empty, 'next'), true);
+  assert.equal(bookmarkPageTerminated(empty, 'different'), false);
+  assert.equal(bookmarkPageTerminated(empty, null), false);
+  assert.equal(bookmarkPageTerminated(readXBookmarkCapture(wrap(tweet()), {observedAt: at}), 'next'), false);
+  assert.equal(bookmarkPageTerminated({terminated: true}, null), true);
 });

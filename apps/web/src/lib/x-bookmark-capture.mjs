@@ -88,5 +88,14 @@ export function readXBookmarkCapture(payload, { observedAt } = {}) {
       } catch (cause) { unavailable.push({ id, reason: cause.message }); }
     }
   }
-  return { posts, unavailable, bottomCursor, terminated };
+  const entries = instructions.flatMap(instruction => instruction.entries ?? []);
+  const emptyPage = entries.length > 0 && entries.every(entry => ['Top', 'Bottom'].includes(entry.content?.cursorType));
+  return { posts, unavailable, bottomCursor, terminated, emptyPage };
+}
+
+// Current X History/Bookmarks ends with a cursor-only page whose bottom cursor
+// repeats the previous page. An idle browser alone is never end-of-list proof.
+export function bookmarkPageTerminated(capture, previousBottomCursor) {
+  return capture.terminated || Boolean(capture.emptyPage && capture.bottomCursor
+    && previousBottomCursor && capture.bottomCursor === previousBottomCursor);
 }

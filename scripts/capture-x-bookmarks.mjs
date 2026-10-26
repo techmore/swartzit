@@ -6,7 +6,7 @@ import {resolve, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {parseArgs} from 'node:util';
 import {launchPlaywrightContext} from './x-playwright-recommended-runner.mjs';
-import {readXBookmarkCapture} from '../apps/web/src/lib/x-bookmark-capture.mjs';
+import {readXBookmarkCapture, bookmarkPageTerminated} from '../apps/web/src/lib/x-bookmark-capture.mjs';
 
 export async function captureBookmarks({directory, maxScrolls = 1000, launch = launchPlaywrightContext}) {
   if (!directory || !Number.isInteger(maxScrolls) || maxScrolls < 1 || maxScrolls > 10000) {
@@ -17,7 +17,7 @@ export async function captureBookmarks({directory, maxScrolls = 1000, launch = l
   await mkdir(output, {mode: 0o700});
   const context = await launch();
   const ids = new Set(), unavailable = new Set();
-  let pages = 0, terminated = false, failure, queue = Promise.resolve();
+  let pages = 0, terminated = false, previousBottomCursor = null, failure, queue = Promise.resolve();
   try {
     const page = await context.newPage();
     page.on('response', response => {
@@ -30,7 +30,8 @@ export async function captureBookmarks({directory, maxScrolls = 1000, launch = l
         await writeFile(join(output, `bookmarks-${String(++pages).padStart(6, '0')}.json`), JSON.stringify(payload), {mode: 0o600, flag: 'wx'});
         for (const post of capture.posts) ids.add(post.source_url.split('/').at(-1));
         for (const item of capture.unavailable) unavailable.add(item.id);
-        terminated ||= capture.terminated;
+        terminated ||= bookmarkPageTerminated(capture, previousBottomCursor);
+        previousBottomCursor = capture.bottomCursor;
         if (pages % 10 === 0) console.log(JSON.stringify({pages, publicPosts: ids.size, terminated}));
       }).catch(error => { failure = error; });
     });
