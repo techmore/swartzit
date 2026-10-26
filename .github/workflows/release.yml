@@ -49,6 +49,8 @@ jobs:
           node --check scripts/perf-smoke.mjs
           node --test scripts/*.test.mjs apps/web/src/lib/*.test.mjs
           python3 scripts/benchmark/battery.test.py
+          python3 scripts/benchmark/adapters.test.py
+          bash -n scripts/benchmark/install-gemma-litert.sh
           python3 scripts/export-bookmark-media-manifest.test.py
           while IFS= read -r -d '' script; do bash -n "$script"; done < <(find scripts -maxdepth 1 -type f -name '*.sh' -print0)
 

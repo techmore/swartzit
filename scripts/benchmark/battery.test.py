@@ -1,4 +1,4 @@
-import hashlib, importlib.util, json, pathlib, sqlite3, sys, tempfile, unittest
+import hashlib, importlib.util, json, pathlib, shutil, sqlite3, subprocess, sys, tempfile, unittest
 spec=importlib.util.spec_from_file_location('battery',pathlib.Path(__file__).with_name('battery.py')); b=importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
 class BatteryTest(unittest.TestCase):
  def setUp(self):
@@ -22,6 +22,20 @@ class BatteryTest(unittest.TestCase):
   value=json.loads(self.db.execute('select payload from inputs where battery_id=?',(run,)).fetchone()[0]); value['human_labels'][0]['policy_version']='other'; self.db.execute('update inputs set payload=? where battery_id=?',(json.dumps(value),run)); self.db.commit(); self.assertEqual(b.summary(self.db,run)['tools'][0]['held_out_human_accuracy']['samples'],0); value['human_labels'][0]['policy_version']='suggestive-r-explicit-x-v1'; value['human_labels'][0]['snapshot_verified']=False; self.db.execute('update inputs set payload=? where battery_id=?',(json.dumps(value),run)); self.db.commit(); self.assertEqual(b.summary(self.db,run)['tools'][0]['held_out_human_accuracy']['samples'],0)
  def test_changed_adapter_is_rejected_on_resume(self):
   run=b.create(self.db,'fingerprint',self.manifest,self.config); self.adapter.write_text('print("changed")\n'); b.execute(self.db,run,self.cache,'https://example.test',max_jobs=1); self.assertEqual(self.db.execute('select status from jobs where battery_id=? order by id limit 1',(run,)).fetchone()[0],'error')
+ @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'ffmpeg and ffprobe required')
+ def test_video_frames_are_reproducible_and_partial(self):
+  video=self.root/'source.mp4'; subprocess.run([shutil.which('ffmpeg'),'-v','error','-f','lavfi','-i','testsrc=size=160x120:rate=5','-t','4','-c:v','mpeg4','-y',str(video)],capture_output=True,check=True)
+  data=video.read_bytes(); sha=hashlib.sha256(data).hexdigest(); (self.cache/sha).write_bytes(data)
+  post=json.loads(self.manifest.read_text()); post['assets']=[{'index':0,'role':'src','kind':'video','source_url':'https://video.twimg.com/a.mp4','status':'ready','sha256':sha,'size':len(data),'mime':'video/mp4'}]; self.manifest.write_text(json.dumps(post)+'\n')
+  self.config['tools'][0]['input']='multimodal_video'; self.config['tools'][0]['video_frames']=3; self.config['tools']=self.config['tools'][:1]
+  run=b.create(self.db,'video',self.manifest,self.config); self.assertEqual(b.summary(self.db,run)['name'],'video'); self.assertEqual(b.execute(self.db,run,self.cache,'https://example.test'),2)
+  results=[json.loads(x[0]) for x in self.db.execute('select result from attempts order by id')]; self.assertFalse(results[0]['coverage']['complete']); self.assertTrue(results[0]['coverage']['sampled_video']); self.assertEqual(len(results[0]['frames']),3)
+  self.assertEqual([f['sha256'] for f in results[0]['frames']],[f['sha256'] for f in results[1]['frames']]); self.assertEqual([f['timestamp_seconds'] for f in results[0]['frames']],[1.0,2.0,3.0]); self.assertTrue(all(f['video_sha256']==sha for f in results[0]['frames']))
+  other=b.create(self.db,'repeat-video',self.manifest,self.config); b.execute(self.db,other,self.cache,'https://example.test'); self.assertEqual(b.compare(self.db,run,other)['comparisons'][0]['matched_post_iterations'],2)
+  attempt,raw=self.db.execute('select a.id,a.result from attempts a join jobs j on j.id=a.job_id where j.battery_id=? order by a.id limit 1',(other,)).fetchone(); changed=json.loads(raw); changed['frames'][0]['sha256']='different'; self.db.execute('update attempts set result=? where id=?',(json.dumps(changed),attempt)); self.db.commit(); self.assertEqual(b.compare(self.db,run,other)['comparisons'][0]['matched_post_iterations'],1)
+ def test_video_sample_selection_requires_cached_video(self):
+  original=json.loads(self.manifest.read_text()); missing=json.loads(json.dumps(original)); missing['post_id']=8; missing['assets'][0].update(kind='video',status='pending'); ready=json.loads(json.dumps(original)); ready['post_id']=9; ready['assets'][0].update(kind='video',status='ready'); self.manifest.write_text(''.join(json.dumps(x)+'\n' for x in (original,missing,ready)))
+  run=b.create(self.db,'ready-video',self.manifest,self.config,media_kind='video',ready_only=True); self.assertEqual(self.db.execute('select post_id from inputs where battery_id=?',(run,)).fetchall(),[(9,)]); self.assertEqual(json.loads(self.db.execute('select config from batteries where id=?',(run,)).fetchone()[0])['dataset_selection']['media_kind'],'video')
  def test_content_hash_ignores_review_labels(self):
   run=b.create(self.db,'first',self.manifest,self.config); post=json.loads(self.manifest.read_text()); post['human_labels'].append({'label':'r','content_hash':'new'}); self.manifest.write_text(json.dumps(post)+'\n'); other=b.create(self.db,'second',self.manifest,self.config); self.assertEqual(self.db.execute('select input_sha256 from inputs where battery_id=?',(run,)).fetchone(),self.db.execute('select input_sha256 from inputs where battery_id=?',(other,)).fetchone())
 if __name__=='__main__': unittest.main()
