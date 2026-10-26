@@ -6,7 +6,7 @@ ROOT=pathlib.Path('/var/lib/swartzit/state/bookmark-media-archive')
 APPDB='/var/lib/swartzit/state/swartzit.sqlite'
 HOSTS={'pbs.twimg.com','video.twimg.com'}
 FLOOR=30*1024**3
-MAX=512*1024**2
+MAX=4*1024**3
 class Redirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,req,fp,code,msg,headers,newurl):
   p=urllib.parse.urlparse(newurl)
