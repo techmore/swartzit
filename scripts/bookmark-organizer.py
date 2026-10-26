@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Organize techmore's unfiled Swartzit bookmarks with the Ser8 local model."""
+"""Organize an account's unfiled Swartzit bookmarks with a host-local model."""
 import argparse
 import base64
 import fcntl
-import hashlib
 import io
 import json
 import os
@@ -66,6 +65,10 @@ def normalize(result):
 def image_for(media):
     from PIL import Image, ImageOps
     Image.MAX_IMAGE_PIXELS = 20_000_000
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+    opener=urllib.request.build_opener(NoRedirect())
     for m in json.loads(media):
         if not isinstance(m,dict): continue
         url=m.get('src') if m.get('kind')=='image' else m.get('poster')
@@ -73,7 +76,7 @@ def image_for(media):
         if p.scheme!='https' or p.hostname!='pbs.twimg.com' or p.username or p.password: continue
         try:
             req=urllib.request.Request(url,headers={'User-Agent':'Swartzit-bookmark-organizer/1'})
-            with urllib.request.urlopen(req,timeout=12) as resp:
+            with opener.open(req,timeout=12) as resp:
                 if urllib.parse.urlparse(resp.geturl()).hostname!='pbs.twimg.com' or not resp.headers.get('Content-Type','').startswith('image/'): continue
                 raw=resp.read(5*1024*1024+1)
             if len(raw)>5*1024*1024: continue
