@@ -29,4 +29,5 @@ jobs:
         working-directory: apps/web
       - run: node scripts/web-runtime-smoke.mjs
       - run: node --test scripts/*.test.mjs
+      - run: python3 scripts/benchmark/battery.test.py && python3 scripts/export-bookmark-media-manifest.test.py
       - run: node --check scripts/import-x-bookmarks.mjs && node --check scripts/prepare-bookmark-transfer.mjs
