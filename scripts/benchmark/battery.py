@@ -181,7 +181,9 @@ def prepare(post, tool, cache, site):
         complete = False
     if tool['input'] in ('multimodal','text') and len(post.get('text','')) > 8000:
         complete = False
-    return {'post':post, 'images':paths, 'coverage':{'complete':complete,'image_count':len(paths),'attachment_count':len(all_media)}, 'tool':tool}
+    # Ground truth must never be included in an adapter's input.
+    input_post={key:value for key,value in post.items() if key!='human_labels'}
+    return {'post':input_post, 'images':paths, 'coverage':{'complete':complete,'image_count':len(paths),'attachment_count':len(all_media)}, 'tool':tool}
 
 def execute(db, run, cache, site, max_jobs=0, retry_errors=False):
     if max_jobs < 0: raise ValueError('max_jobs cannot be negative')

@@ -4,7 +4,7 @@ class BatteryTest(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory(); self.root=pathlib.Path(self.tmp.name); self.db=b.connect(self.root/'private'/'batteries.sqlite'); self.image=b'original image bytes'; self.sha=hashlib.sha256(self.image).hexdigest(); self.cache=self.root/'cache'; self.cache.mkdir(); (self.cache/self.sha).write_bytes(self.image)
   post={'post_id':7,'title':'title','text':'body','human_labels':[{'label':'x','content_hash':'old'}],'assets':[{'index':0,'role':'src','kind':'image','source_url':'https://pbs.twimg.com/a','status':'ready','sha256':self.sha,'size':len(self.image),'mime':'image/jpeg'}]}; self.manifest=self.root/'manifest.jsonl'; self.manifest.write_text(json.dumps(post)+'\n')
-  self.adapter=self.root/'adapter.py'; self.adapter.write_text('import json,sys\nr=json.load(sys.stdin)\nprint(json.dumps({"seen_iteration":r["iteration"],"coverage":r["coverage"]}))\n')
+  self.adapter=self.root/'adapter.py'; self.adapter.write_text('import json,sys\nr=json.load(sys.stdin)\nassert "human_labels" not in r["post"]\nprint(json.dumps({"seen_iteration":r["iteration"],"coverage":r["coverage"]}))\n')
   self.config={'iterations':2,'tools':[{'id':'rating','task':'rating','policy_version':'suggestive-r-explicit-x-v1','input':'multimodal','model':'qwen','model_digest':'abc','argv':[sys.executable,str(self.adapter)]},{'id':'objects','task':'object','input':'image','model':'mobile','model_digest':'def','argv':[sys.executable,str(self.adapter)]}]}
  def tearDown(self): self.db.close(); self.tmp.cleanup()
  def test_iterations_resume_and_separate_tools(self):
