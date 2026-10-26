@@ -18,4 +18,8 @@ for rid,name,start,end,config in c.execute('SELECT id,name,created_at,finished_a
    entry['ratings']={rating:sum(result.get('rating')==rating for result in results) for rating in ('general','r','x')}
   tools[tool]=entry
  runs.append({'run':rid,'name':name,'started_utc':start,'finished_utc':end,'counts':counts,'tools':tools,'config':json.loads(config)})
-print(json.dumps({'runs':runs},indent=2))
+candidates=[]
+if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='model_candidates'").fetchone():
+ for model,source,metadata,added in c.execute('SELECT id,source_url,metadata,added_at FROM model_candidates ORDER BY id'):
+  candidates.append({'id':model,'source_url':source,'metadata':json.loads(metadata),'added_at':added})
+print(json.dumps({'runs':runs,'candidates':candidates},indent=2))
