@@ -22,6 +22,11 @@ class FakeRuntime:
  @staticmethod
  def SamplerConfig(**kwargs): return kwargs
 class AdapterTest(unittest.TestCase):
+ def test_gemma_rejects_low_memory_before_loading(self):
+  with tempfile.TemporaryDirectory() as d:
+   model=pathlib.Path(d)/'model.litertlm'; model.write_bytes(b'model'); request={'tool':{'model_path':str(model),'model_digest':hashlib.sha256(b'model').hexdigest()},'images':[]}
+   with patch('sys.platform','linux'),patch.object(pathlib.Path,'read_text',return_value='MemAvailable: 1000 kB\n'):
+    with self.assertRaisesRegex(ValueError,'insufficient available memory'): a.gemma_result(request,FakeRuntime,'0.18.1')
  def test_gemma_uses_all_frames_and_checks_model(self):
   try: from PIL import Image
   except ImportError: self.skipTest('Pillow unavailable')
