@@ -16,17 +16,19 @@ wrapper accepted only one argument, discarding the generated filename under
 `worker-batches`. A worker integration test now exercises collection through
 publication and checks the actual batch file.
 
-The destination bookmark inventory did not establish source completeness. No complete bookmark capture or transfer receipt
-was identified in the inspected state directories. The existing no-publish
-Recommended collector timed out waiting for an X post; this does not establish
-whether the cause is authentication, an interstitial, connectivity, or X's UI.
+The destination bookmark inventory did not establish source completeness. No
+complete bookmark capture or transfer receipt was identified initially.
+The container had lost its IPv4 DHCP lease after its interface entered a failed
+state. Reconfiguring that interface and renewing the existing lease restored
+HTTPS access. The dedicated X profile was then verified to be signed in.
+The old Bookmarks URL now redirects to History with Bookmarks selected; the
+response operation remains `Bookmarks`. Do not collect the adjacent Likes view.
 
 ## Recovery still required
 
 1. Deploy the tested changes through the documented tagged-release and backup
    workflow. Do not patch the live checkout or overwrite the production database.
-2. Verify the dedicated X browser profile, resolve any login/interstitial, and
-   repeat a no-publish collector test. Do not enable a previously paused content
+2. Repeat a no-publish collector test after release. Do not enable a previously paused content
    runner until its destination and schedule have been checked.
 3. Capture Bookmarks using the signed-in source, including pagination through a
    termination marker, or obtain an owner-supplied archive. Preserve folder
@@ -39,6 +41,23 @@ whether the cause is authentication, an interstitial, connectivity, or X's UI.
 5. Verify an actual scheduled run after release and establish ongoing bookmark
    collection. The archive/capture importer is a transfer tool, not an ongoing
    bookmark collector or scheduler.
+
+## Capturing the current Bookmarks view
+
+`scripts/capture-x-bookmarks.mjs` uses the existing dedicated Playwright profile
+and records only response bodies actually delivered by the Bookmarks page.
+It stores captures in a new private directory, scrolls within a configured bound,
+and exits nonzero unless an explicit timeline termination marker was observed.
+It refuses an existing directory so a stale marker cannot establish completeness.
+
+```sh
+node scripts/capture-x-bookmarks.mjs --output /private/new-bookmark-capture
+node scripts/prepare-bookmark-transfer.mjs \
+  --capture-dir /private/new-bookmark-capture --output /private/transfer.json
+```
+
+Capture and transfer receipts belong outside Git. Repeated transfers reuse
+existing source copies and bookmarks; collection is read-only on X.
 
 ## Photo review proposal
 

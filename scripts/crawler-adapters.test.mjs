@@ -67,7 +67,7 @@ test('API import retains expanded text, parent/quote context, and media', async 
   delete process.env.X_SOURCE_MODE;
   globalThis.fetch = async () => ({ok: true, json: async () => ({
     data: [{id: '3', author_id: 'a', text: 'preview', note_tweet: {text: 'Complete long post'}, created_at: '2026-10-08T20:00:00Z', referenced_tweets: [{type: 'quoted', id: '2'}, {type: 'replied_to', id: '1'}], attachments: {media_keys: ['image1']}}],
-    includes: {users: [{id: 'a', username: 'alpha'}, {id: 'b', username: 'beta'}], tweets: [{id: '1', author_id: 'b', text: 'Parent context'}, {id: '2', author_id: 'b', text: 'Quoted context'}], media: [{media_key: 'image1', type: 'photo', url: 'https://pbs.twimg.com/media/photo.jpg'}]}
+    includes: {users: [{id: 'a', username: 'alpha'}, {id: 'b', username: 'beta'}], tweets: [{id: '1', author_id: 'b', text: 'Parent context'}, {id: '2', author_id: 'b', text: 'Quoted context', possibly_sensitive: true}], media: [{media_key: 'image1', type: 'photo', url: 'https://pbs.twimg.com/media/photo.jpg'}]}
   })});
   try {
     const [post] = await collectX({source: 'search:context', max_items: 10});
@@ -75,6 +75,7 @@ test('API import retains expanded text, parent/quote context, and media', async 
     assert.match(post.body, /Thread context by @beta:\s+Parent context/);
     assert.match(post.body, /Quoted post by @beta: Quoted context/);
     assert.equal(post.media[0].kind, 'image');
+    assert.equal(post.content_rating, 'x');
     assert.equal(post.source_views, null);
   } finally {
     globalThis.fetch = previous.fetch;
