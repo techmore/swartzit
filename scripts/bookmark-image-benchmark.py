@@ -75,29 +75,30 @@ def main():
   c.executemany('INSERT INTO items(run_id,post_id,media_index,source_url) VALUES(?,?,?,?)',[(run,*item) for item in items]); c.commit()
   print(json.dumps({'run':run,'items':len(items),'mobile_init_ms':round(init_ms,2)}),flush=True)
   if args.create_only: return
- rows=c.execute("SELECT id,source_url,input_sha256,image_path FROM items WHERE run_id=? AND status='pending' ORDER BY id",(run,)).fetchall()
- for item,url,sha,path in rows:
-  try:
-   if path: data=(STATE/path).read_bytes(); assert hashlib.sha256(data).hexdigest()==sha
-   else:
-    data=image_data(url); sha=hashlib.sha256(data).hexdigest(); file=cache/(sha+'.jpg')
-    if not file.exists(): file.write_bytes(data)
-    path='images/'+file.name; c.execute('UPDATE items SET input_sha256=?,image_path=? WHERE id=?',(sha,path,item)); c.commit()
-   existing={r[0] for r in c.execute('SELECT tool FROM predictions WHERE run_id=? AND item_id=?',(run,item))}
-   if 'mobilenet' not in existing:
-    tensor=prepare_mobile(data); start=time.perf_counter(); logits=session.run(None,{session.get_inputs()[0].name:tensor})[0][0]; elapsed=(time.perf_counter()-start)*1000
-    probs=np.exp(logits-np.max(logits)); probs/=probs.sum(); indices=np.argsort(probs)[-5:][::-1]; result={'top5':[{'class':labels[int(i)],'probability':round(float(probs[i]),6)} for i in indices]}
-    c.execute('INSERT INTO predictions(run_id,item_id,tool,model,model_digest,result_json,elapsed_ms) VALUES(?,?,?,?,?,?,?)',(run,item,'mobilenet','qualcomm/mobilenet-v3-small-onnx-float',mobile_digest,json.dumps(result),elapsed)); c.commit()
-   if 'qwen' not in existing:
-    payload={'model':qwen,'stream':False,'think':False,'keep_alive':'30s','format':RATING_SCHEMA,'options':{'num_ctx':4096,'num_predict':256,'temperature':0,'num_thread':4},'messages':[{'role':'system','content':PROMPT},{'role':'user','content':'Rate this image.','images':[base64.b64encode(data).decode()]}]}
-    start=time.perf_counter(); answer=json_request('http://127.0.0.1:11434/api/chat',payload,timeout=150); elapsed=(time.perf_counter()-start)*1000; result=json.loads(answer['message']['content'])
-    if result.get('rating') not in ('general','r','x') or type(result.get('uncertain')) is not bool or not isinstance(result.get('reasons'),list): raise ValueError('invalid Qwen result')
-    result['policy_conflict']=policy_conflict(result)
-    c.execute('INSERT INTO predictions(run_id,item_id,tool,model,model_digest,result_json,elapsed_ms) VALUES(?,?,?,?,?,?,?)',(run,item,'qwen',qwen,digest,json.dumps(result),elapsed)); c.commit()
-   c.execute("UPDATE items SET status='done',error=NULL WHERE id=?",(item,)); c.commit()
-  except Exception as exc:
-   c.execute("UPDATE items SET status='error',error=? WHERE id=?",(type(exc).__name__,item)); c.commit()
-  counts=c.execute('SELECT status,count(*) FROM items WHERE run_id=? GROUP BY status',(run,)).fetchall()
-  if item%25==0: print(json.dumps({'run':run,'progress':counts}),flush=True)
+ for phase in ('mobilenet','qwen'):
+  rows=c.execute("SELECT i.id,i.source_url,i.input_sha256,i.image_path FROM items i WHERE i.run_id=? AND i.status='pending' AND (?='qwen' OR NOT EXISTS (SELECT 1 FROM predictions p WHERE p.item_id=i.id AND p.tool=?)) ORDER BY i.id",(run,phase,phase)).fetchall()
+  for item,url,sha,path in rows:
+   try:
+    if path: data=(STATE/path).read_bytes(); assert hashlib.sha256(data).hexdigest()==sha
+    else:
+     data=image_data(url); sha=hashlib.sha256(data).hexdigest(); file=cache/(sha+'.jpg')
+     if not file.exists(): file.write_bytes(data)
+     path='images/'+file.name; c.execute('UPDATE items SET input_sha256=?,image_path=? WHERE id=?',(sha,path,item)); c.commit()
+    existing={r[0] for r in c.execute('SELECT tool FROM predictions WHERE run_id=? AND item_id=?',(run,item))}
+    if phase=='mobilenet' and 'mobilenet' not in existing:
+     tensor=prepare_mobile(data); start=time.perf_counter(); logits=session.run(None,{session.get_inputs()[0].name:tensor})[0][0]; elapsed=(time.perf_counter()-start)*1000
+     probs=np.exp(logits-np.max(logits)); probs/=probs.sum(); indices=np.argsort(probs)[-5:][::-1]; result={'top5':[{'class':labels[int(i)],'probability':round(float(probs[i]),6)} for i in indices]}
+     c.execute('INSERT INTO predictions(run_id,item_id,tool,model,model_digest,result_json,elapsed_ms) VALUES(?,?,?,?,?,?,?)',(run,item,'mobilenet','qualcomm/mobilenet-v3-small-onnx-float',mobile_digest,json.dumps(result),elapsed)); c.commit()
+    if phase=='qwen' and 'qwen' not in existing:
+     payload={'model':qwen,'stream':False,'think':False,'keep_alive':'30s','format':RATING_SCHEMA,'options':{'num_ctx':4096,'num_predict':256,'temperature':0,'num_thread':4},'messages':[{'role':'system','content':PROMPT},{'role':'user','content':'Rate this image.','images':[base64.b64encode(data).decode()]}]}
+     start=time.perf_counter(); answer=json_request('http://127.0.0.1:11434/api/chat',payload,timeout=150); elapsed=(time.perf_counter()-start)*1000; result=json.loads(answer['message']['content'])
+     if result.get('rating') not in ('general','r','x') or type(result.get('uncertain')) is not bool or not isinstance(result.get('reasons'),list): raise ValueError('invalid Qwen result')
+     result['policy_conflict']=policy_conflict(result)
+     c.execute('INSERT INTO predictions(run_id,item_id,tool,model,model_digest,result_json,elapsed_ms) VALUES(?,?,?,?,?,?,?)',(run,item,'qwen',qwen,digest,json.dumps(result),elapsed)); c.commit()
+    if phase=='qwen': c.execute("UPDATE items SET status='done',error=NULL WHERE id=?",(item,)); c.commit()
+   except Exception as exc:
+    c.execute("UPDATE items SET status='error',error=? WHERE id=?",(type(exc).__name__,item)); c.commit()
+   counts=c.execute('SELECT status,count(*) FROM items WHERE run_id=? GROUP BY status',(run,)).fetchall()
+   if item%25==0: print(json.dumps({'run':run,'progress':counts}),flush=True)
  c.execute('UPDATE runs SET finished_at=CURRENT_TIMESTAMP WHERE id=?',(run,)); c.commit(); print(json.dumps({'run':run,'finished':True,'counts':c.execute('SELECT status,count(*) FROM items WHERE run_id=? GROUP BY status',(run,)).fetchall()}),flush=True)
 if __name__=='__main__': main()
