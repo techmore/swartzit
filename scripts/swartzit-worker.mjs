@@ -30,7 +30,7 @@ const workerRoot=workerPaths.root;
 const workerStateDir=workerPaths.stateDir;
 const workerEnv={...process.env,SWARTZIT_WORKER_ROOT:workerRoot,SWARTZIT_WORKER_STATE_DIR:workerStateDir};
 const scheduledImportsScript=workerPaths.script('scheduled-imports.mjs');
-const statePath=name=>workerPaths.state(name);
+const statePath=(...parts)=>workerPaths.state(...parts);
 await mkdir(workerStateDir,{recursive:true});
 async function responseValue(path, response) {
   const text = await response.text();

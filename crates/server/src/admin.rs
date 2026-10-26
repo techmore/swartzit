@@ -3813,10 +3813,7 @@ pub async fn publish_content_runner(
             .execute(&mut *tx)
             .await?;
             if let Some(rating) = content_rating.as_deref() {
-                sqlx::query("UPDATE posts SET content_rating=?2,content_rating_source='automatic',content_rating_confidence=NULL,content_rating_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1")
-                    .bind(existing_id)
-                    .bind(rating)
-                    .execute(&mut *tx)
+                crate::imports::refresh_content_rating(&mut tx, existing_id, rating, "automatic")
                     .await?;
             }
             tx.commit().await?;

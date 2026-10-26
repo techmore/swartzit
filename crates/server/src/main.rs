@@ -440,7 +440,7 @@ impl FeedQuery {
     }
 
     fn hide_r(&self) -> bool {
-        self.hide_r.unwrap_or(false)
+        self.hide_r.unwrap_or(true)
     }
 
     fn hide_x(&self) -> bool {
@@ -3403,6 +3403,14 @@ mod tests {
     }
     #[test]
     fn hides_x_rated_content_by_default_but_allows_explicit_opt_in() {
+        assert!(FeedQuery::default().hide_r());
+        assert!(
+            !FeedQuery {
+                hide_r: Some(false),
+                ..Default::default()
+            }
+            .hide_r()
+        );
         assert!(FeedQuery::default().hide_x());
         assert!(
             FeedQuery {

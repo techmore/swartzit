@@ -47,6 +47,19 @@ export function xPostText(tweet) {
   return postText(tweet);
 }
 
+// Include every related post whose text/media can be displayed with the source.
+export function xContentRating(...posts) {
+  const seen = new Set();
+  function sensitive(post) {
+    if (!post || typeof post !== 'object' || seen.has(post)) return false;
+    seen.add(post);
+    return post.possibly_sensitive === true || post.user?.possibly_sensitive === true
+      || sensitive(relatedPost(post, 'quote')) || sensitive(relatedPost(post, 'parent'))
+      || sensitive(post.retweeted_status);
+  }
+  return posts.some(sensitive) ? 'x' : 'general';
+}
+
 function hasUnexpandedNote(tweet) {
   const hasNote = Boolean(tweet?.note_tweet || tweet?.note_tweet_results || tweet?.is_note_tweet);
   const noteText = tweet?.note_tweet_results?.result?.text
@@ -166,6 +179,7 @@ function fromFxStatus(status, quoteDepth = 0) {
   const rawText = typeof status.raw_text === 'string' ? status.raw_text : status.raw_text?.text;
   return {
     id_str: String(status.id ?? ''),
+    possibly_sensitive: status.possibly_sensitive === true || status.is_sensitive === true,
     text: typeof status.text === 'string' ? status.text : (rawText ?? ''),
     full_text: rawText || undefined,
     created_at: status.created_at,
@@ -247,6 +261,7 @@ async function completeNote(tweet, fetcher) {
   const expanded = fromFxStatus(full);
   return {
     ...tweet,
+    possibly_sensitive: tweet.possibly_sensitive === true || expanded.possibly_sensitive === true,
     text,
     full_text: text,
     note_tweet: { ...(typeof tweet.note_tweet === 'object' ? tweet.note_tweet : {}), text },
@@ -362,7 +377,7 @@ export async function resolveXPost(raw, fetcher = fetch) {
   // When the submitted URL belongs to a repost, the post that was reposted is
   // the source people usually mean to follow. Keep the outer URL for attribution
   // but use the original post's author, text, metrics, and media.
-  const { tweet: sourceTweet, body, media } = await resolveXConversation(tweet, fetcher);
+  const { tweet: sourceTweet, body, media, ancestors, quotes } = await resolveXConversation(tweet, fetcher);
   const user = sourceTweet.user ?? tweet.user ?? {};
   const handle = handleOf(sourceTweet) || String(user.screen_name ?? user.username ?? '').replace(/^@/, '');
   if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) throw new Error('X did not provide a usable public author for this post.');
@@ -374,6 +389,7 @@ export async function resolveXPost(raw, fetcher = fetch) {
   return {
     provider: 'x', source_url, source_author: `@${handle}`, title: `Post by @${handle}`,
     body,
+    content_rating: xContentRating(tweet, sourceTweet, ...ancestors, ...quotes),
     published_at: Number.isFinite(published) ? new Date(published).toISOString() : null,
     observed_at: new Date().toISOString(),
     source_views: count(views), source_likes: count(sourceTweet.favorite_count),

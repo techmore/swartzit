@@ -27,9 +27,10 @@ test('Playwright runner resolves and remembers one unseen status', async () => {
     load: async () => ['https://x.com/i/status/1'],
     save: async (_path, urls, limit) => saved.push({urls, limit}),
     run: async () => ({source_urls: ['https://x.com/i/status/1', 'https://twitter.com/example/status/2']}),
-    resolve: async sourceUrl => ({source_url: sourceUrl, title: 'One', body: 'A public post'})
+    resolve: async sourceUrl => ({source_url: sourceUrl, title: 'One', body: 'A public post', content_rating: 'x'})
   });
   assert.equal(posts.length, 1);
+  assert.equal(posts[0].content_rating, 'x');
   assert.equal(posts[0].source_url, 'https://x.com/i/status/2');
   assert.equal(saved.length, 1);
   assert.deepEqual(saved[0].urls, ['https://x.com/i/status/1', 'https://x.com/i/status/2']);

@@ -150,7 +150,7 @@ export async function collectFromEgoSession(options = {}, {spaceId = process.env
     const post = await resolve(candidate.source_url.trim());
     resolved.push({
       ...post,
-      content_rating: 'general',
+      content_rating: post.content_rating ?? 'general',
       attribution: `Collected from a dedicated read-only Ego Lite X session; source: ${post.source_url}`
     });
   }
