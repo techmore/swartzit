@@ -44,7 +44,9 @@ export async function captureBookmarks({directory, maxScrolls = 1000, launch = l
       idle = pages === previous ? idle + 1 : 0;
       previous = pages;
       if (idle >= 20) break;
-      await page.mouse.wheel(0, 1000);
+      // Move to the end of the currently loaded batch. X still decides when
+      // to append the next page; the response listener records every page.
+      await page.mouse.wheel(0, 6000);
     }
     await queue;
     if (failure) throw failure;
