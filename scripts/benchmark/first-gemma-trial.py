@@ -20,7 +20,7 @@ def select_video(manifest, output):
     raise ValueError('no cached video under 20 MiB is available')
 
 def main():
-    p=argparse.ArgumentParser(); p.add_argument('--max-wait',type=int,default=3600); p.add_argument('--poll',type=int,default=30); args=p.parse_args()
+    p=argparse.ArgumentParser(); p.add_argument('--handle',required=True); p.add_argument('--archive-site',required=True); p.add_argument('--max-wait',type=int,default=3600); p.add_argument('--poll',type=int,default=30); args=p.parse_args()
     if not 1<=args.max_wait<=7200 or not 1<=args.poll<=60: raise ValueError('invalid wait limits')
     os.umask(0o077); root=ROOT; model=root/'gemma-4-12B-it.litertlm'; gemma_python=root/'gemma-venv/bin/python'; python=root/'venv/bin/python'
     deadline=time.monotonic()+args.max_wait
@@ -31,7 +31,7 @@ def main():
         print('Waiting for the verified model, runtime, and available memory.',flush=True)
         time.sleep(min(args.poll,max(0,deadline-time.monotonic())))
     else: raise TimeoutError('Gemma model or memory reserve did not become available')
-    subprocess.run(['incus','exec','swartzit','--','runuser','-u','swartzit','--','python3','/var/lib/swartzit/state/export-bookmark-media-manifest.py','--handle','techmore'],check=True,timeout=120)
+    subprocess.run(['incus','exec','swartzit','--','runuser','-u','swartzit','--','python3','/var/lib/swartzit/state/export-bookmark-media-manifest.py','--handle',args.handle],check=True,timeout=120)
     with tempfile.NamedTemporaryFile(dir=root,prefix='.first-gemma-source-',delete=False) as f:
         manifest=pathlib.Path(f.name)
         subprocess.run(['incus','exec','swartzit','--','runuser','-u','swartzit','--','cat','/var/lib/swartzit/state/bookmark-media-archive/manifest.jsonl'],stdout=f,check=True,timeout=120)
@@ -41,7 +41,7 @@ def main():
     subprocess.run([str(gemma_python),str(root/'configure-gemma.py'),'--output',str(config),'--input','multimodal_video','--frames','3','--iterations','1','--backend','cpu'],check=True,timeout=180)
     result=subprocess.run([str(python),str(root/'battery.py'),'--db',str(root/'batteries.sqlite'),'create','--manifest',str(sample),'--config',str(config),'--name','gemma-qwen-first-video','--media-kind','video','--ready-only','--limit','1'],capture_output=True,text=True,check=True,timeout=120)
     run=json.loads(result.stdout)['battery_id']; print(json.dumps({'battery_id':run}),flush=True)
-    subprocess.run([str(python),str(root/'battery.py'),'--db',str(root/'batteries.sqlite'),'run','--id',str(run),'--cache',str(root/'battery-originals'),'--archive-site','https://swartzit.stoverparc.org'],check=True,timeout=2000)
+    subprocess.run([str(python),str(root/'battery.py'),'--db',str(root/'batteries.sqlite'),'run','--id',str(run),'--cache',str(root/'battery-originals'),'--archive-site',args.archive_site],check=True,timeout=2000)
     result=subprocess.run([str(python),str(root/'battery.py'),'--db',str(root/'batteries.sqlite'),'summary','--id',str(run)],capture_output=True,text=True,check=True,timeout=60)
     with (root/'gemma-first-trial-summary.json').open('w',encoding='utf8') as out: out.write(result.stdout)
     print(json.dumps({'battery_id':run,'summary':str(root/'gemma-first-trial-summary.json')}),flush=True)
