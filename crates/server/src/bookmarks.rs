@@ -27,11 +27,13 @@ pub struct ImportXInput {
     source_url: String,
     folder_id: Option<i64>,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct ListInput {
     folder_id: Option<i64>,
     unfiled: Option<bool>,
     page: Option<i64>,
+    tag: Option<String>,
+    sort: Option<String>,
 }
 #[derive(Deserialize)]
 pub struct BatchStatusInput {
@@ -53,6 +55,10 @@ pub struct Saved {
     community: String,
     created_at: DateTime<Utc>,
     moderation_status: String,
+    body: String,
+    content_rating: String,
+    source: Option<serde_json::Value>,
+    tags: serde_json::Value,
 }
 async fn owner(h: &HeaderMap, db: &SqlitePool) -> Result<i64, ApiError> {
     authenticated_author(h, db).await
@@ -425,15 +431,222 @@ pub async fn list(
     if !(1..=100000).contains(&page) {
         return Err(ApiError::Invalid("Invalid page"));
     }
-    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at,p.moderation_status FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=?1 AND (p.moderation_status='approved' OR (p.author_id=?1 AND p.moderation_status='pending')) AND (?2 IS NULL OR b.folder_id=?2) AND (NOT ?3 OR b.folder_id IS NULL) ORDER BY b.created_at DESC,b.post_id DESC LIMIT 51 OFFSET ?4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).fetch_all(&db).await?;
+    let oldest = q.sort.as_deref() == Some("oldest");
+    let tag = q
+        .tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_lowercase);
+    let mut rows:Vec<Saved>=sqlx::query_as("SELECT b.post_id,p.public_id,b.folder_id,p.title,c.slug AS community,b.created_at,p.moderation_status,p.body,p.content_rating,(SELECT json_object('post_id',e.post_id,'provider',e.provider,'source_url',e.source_url,'source_author',e.source_author,'media',json(e.media),'published_at',e.published_at,'observed_at',e.observed_at,'source_likes',e.source_likes,'source_reposts',e.source_reposts,'source_replies',e.source_replies,'source_views',e.source_views,'profile_image_url',e.profile_image_url,'profile_display_name',e.profile_display_name,'profile_verified',json(CASE WHEN e.profile_verified THEN 'true' ELSE 'false' END)) FROM external_posts e WHERE e.post_id=p.id) AS source,(SELECT json_group_array(tag) FROM bookmark_tags t WHERE t.author_id=b.author_id AND t.post_id=b.post_id) AS tags FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN communities c ON c.id=p.community_id WHERE b.author_id=?1 AND (p.moderation_status='approved' OR (p.author_id=?1 AND p.moderation_status='pending')) AND (?2 IS NULL OR b.folder_id=?2) AND (NOT ?3 OR b.folder_id IS NULL) AND (?5 IS NULL OR EXISTS(SELECT 1 FROM bookmark_tags t WHERE t.author_id=b.author_id AND t.post_id=b.post_id AND t.tag=?5)) ORDER BY CASE WHEN ?6 THEN COALESCE(b.sort_at,b.created_at) END ASC,CASE WHEN NOT ?6 THEN COALESCE(b.sort_at,b.created_at) END DESC,b.post_id DESC LIMIT 51 OFFSET ?4").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind((page-1)*50).bind(tag).bind(oldest).fetch_all(&db).await?;
+    let total:i64=sqlx::query_scalar("SELECT count(*) FROM bookmarks b JOIN posts p ON p.id=b.post_id WHERE b.author_id=?1 AND (p.moderation_status='approved' OR (p.author_id=?1 AND p.moderation_status='pending')) AND (?2 IS NULL OR b.folder_id=?2) AND (NOT ?3 OR b.folder_id IS NULL) AND (?4 IS NULL OR EXISTS(SELECT 1 FROM bookmark_tags t WHERE t.author_id=b.author_id AND t.post_id=b.post_id AND t.tag=?4))").bind(uid).bind(q.folder_id).bind(q.unfiled.unwrap_or(false)).bind(q.tag.as_deref().map(str::trim).filter(|t|!t.is_empty()).map(str::to_lowercase)).fetch_one(&db).await?;
     let has_more = rows.len() > 50;
     rows.truncate(50);
-    Ok(Json(serde_json::json!({"items":rows,"has_more":has_more})))
+    Ok(Json(
+        serde_json::json!({"items":rows,"has_more":has_more,"total":total}),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct TagsInput {
+    tags: Vec<String>,
+}
+pub async fn tags(
+    State(db): State<SqlitePool>,
+    h: HeaderMap,
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+    let uid = owner(&h, &db).await?;
+    Ok(Json(sqlx::query_scalar("SELECT json_object('tag',t.tag,'count',count(*)) FROM bookmark_tags t JOIN posts p ON p.id=t.post_id WHERE t.author_id=?1 AND (p.moderation_status='approved' OR (p.author_id=?1 AND p.moderation_status='pending')) GROUP BY t.tag ORDER BY t.tag").bind(uid).fetch_all(&db).await?))
+}
+pub async fn set_tags(
+    State(db): State<SqlitePool>,
+    h: HeaderMap,
+    Path(id): Path<i64>,
+    Json(input): Json<TagsInput>,
+) -> Result<StatusCode, ApiError> {
+    let uid = owner(&h, &db).await?;
+    if input.tags.len() > 20 {
+        return Err(ApiError::Invalid("Choose at most 20 tags"));
+    }
+    let mut tags = std::collections::BTreeSet::new();
+    for tag in input.tags {
+        let tag = tag.trim().trim_start_matches('#').trim().to_lowercase();
+        if tag.is_empty() || tag.chars().count() > 40 || tag.chars().any(char::is_control) {
+            return Err(ApiError::Invalid(
+                "Tags must contain 1–40 printable characters",
+            ));
+        }
+        tags.insert(tag);
+    }
+    let mut tx = crate::db::begin_immediate(&db).await?;
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bookmarks WHERE author_id=?1 AND post_id=?2)",
+    )
+    .bind(uid)
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !exists {
+        return Err(ApiError::Missing);
+    }
+    sqlx::query("DELETE FROM bookmark_tags WHERE author_id=?1 AND post_id=?2")
+        .bind(uid)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    for tag in tags {
+        sqlx::query("INSERT INTO bookmark_tags(author_id,post_id,tag) VALUES(?1,?2,?3)")
+            .bind(uid)
+            .bind(id)
+            .bind(tag)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn source_order_and_private_multi_tags_survive_folder_operations(db: SqlitePool) {
+        let a: i64 =
+            sqlx::query_scalar("INSERT INTO authors(handle) VALUES('tag_alice') RETURNING id")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let b: i64 =
+            sqlx::query_scalar("INSERT INTO authors(handle) VALUES('tag_bob') RETURNING id")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        let mut headers = Vec::new();
+        for (uid, letter) in [(a, 'a'), (b, 'b')] {
+            let token = letter.to_string().repeat(64);
+            sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES(?1,?2,strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 hour'))").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(uid).execute(&db).await.unwrap();
+            let mut h = HeaderMap::new();
+            h.insert("authorization", format!("Bearer {token}").parse().unwrap());
+            headers.push(h);
+        }
+        let community: i64 = sqlx::query_scalar("SELECT id FROM communities WHERE slug='general'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        let mut posts = Vec::new();
+        for _ in 0..2 {
+            posts.push(sqlx::query_scalar::<_,i64>("INSERT INTO posts(author_id,community_id,title,body,moderation_status) VALUES(?1,?2,'Saved','Full saved text','approved') RETURNING id").bind(a).bind(community).fetch_one(&db).await.unwrap());
+        }
+        for (post, imported, ordered) in [
+            (posts[0], "2026-10-26T16:00:00Z", "2026-10-26T17:00:00Z"),
+            (posts[1], "2026-10-26T17:00:00Z", "2026-10-26T16:00:00Z"),
+        ] {
+            sqlx::query(
+                "INSERT INTO bookmarks(author_id,post_id,created_at,sort_at) VALUES(?1,?2,?3,?4)",
+            )
+            .bind(a)
+            .bind(post)
+            .bind(imported)
+            .bind(ordered)
+            .execute(&db)
+            .await
+            .unwrap();
+        }
+        sqlx::query("INSERT INTO bookmarks(author_id,post_id) VALUES(?1,?2)")
+            .bind(b)
+            .bind(posts[0])
+            .execute(&db)
+            .await
+            .unwrap();
+        set_tags(
+            State(db.clone()),
+            headers[0].clone(),
+            Path(posts[0]),
+            Json(TagsInput {
+                tags: vec!["AI".into(), " ai ".into(), "Security".into()],
+            }),
+        )
+        .await
+        .unwrap();
+        set_tags(
+            State(db.clone()),
+            headers[1].clone(),
+            Path(posts[0]),
+            Json(TagsInput {
+                tags: vec!["private-bob".into()],
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            set_tags(
+                State(db.clone()),
+                headers[1].clone(),
+                Path(posts[1]),
+                Json(TagsInput {
+                    tags: vec!["foreign".into()]
+                })
+            )
+            .await,
+            Err(ApiError::Missing)
+        ));
+        let latest = list(
+            State(db.clone()),
+            headers[0].clone(),
+            Query(ListInput::default()),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(latest["items"][0]["post_id"], posts[0]);
+        assert_eq!(latest["items"][0]["body"], "Full saved text");
+        assert_eq!(latest["items"][0]["tags"].as_array().unwrap().len(), 2);
+        assert!(!latest.to_string().contains("private-bob"));
+        let oldest = list(
+            State(db.clone()),
+            headers[0].clone(),
+            Query(ListInput {
+                sort: Some("oldest".into()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(oldest["items"][0]["post_id"], posts[1]);
+        let filtered = list(
+            State(db.clone()),
+            headers[0].clone(),
+            Query(ListInput {
+                tag: Some("AI".into()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(filtered["items"].as_array().unwrap().len(), 1);
+        remove(State(db.clone()), headers[0].clone(), Path(posts[0]))
+            .await
+            .unwrap();
+        assert_eq!(
+            tags(State(db.clone()), headers[0].clone())
+                .await
+                .unwrap()
+                .0
+                .len(),
+            0
+        );
+        assert_eq!(
+            tags(State(db.clone()), headers[1].clone())
+                .await
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
+    }
 
     #[test]
     fn folder_parent_distinguishes_omitted_from_root() {
@@ -479,6 +692,8 @@ mod tests {
                 State(db.clone()),
                 HeaderMap::new(),
                 Query(ListInput {
+                    tag: None,
+                    sort: None,
                     folder_id: None,
                     unfiled: None,
                     page: None
@@ -565,6 +780,8 @@ mod tests {
             State(db.clone()),
             headers[0].clone(),
             Query(ListInput {
+                tag: None,
+                sort: None,
                 folder_id: Some(folder),
                 unfiled: None,
                 page: None,
@@ -578,6 +795,8 @@ mod tests {
             State(db.clone()),
             headers[1].clone(),
             Query(ListInput {
+                tag: None,
+                sort: None,
                 folder_id: Some(folder),
                 unfiled: None,
                 page: None,
@@ -639,6 +858,8 @@ mod tests {
             State(db.clone()),
             headers[0].clone(),
             Query(ListInput {
+                tag: None,
+                sort: None,
                 folder_id: None,
                 unfiled: Some(true),
                 page: None,
@@ -753,6 +974,8 @@ mod tests {
             State(db.clone()),
             headers[0].clone(),
             Query(ListInput {
+                tag: None,
+                sort: None,
                 folder_id: Some(folder),
                 unfiled: None,
                 page: None,

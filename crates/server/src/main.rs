@@ -20,6 +20,7 @@ mod imports;
 mod media_store;
 mod moderation;
 mod operations;
+mod rating_reviews;
 mod views;
 
 static STARTED_AT: std::sync::OnceLock<DateTime<Utc>> = std::sync::OnceLock::new();
@@ -2977,6 +2978,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/api/users/{handle}", get(user_profile))
         .route("/api/bookmarks", get(bookmarks::list))
+        .route("/api/bookmark-tags", get(bookmarks::tags))
+        .route(
+            "/api/posts/{id}/bookmark-tags",
+            post_method(bookmarks::set_tags),
+        )
         .route("/api/bookmarks/status", get(bookmarks::batch_status))
         .route(
             "/api/bookmarks/import-x",
@@ -3049,6 +3055,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/admin/content", get(admin::content))
         .route("/api/admin/comments", get(admin::comments))
         .route("/api/admin/reports", get(admin::reports))
+        .route(
+            "/api/admin/rating-reviews",
+            get(rating_reviews::list).post(rating_reviews::propose),
+        )
+        .route(
+            "/api/admin/rating-reviews/candidates",
+            get(rating_reviews::candidates),
+        )
+        .route(
+            "/api/admin/rating-reviews/training",
+            get(rating_reviews::training),
+        )
+        .route(
+            "/api/admin/rating-reviews/{id}/decision",
+            post_method(rating_reviews::decide),
+        )
         .route(
             "/api/admin/reports/{id}/resolve",
             post_method(admin::resolve),
