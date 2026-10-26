@@ -4,10 +4,11 @@ import argparse, json, os, pathlib, subprocess, tempfile, time, uuid
 
 ROOT=pathlib.Path.home()/'.local/share/swartzit-mobilenet-trial'
 
-def available_bytes():
-    for line in pathlib.Path('/proc/meminfo').read_text().splitlines():
-        if line.startswith('MemAvailable:'): return int(line.split()[1])*1024
-    return 0
+def memory_ready(model_size, text=None):
+    if text is None: text=pathlib.Path('/proc/meminfo').read_text()
+    fields={line.split(':',1)[0]:int(line.split()[1])*1024 for line in text.splitlines() if line.split(':',1)[0] in ('MemAvailable','SwapTotal','SwapFree')}
+    total=fields.get('SwapTotal',0); free=fields.get('SwapFree',0)
+    return fields.get('MemAvailable',0)>=model_size+4*1024**3 and (not total or free>=min(1024**3,total//4))
 
 def select_video(manifest, output):
     with manifest.open(encoding='utf8') as source, output.open('x',encoding='utf8') as target:
@@ -25,7 +26,7 @@ def main():
     deadline=time.monotonic()+args.max_wait
     while time.monotonic()<deadline:
         setup_active=subprocess.run(['systemctl','--user','is-active','--quiet','swartzit-gemma-setup.service'],timeout=10).returncode==0
-        if not setup_active and model.is_file() and gemma_python.is_file() and available_bytes()>=model.stat().st_size+4*1024**3:
+        if not setup_active and model.is_file() and gemma_python.is_file() and memory_ready(model.stat().st_size):
             break
         print('Waiting for the verified model, runtime, and available memory.',flush=True)
         time.sleep(min(args.poll,max(0,deadline-time.monotonic())))

@@ -22,8 +22,10 @@ def post_prompt(request):
 def gemma_result(request, runtime, version):
     tool=request['tool']; model=pathlib.Path(tool['model_path'])
     if sys.platform.startswith('linux'):
-        available=next((int(line.split()[1])*1024 for line in pathlib.Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemAvailable:')),None)
-        if available is not None and available < model.stat().st_size+4*1024**3: raise ValueError('insufficient available memory for Gemma with a 4 GiB reserve')
+        fields={line.split(':',1)[0]:int(line.split()[1])*1024 for line in pathlib.Path('/proc/meminfo').read_text().splitlines() if line.split(':',1)[0] in ('MemAvailable','SwapTotal','SwapFree')}
+        available=fields.get('MemAvailable'); swap_total=fields.get('SwapTotal',0); swap_free=fields.get('SwapFree',0)
+        if (available is not None and available < model.stat().st_size+4*1024**3) or (swap_total and swap_free<min(1024**3,swap_total//4)):
+            raise ValueError('insufficient available memory for Gemma or swap reserve')
     start=time.perf_counter()
     if hash_file(model)!=tool['model_digest']: raise ValueError('Gemma model digest changed')
     hash_ms=(time.perf_counter()-start)*1000
