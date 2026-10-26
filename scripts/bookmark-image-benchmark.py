@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Append-only, local comparison of bookmark images with multiple models."""
 import argparse, base64, datetime, hashlib, io, json, os, pathlib, re, sqlite3, subprocess, time, urllib.parse, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import onnxruntime as ort
 from PIL import Image, ImageOps
@@ -41,6 +42,16 @@ def prepare_mobile(data):
  image=Image.open(io.BytesIO(data)).convert('RGB'); w,h=image.size; scale=256/min(w,h); image=image.resize((round(w*scale),round(h*scale)),Image.Resampling.BILINEAR); w,h=image.size; x=(w-224)//2; y=(h-224)//2; image=image.crop((x,y,x+224,y+224))
  return np.asarray(image,dtype=np.float32).transpose(2,0,1)[None,:,:,:]/255.0
 
+def prefetch(rows, fetch=image_data):
+ """Fetch at most eight images at a time, retaining errors per item."""
+ with ThreadPoolExecutor(max_workers=4) as pool:
+  for start in range(0,len(rows),8):
+   batch=rows[start:start+8]
+   futures=[pool.submit(fetch,row[1]) if not row[3] else None for row in batch]
+   for row,future in zip(batch,futures):
+    try: yield row, future.result() if future else None
+    except Exception as exc: yield row, exc
+
 def policy_conflict(result):
  reasons=set(result['reasons'])
  return (result['rating']=='general' and bool(reasons & {'sexual_suggestiveness','nudity','sexual_activity','graphic_violence'})) or (result['rating']=='r' and bool(reasons & {'nudity','sexual_activity','graphic_violence'}))
@@ -77,11 +88,13 @@ def main():
   if args.create_only: return
  for phase in ('mobilenet','qwen'):
   rows=c.execute("SELECT i.id,i.source_url,i.input_sha256,i.image_path FROM items i WHERE i.run_id=? AND i.status='pending' AND (?='qwen' OR NOT EXISTS (SELECT 1 FROM predictions p WHERE p.item_id=i.id AND p.tool=?)) ORDER BY i.id",(run,phase,phase)).fetchall()
-  for item,url,sha,path in rows:
+  work=prefetch(rows) if phase=='mobilenet' else ((row,None) for row in rows)
+  for (item,url,sha,path),prefetched in work:
    try:
     if path: data=(STATE/path).read_bytes(); assert hashlib.sha256(data).hexdigest()==sha
     else:
-     data=image_data(url); sha=hashlib.sha256(data).hexdigest(); file=cache/(sha+'.jpg')
+     if isinstance(prefetched,Exception): raise prefetched
+     data=prefetched if prefetched is not None else image_data(url); sha=hashlib.sha256(data).hexdigest(); file=cache/(sha+'.jpg')
      if not file.exists(): file.write_bytes(data)
      path='images/'+file.name; c.execute('UPDATE items SET input_sha256=?,image_path=? WHERE id=?',(sha,path,item)); c.commit()
     existing={r[0] for r in c.execute('SELECT tool FROM predictions WHERE run_id=? AND item_id=?',(run,item))}
