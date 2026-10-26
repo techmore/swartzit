@@ -293,7 +293,9 @@ def execute(db, run, cache, site, max_jobs=0, retry_errors=False):
             status='error'; result_json=None
             if isinstance(exc,ValueError): error='ValueError: '+str(exc)[:200]
             elif isinstance(exc,urllib.error.HTTPError): error='Archive HTTP '+str(exc.code)
-            elif isinstance(exc,subprocess.CalledProcessError): error='Adapter exit '+str(exc.returncode)
+            elif isinstance(exc,subprocess.CalledProcessError):
+                error='Adapter exit '+str(exc.returncode)
+                if 'insufficient available memory for Gemma' in (exc.stderr or ''): error='Gemma memory reserve not met'
             else: error=type(exc).__name__
         with db:
             db.execute('INSERT INTO attempts(job_id,status,result,error,preparation_ms,wall_ms) VALUES(?,?,?,?,?,?)',(job,status,result_json,error,preparation_ms,wall_ms))

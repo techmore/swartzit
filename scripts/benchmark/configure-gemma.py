@@ -3,7 +3,7 @@
 import argparse, hashlib, importlib.metadata, json, os, pathlib, urllib.request
 p=argparse.ArgumentParser(); p.add_argument('--state',default=os.path.expanduser('~/.local/share/swartzit-mobilenet-trial')); p.add_argument('--output',required=True); p.add_argument('--iterations',type=int,default=2); p.add_argument('--input',choices=['image','multimodal','video','multimodal_video'],default='multimodal_video'); p.add_argument('--frames',type=int,default=3); p.add_argument('--backend',choices=['cpu','gpu'],default='cpu'); args=p.parse_args()
 if not 1<=args.iterations<=100 or not 1<=args.frames<=8: raise ValueError('invalid iterations or frames')
-root=pathlib.Path(args.state).resolve(); model=root/'gemma-4-12B-it.litertlm'; adapter=root/'adapters-video-gemma-v1.py'; python=root/'gemma-venv/bin/python'; h=hashlib.sha256()
+root=pathlib.Path(args.state).resolve(); model=root/'gemma-4-12B-it.litertlm'; adapter=root/'adapters-video-gemma-v2.py'; python=root/'gemma-venv/bin/python'; h=hashlib.sha256()
 if not adapter.is_file() or not python.is_file(): raise ValueError('install the versioned adapter and Gemma runtime first')
 with model.open('rb') as source:
  while chunk:=source.read(1024*1024): h.update(chunk)

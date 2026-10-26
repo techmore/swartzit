@@ -29,6 +29,6 @@ jobs:
         working-directory: apps/web
       - run: node scripts/web-runtime-smoke.mjs
       - run: node --test scripts/*.test.mjs
-      - run: python3 scripts/benchmark/battery.test.py && python3 scripts/benchmark/adapters.test.py && python3 scripts/export-bookmark-media-manifest.test.py
+      - run: python3 scripts/benchmark/battery.test.py && python3 scripts/benchmark/adapters.test.py && python3 scripts/benchmark/first-gemma-trial.test.py && python3 scripts/export-bookmark-media-manifest.test.py
       - run: bash -n scripts/benchmark/install-gemma-litert.sh
       - run: node --check scripts/import-x-bookmarks.mjs && node --check scripts/prepare-bookmark-transfer.mjs

@@ -3,7 +3,7 @@ from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('adapters',pathlib.Path(__file__).with_name('adapters.py')); a=importlib.util.module_from_spec(spec); spec.loader.exec_module(a)
 class FakeBackend:
  @staticmethod
- def CPU(): return 'cpu'
+ def CPU(**kwargs): return 'cpu'
  @staticmethod
  def GPU(): return 'gpu'
 class FakeConversation:
