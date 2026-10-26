@@ -1,0 +1,7 @@
+# Automatic bookmark organization
+
+On the Ser8 host, `scripts/bookmark-organizer.py` reads one account's unfiled bookmarks and asks the local `qwen3.5:2b` model to pick a broad topic folder and up to four short tags. It examines text and, when available, one X image or video poster. Qwen's confidence is only a heuristic; classifications can be wrong, and a user can move a bookmark or edit its tags at any time. Low-confidence and Other results remain unfiled. Posts without a reviewable image are classified using their available text.
+
+Install with `bash scripts/install-bookmark-organizer.sh HANDLE` as a host user with Incus access and lingering enabled. The timer continues the initial backlog in small batches and checks for newly saved bookmarks. Stop it with `systemctl --user disable --now swartzit-bookmark-organizer.timer`; inspect progress with `journalctl --user -u swartzit-bookmark-organizer.service` and the private SQLite progress file in `~/.local/share/swartzit-bookmark-organizer/`.
+
+Only unfiled, approved bookmarks for the selected account are considered. Applying a result checks in a database transaction that the bookmark is still unfiled and its text and media have not changed. Existing tags are retained, existing folder assignments are left alone, and bookmarks once processed are not automatically moved again. No ratings are changed. Model input remains on the host and classification calls go to its loopback Ollama service. Images are downloaded from X's image CDN; the worker stores no image cache.
