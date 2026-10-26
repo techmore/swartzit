@@ -161,7 +161,7 @@ export async function collectFromRecommendedSession(options = {}, {
       const canonical = canonicalStatusUrl(post?.source_url) || sourceUrl;
       if (seen.has(canonical)) continue;
       if (!dryRun) await save(statePath, [...seen, canonical], normalized.seenLimit);
-      return [{...post, provider: 'x', source_url: canonical, content_rating: 'general', attribution: `Collected from the X Recommended timeline; source: ${canonical}`}];
+      return [{...post, provider: 'x', source_url: canonical, content_rating: post.content_rating ?? 'general', attribution: `Collected from the X Recommended timeline; source: ${canonical}`}];
     } catch (error) {
       console.error(`Could not resolve ${sourceUrl}: ${error.message}`);
     }

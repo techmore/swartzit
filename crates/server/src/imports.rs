@@ -3,6 +3,19 @@ use url::Url;
 
 const MAX_IMPORTED_BODY_BYTES: usize = 250_000;
 
+// Source refreshes can raise a rating, but only a moderator can lower it or
+// replace a moderator's explicit decision.
+pub(crate) async fn refresh_content_rating(
+    db: &mut sqlx::SqliteConnection,
+    id: i64,
+    rating: &str,
+    source: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE posts SET content_rating=?2,content_rating_source=?3,content_rating_confidence=NULL,content_rating_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1 AND content_rating_source != 'moderator' AND (CASE ?2 WHEN 'x' THEN 2 WHEN 'r' THEN 1 ELSE 0 END) >= (CASE content_rating WHEN 'x' THEN 2 WHEN 'r' THEN 1 ELSE 0 END)")
+        .bind(id).bind(rating).bind(source).execute(db).await?;
+    Ok(())
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Media {
@@ -477,12 +490,8 @@ pub async fn ingest(
             .execute(&mut *tx)
             .await?;
     }
-    if let Some(rating) = content_rating.as_deref() {
-        sqlx::query("UPDATE posts SET content_rating=?2,content_rating_source='uploader',content_rating_confidence=NULL,content_rating_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?1")
-            .bind(id)
-            .bind(rating)
-            .execute(&mut *tx)
-            .await?;
+    if let Some(rating) = content_rating.as_deref().filter(|_| changed) {
+        crate::imports::refresh_content_rating(&mut tx, id, rating, "uploader").await?;
     }
     tx.commit().await?;
     log_event(&db,"info","admin.source_import",serde_json::json!({"actor_id":actor,"post_id":id,"created":created,"updated":changed,"moderation_id":moderation_id,"status":if created {publication_status} else {"existing"},"moderation":if moderation_enabled {"enabled"} else {"disabled"}})).await;
@@ -716,6 +725,44 @@ pub fn order(sort: Option<&str>) -> Result<&'static str, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn refreshes_preserve_stricter_and_moderator_ratings() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE posts(id INTEGER PRIMARY KEY, content_rating TEXT, content_rating_source TEXT, content_rating_confidence REAL, content_rating_updated_at TEXT)")
+            .execute(&pool).await.unwrap();
+        let mut db = pool.acquire().await.unwrap();
+        for source in ["uploader", "automatic", "moderator"] {
+            for before in ["general", "r", "x"] {
+                for incoming in ["general", "r", "x"] {
+                    sqlx::query("INSERT OR REPLACE INTO posts(id,content_rating,content_rating_source) VALUES(1,?1,?2)")
+                        .bind(before).bind(source).execute(&mut *db).await.unwrap();
+                    refresh_content_rating(&mut db, 1, incoming, "automatic")
+                        .await
+                        .unwrap();
+                    let actual: (String, String) = sqlx::query_as(
+                        "SELECT content_rating,content_rating_source FROM posts WHERE id=1",
+                    )
+                    .fetch_one(&mut *db)
+                    .await
+                    .unwrap();
+                    let rank = |rating| match rating {
+                        "x" => 2,
+                        "r" => 1,
+                        _ => 0,
+                    };
+                    if source == "moderator" || rank(incoming) < rank(before) {
+                        assert_eq!(actual, (before.into(), source.into()));
+                    } else {
+                        assert_eq!(actual, (incoming.into(), "automatic".into()));
+                    }
+                }
+            }
+        }
+    }
     #[test]
     fn media_validation() {
         let video = |src: &str| Media::Attachment {

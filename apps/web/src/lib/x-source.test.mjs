@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseXStatusUrl, resolveXPost, resolveXConversation } from './x-source.mjs';
+import { parseXStatusUrl, resolveXPost, resolveXConversation, xContentRating } from './x-source.mjs';
+
+test('sensitive source, quote and thread context retain the X rating', async () => {
+  const quote = { text: 'Sensitive photo', possibly_sensitive: true, user: { screen_name: 'other' } };
+  assert.equal(xContentRating({ quoted_tweet: quote }), 'x');
+  assert.equal(xContentRating({ parent: quote }), 'x');
+  assert.equal(xContentRating({ text: 'Ordinary post' }), 'general');
+  const record = await resolveXPost('https://x.com/source/status/123', async () => ({
+    ok: true, json: async () => ({ id_str: '123', text: 'A quote', user: { screen_name: 'source' }, quoted_tweet: quote })
+  }));
+  assert.equal(record.content_rating, 'x');
+});
 
 test('accepts public X status links and canonicalizes tracking URLs', () => {
   assert.deepEqual(parseXStatusUrl('https://twitter.com/person/status/123?s=20'), {

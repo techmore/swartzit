@@ -49,10 +49,14 @@ export async function POST({ request }) {
   }
 
   try {
+    if (input.content_rating != null && !['general', 'r', 'x'].includes(input.content_rating)) {
+      return json({ error: 'Choose a valid content rating.' }, 400);
+    }
+    const rating = post.content_rating === 'x' ? 'x' : input.content_rating ?? post.content_rating;
     const response = await fetch(`${api}/api/posts/cross-post`, {
       method: 'POST',
       headers: { authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...post, community, content_rating: input.content_rating }),
+      body: JSON.stringify({ ...post, community, content_rating: rating }),
       signal: AbortSignal.timeout(15000)
     });
     const result = await response.json().catch(() => ({ error: 'Could not publish this post.' }));

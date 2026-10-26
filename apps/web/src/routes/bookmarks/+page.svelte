@@ -118,6 +118,13 @@
 <svelte:head><title>Bookmarks — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
 <header><Brand /><SessionNav /></header>
 <main id="main-content">
+  <nav class="bookmark-tabs" aria-label="Feed">
+    <a href="/?feed=timeline">Timeline</a>
+    <a class="active" href="/bookmarks" aria-current="page">Bookmarks</a>
+    <a href="/?feed=following">Following</a>
+    <a href="/?feed=buddies">Buddies</a>
+    <a href="/?feed=rated&ratings=rx">Rated</a>
+  </nav>
   <h1>Your bookmarks</h1><p>Private to your account. Save discussions and organize them into folders.</p>
   {#if !loaded}<p role="status">Loading bookmarks…</p>
   {:else if !token}<p><a href="/login">Sign in</a> to save posts and manage folders.</p>
@@ -174,6 +181,10 @@
   {#if error}<p role="alert" class="form-error">{error}</p>{/if}{#if message}<p role="status">{message}</p>{/if}
 </main>
 <style>
+  .bookmark-tabs{display:flex;flex-wrap:nowrap;gap:20px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;margin:0 0 26px;border-bottom:1px solid var(--border,#dedfd7)}
+  .bookmark-tabs a{position:relative;flex-shrink:0;padding:0 2px 12px;color:var(--muted,#66766c);font-size:.9rem;font-weight:700}
+  .bookmark-tabs a.active{color:var(--heading,#173d34)}
+  .bookmark-tabs a.active::after{content:'';position:absolute;right:0;bottom:0;left:0;height:3px;border-radius:3px 3px 0 0;background:var(--accent,#9b5e38)}
   .folder-import-help{margin:12px 0;font-size:.82rem}.folder-import-help pre{max-height:240px;overflow:auto;padding:12px;background:var(--background,#f4f4ef)}.import-account,.import-preview,.pending-note{font-size:.82rem}.pending-note{color:var(--muted,#66766c)}
   .x-bookmark-import{margin-top:24px;padding:18px;border:1px solid var(--border,#ccd6cd);border-radius:10px;background:var(--surface,#fff)}.x-bookmark-import h2{margin:0 0 8px}.x-bookmark-import>p{max-width:850px;color:var(--muted,#66766c);font-size:.86rem}.x-bookmark-import form{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(180px,1fr) minmax(180px,1fr) auto;align-items:end;gap:12px;margin:16px 0}.x-bookmark-import label,aside label{display:flex;flex-direction:column;gap:8px}.x-bookmark-import input[type=file]{max-width:100%;padding:8px;border:1px solid var(--border,#c7ccc3);border-radius:6px}.x-bookmark-import form button{margin:0;min-height:40px}.import-note,.import-progress{font-size:.78rem!important}.x-bookmark-import progress{width:min(100%,720px);height:12px}.import-failures{font-size:.82rem;color:var(--muted,#66766c)}.import-failures li{margin:5px 0}.bookmark-layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:30px;margin-top:24px}aside form{display:grid;gap:10px;margin:24px 0}aside label{gap:7px}input,select{min-width:0;max-width:100%}button{margin:6px 0}article{padding:20px 0;border-bottom:1px solid var(--border,#ccd6cd)}.actions,nav{display:flex;flex-wrap:wrap;align-items:center;gap:16px}nav{margin-top:20px}h3{overflow-wrap:anywhere}.breadcrumbs{margin:12px 0;color:var(--muted,#66766c);font-size:.84rem}.breadcrumbs button{background:none;padding:0;color:var(--link,#215e47)}.subfolders{display:grid;gap:8px;margin:16px 0}.subfolders h3{margin:0}.subfolders button{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0;padding:10px;border:1px solid var(--border,#ccd6cd);border-radius:7px;background:var(--surface,#fff);text-align:left}.subfolders button span{font-size:.76rem;color:var(--muted,#66766c)}@media(max-width:800px){.x-bookmark-import form{grid-template-columns:1fr 1fr}.x-bookmark-import form label:first-child{grid-column:1/-1}.x-bookmark-import form button{grid-column:1/-1}.bookmark-layout{grid-template-columns:1fr}}
 </style>

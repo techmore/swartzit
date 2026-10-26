@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { appendXContext, parseXStatusUrl, resolveXPost, xPostText } from '../apps/web/src/lib/x-source.mjs';
+import { appendXContext, parseXStatusUrl, resolveXPost, xPostText, xContentRating } from '../apps/web/src/lib/x-source.mjs';
 
 import { launchPlaywrightContext } from './x-playwright-recommended-runner.mjs';
 const now=()=>new Date().toISOString();
@@ -146,7 +146,7 @@ export async function collectX(job) {
   if (process.env.X_SOURCE_MODE === 'playwright') return collectXFromPlaywright(job);
   const token=normalizeXBearerToken(process.env.X_BEARER_TOKEN);
   const h={authorization:`Bearer ${token}`};
-  const fields='created_at,public_metrics,attachments,text,note_tweet,author_id,referenced_tweets';
+  const fields='created_at,public_metrics,attachments,text,note_tweet,author_id,referenced_tweets,possibly_sensitive';
   const mediaFields='type,url,preview_image_url,alt_text,variants,media_key';
   const captured=now();
   const query=job.source.trim().replace(/^search:\s*/i,'');
@@ -197,7 +197,7 @@ export async function collectX(job) {
     if(parent)body=appendXContext(body,'Thread context',relatedAuthor(parent),xPostText(parent));
     if(quote)body=appendXContext(body,'Quoted post',relatedAuthor(quote),xPostText(quote));
     const sourceText=xPostText(t);
-    return {community:job.community,provider:'x',source_url:`https://x.com/${username}/status/${t.id}`,source_author:`@${username}`,title:titleOf(sourceText),body,published_at:t.created_at||null,observed_at:captured,source_views:Number.isSafeInteger(metrics.impression_count)?metrics.impression_count:null,source_likes:Number.isSafeInteger(metrics.like_count)?metrics.like_count:null,source_reposts:Number.isSafeInteger(metrics.retweet_count)?metrics.retweet_count:null,source_replies:Number.isSafeInteger(metrics.reply_count)?metrics.reply_count:null,media:attachments,profile_image_url:profile.profile_image_url||null,profile_url:`https://x.com/${username}`,profile_display_name:profile.name||null,profile_bio:profile.description||null,profile_followers:Number.isSafeInteger(profileMetrics.followers_count)?profileMetrics.followers_count:null,profile_following:Number.isSafeInteger(profileMetrics.following_count)?profileMetrics.following_count:null,profile_verified:profile.verified===true,attribution:`Imported from @${username}; source: https://x.com/${username}/status/${t.id}`};
+    return {community:job.community,provider:'x',content_rating:xContentRating(t,quote,parent),source_url:`https://x.com/${username}/status/${t.id}`,source_author:`@${username}`,title:titleOf(sourceText),body,published_at:t.created_at||null,observed_at:captured,source_views:Number.isSafeInteger(metrics.impression_count)?metrics.impression_count:null,source_likes:Number.isSafeInteger(metrics.like_count)?metrics.like_count:null,source_reposts:Number.isSafeInteger(metrics.retweet_count)?metrics.retweet_count:null,source_replies:Number.isSafeInteger(metrics.reply_count)?metrics.reply_count:null,media:attachments,profile_image_url:profile.profile_image_url||null,profile_url:`https://x.com/${username}`,profile_display_name:profile.name||null,profile_bio:profile.description||null,profile_followers:Number.isSafeInteger(profileMetrics.followers_count)?profileMetrics.followers_count:null,profile_following:Number.isSafeInteger(profileMetrics.following_count)?profileMetrics.following_count:null,profile_verified:profile.verified===true,attribution:`Imported from @${username}; source: https://x.com/${username}/status/${t.id}`};
   }).filter(Boolean);
   } catch (error) {
     if (/HTTP 402\b/.test(error.message) && process.env.X_PLAYWRIGHT_USER_DATA_DIR) return collectXFromPlaywright(job);

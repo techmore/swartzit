@@ -2,7 +2,7 @@
 import { readdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { resolve, join } from 'node:path';
-import { readXBookmarkCapture } from '../apps/web/src/lib/x-bookmark-capture.mjs';
+import { readXBookmarkCapture, bookmarkPageTerminated } from '../apps/web/src/lib/x-bookmark-capture.mjs';
 
 const { values } = parseArgs({ options: { 'capture-dir': { type: 'string' }, output: { type: 'string' } } });
 if (!values['capture-dir'] || !values.output) throw new Error('Use --capture-dir DIR --output FILE.');
@@ -11,13 +11,14 @@ const files = await Promise.all((await readdir(directory)).filter(name => /^book
 files.sort((a, b) => a.metadata.mtimeMs - b.metadata.mtimeMs);
 if (!files.length) throw new Error('No bookmark responses were captured.');
 const posts = new Map(), unavailable = new Map(), cursors = [];
-let terminated = false;
+let terminated = false, previousBottomCursor = null;
 for (const { name, metadata } of files) {
   const captured = readXBookmarkCapture(JSON.parse(await readFile(join(directory, name), 'utf8')), { observedAt: metadata.mtime.toISOString() });
   for (const post of captured.posts) posts.set(post.source_url.split('/').at(-1), post);
   for (const failure of captured.unavailable) unavailable.set(failure.id, failure);
   if (captured.bottomCursor) cursors.push(captured.bottomCursor);
-  terminated ||= captured.terminated;
+  terminated ||= bookmarkPageTerminated(captured, previousBottomCursor);
+  previousBottomCursor = captured.bottomCursor;
 }
 for (const id of posts.keys()) unavailable.delete(id);
 const manifest = { format: 'swartzit-x-bookmarks-v1', bookmarks: [...posts.keys()].map(tweetId => ({ tweetId })), posts: [...posts.values()], capture: { pages: files.length, terminated, cursorCount: new Set(cursors).size }, unavailable: [...unavailable.values()] };

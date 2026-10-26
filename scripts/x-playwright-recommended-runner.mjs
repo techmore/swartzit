@@ -185,7 +185,7 @@ export async function collectFromPlaywrightRecommended(options = {}, {
         ...post,
         provider: 'x',
         source_url: canonical,
-        content_rating: 'general',
+        content_rating: post.content_rating ?? 'general',
         attribution: `Collected from the X Recommended timeline through Playwright; source: ${canonical}`
       }];
     } catch (error) {
