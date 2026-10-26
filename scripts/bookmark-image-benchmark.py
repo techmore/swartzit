@@ -66,7 +66,7 @@ def main():
   raw=subprocess.run(['incus','exec','swartzit','--','python3','-c',GUEST],input=json.dumps({'handle':args.handle}),text=True,capture_output=True,check=True,timeout=60)
   items=json.loads(raw.stdout)
   if args.limit: items=items[:args.limit]
-  config={'qwen_model':qwen,'qwen_digest':digest,'mobile_model':'qualcomm/mobilenet-v3-small-onnx-float','mobile_digest':mobile_digest,'mobile_input':'RGB [0,1], resize shorter side 256, center crop 224','qwen_input':'512px JPEG, image only','mobile_init_ms':round(init_ms,2),'scope':'approved bookmarks, image attachments only','items':len(items)}
+  config={'qwen_model':qwen,'qwen_digest':digest,'qwen_prompt':PROMPT,'qwen_schema':RATING_SCHEMA,'qwen_options':{'num_ctx':4096,'num_predict':256,'temperature':0,'num_thread':4},'mobile_model':'qualcomm/mobilenet-v3-small-onnx-float','mobile_digest':mobile_digest,'onnxruntime':ort.__version__,'mobile_input':'RGB [0,1], resize shorter side 256, center crop 224','qwen_input':'512px JPEG, image only','mobile_init_ms':round(init_ms,2),'scope':'approved bookmarks, image attachments only','items':len(items)}
   run=c.execute('INSERT INTO runs(name,account,config) VALUES(?,?,?) RETURNING id',(args.name,args.handle,json.dumps(config))).fetchone()[0]
   c.executemany('INSERT INTO items(run_id,post_id,media_index,source_url) VALUES(?,?,?,?)',[(run,*item) for item in items]); c.commit()
   print(json.dumps({'run':run,'items':len(items),'mobile_init_ms':round(init_ms,2)}),flush=True)
