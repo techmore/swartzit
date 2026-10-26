@@ -73,3 +73,36 @@ manual override protection, resumable asset checkpoints, and per-run cost and
 failure accounting. A failed or uncertain review must remain unresolved rather
 than being recorded as General. No model provider has been selected or deployed
 as part of this repair.
+
+## Host-native vision pilot
+
+The 2026-10-26 read-only pilot used the existing host Ollama service, its Vulkan
+iGPU support, and Swartzit’s normal HTTPS API. The rating policy was clarified:
+suggestive photos are R, while nudity or explicit material is X. Images and text
+were classified locally with a 4,096-token context and image dimensions capped
+at 512 pixels. No published rating was changed by the experiment.
+
+| Model | Median time per post | Pilot finding |
+| --- | --- | --- |
+| Qwen3.5 0.8B | 1.08 s | False mature flags on ordinary cybersecurity posts; missed suggestive photos |
+| Qwen3.5 2B | About 2.1 s | Matched the 4B rating on all ten cases |
+| Qwen3.5 4B | 2.98 s | Better than 0.8B on this sample; comfortably fit the host |
+
+These are ten single-image posts, not a validated rating benchmark. Existing
+source labels are not ground truth, fully explicit X examples were not
+validated, and videos/multiple attachments still need evaluation. Every model
+returned `uncertain=false`, so that field must not be treated as calibrated
+confidence or an adequate abstention mechanism. Detailed samples, model digests,
+measurements and suggested labels remain in private operational state.
+
+Qwen3.5 2B is the current candidate for a host-side suggestion queue. A host
+worker can read Swartzit through its normal API, call Ollama on host loopback,
+and submit versioned review proposals through a controlled API. Imports awaiting
+a required review should remain pending until review succeeds; errors must not
+be interpreted as General. Moderator decisions and stronger source labels
+remain protected. The model needs no browser or database write access.
+
+The linked [Qualcomm MobileNet-v3-Small checkpoint](https://huggingface.co/qualcomm/MobileNet-v3-Small)
+is a compact ImageNet object classifier, not a trained General/R/X classifier.
+Its architecture could support a later lightweight rating model after training
+on human-corrected labels. Qualcomm NPU timings are not Ser8 AMD benchmarks.
