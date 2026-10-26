@@ -9,6 +9,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import math
 import os
 import pathlib
 import platform
@@ -71,8 +72,10 @@ def validate_config(config):
         if not isinstance(tool, dict) or not isinstance(tool.get('id'), str) or not tool['id'] or tool['id'] in names:
             raise ValueError('tool IDs must be unique nonempty strings')
         names.add(tool['id'])
-        if tool.get('task') not in ('rating', 'object', 'other') or tool.get('input') not in ('image', 'text', 'multimodal'):
+        if tool.get('task') not in ('rating', 'object', 'other') or tool.get('input') not in ('image', 'text', 'multimodal', 'video', 'multimodal_video'):
             raise ValueError('invalid tool task or input')
+        if tool['input'] in ('video','multimodal_video') and (type(tool.get('video_frames',3)) is not int or not 1 <= tool.get('video_frames',3) <= 8):
+            raise ValueError('video_frames must be between 1 and 8')
         if not isinstance(tool.get('model'), str) or not tool['model'] or not isinstance(tool.get('model_digest'), str) or not tool['model_digest']:
             raise ValueError('model and model_digest are required')
         argv = tool.get('argv')
@@ -96,10 +99,21 @@ def snapshot_post(record):
         assets.append({k: asset.get(k) for k in ('index', 'role', 'kind', 'source_url', 'status', 'sha256', 'size', 'mime', 'error')})
     return {'post_id':record['post_id'], 'public_id':record.get('public_id'), 'title':record.get('title',''), 'text':record.get('text',''), 'source_url':record.get('source_url'), 'assets':assets, 'human_labels':record.get('human_labels',[])}
 
-def create(db, name, manifest, config, limit=0):
+def create(db, name, manifest, config, limit=0, media_kind='any', ready_only=False):
     if limit < 0: raise ValueError('limit cannot be negative')
+    if media_kind not in ('any','image','video'): raise ValueError('invalid media kind')
     config = json.loads(canonical(validate_config(config)))
+    config['dataset_selection']={'media_kind':media_kind,'ready_only':ready_only,'limit':limit}
     for tool in config['tools']:
+        if tool['input'] in ('video','multimodal_video'):
+            binaries=[]
+            for binary_name in ('ffmpeg','ffprobe'):
+                binary=shutil.which(binary_name)
+                if not binary: raise ValueError(binary_name+' is required for video')
+                resolved=pathlib.Path(binary).resolve()
+                version=subprocess.run([str(resolved),'-version'],capture_output=True,text=True,check=True,timeout=10).stdout.splitlines()[0]
+                binaries.append({'name':binary_name,'path':str(resolved),'sha256':digest_file(resolved),'version':version})
+            tool['video_extraction']={'version':'uniform-interior-v1','frames':tool.get('video_frames',3),'max_dimension':512,'binaries':binaries}
         files=[]
         for index,arg in enumerate(tool['argv']):
             candidate=shutil.which(arg) if index==0 else arg
@@ -110,6 +124,8 @@ def create(db, name, manifest, config, limit=0):
         tool['file_digests']=files
     raw = pathlib.Path(manifest).read_bytes()
     posts = [snapshot_post(json.loads(line)) for line in raw.splitlines() if line.strip()]
+    if media_kind!='any' or ready_only:
+        posts=[post for post in posts if any(a.get('role')=='src' and (media_kind=='any' or a.get('kind')==media_kind) and (not ready_only or a.get('status')=='ready') for a in post['assets'])]
     if limit:
         posts = posts[:limit]
     if not posts:
@@ -128,16 +144,22 @@ def create(db, name, manifest, config, limit=0):
                     db.execute('INSERT INTO jobs(battery_id,input_id,tool_id,iteration) VALUES(?,?,?,?)',(run,item,tool['id'],iteration))
     return run
 
-def cached_image(asset, cache, site):
+def digest_file(path):
+    h=hashlib.sha256()
+    with pathlib.Path(path).open('rb') as source:
+        while chunk:=source.read(1024*1024): h.update(chunk)
+    return h.hexdigest()
+
+def cached_asset(asset, cache, site):
     sha = asset.get('sha256')
     if not isinstance(sha,str) or len(sha)!=64 or any(c not in '0123456789abcdef' for c in sha):
-        raise ValueError('image has no valid content hash')
+        raise ValueError('asset has no valid content hash')
     cache = pathlib.Path(cache)
     cache.mkdir(mode=0o700,parents=True,exist_ok=True)
     target = cache/sha
     if target.exists():
-        if digest(target.read_bytes()) != sha:
-            raise ValueError('cached image hash mismatch')
+        if digest_file(target) != sha:
+            raise ValueError('cached asset hash mismatch')
         return str(target)
     origin = urllib.parse.urlparse(site)
     if origin.scheme != 'https' or not origin.hostname or origin.username or origin.password or origin.path not in ('','/'):
@@ -148,42 +170,90 @@ def cached_image(asset, cache, site):
     try:
         # Redirects are deliberately disabled: a miss must not download from X.
         with urllib.request.build_opener(NoRedirect()).open(request,timeout=30) as response:
-            if not response.headers.get('Content-Type','').startswith('image/'):
-                raise ValueError('archive returned a non-image')
+            mime=response.headers.get('Content-Type','').split(';',1)[0].lower()
+            if (asset.get('kind')=='image' and not mime.startswith('image/')) or (asset.get('kind')=='video' and mime!='video/mp4'):
+                raise ValueError('archive returned unexpected media type')
             h = hashlib.sha256(); size = 0
             with tempfile.NamedTemporaryFile(dir=cache,prefix='.partial-',delete=False) as output:
                 name = output.name
                 while chunk := response.read(262144):
                     size += len(chunk)
-                    if size > 50*1024*1024:
-                        raise ValueError('image exceeds benchmark limit')
+                    if size > (4*1024**3 if asset.get('kind')=='video' else 50*1024**2):
+                        raise ValueError('asset exceeds benchmark limit')
+                    if shutil.disk_usage(cache).free < 30*1024**3:
+                        raise ValueError('benchmark cache free-space floor reached')
                     h.update(chunk); output.write(chunk)
                 output.flush(); os.fsync(output.fileno())
         if h.hexdigest() != sha or (asset.get('size') is not None and size != asset['size']):
-            raise ValueError('archive image checksum or size mismatch')
+            raise ValueError('archive asset checksum or size mismatch')
         os.replace(name,target); name = None
         return str(target)
     finally:
         if name:
             pathlib.Path(name).unlink(missing_ok=True)
 
+def cached_image(asset, cache, site):
+    return cached_asset(asset,cache,site)
+
+def video_frames(asset, path, cache, extraction):
+    """Sample evenly spaced interior frames; cached output is content-addressed."""
+    binaries={item['name']:item for item in extraction['binaries']}
+    for item in binaries.values():
+        if digest_file(item['path']) != item['sha256']:
+            raise ValueError('video extraction executable changed')
+    probe=subprocess.run([binaries['ffprobe']['path'],'-v','error','-protocol_whitelist','file,pipe','-select_streams','v:0','-show_entries','format=duration:stream=duration','-of','json',path],capture_output=True,text=True,check=True,timeout=30)
+    info=json.loads(probe.stdout); values=[s.get('duration') for s in info.get('streams',[])]+[info.get('format',{}).get('duration')]
+    duration=next((float(v) for v in values if v not in (None,'N/A') and math.isfinite(float(v)) and float(v)>0),None)
+    if duration is None: raise ValueError('video duration unavailable')
+    frames=[]; directory=pathlib.Path(cache)/'frames'; directory.mkdir(mode=0o700,parents=True,exist_ok=True)
+    for index in range(extraction['frames']):
+        timestamp=round(duration*(index+1)/(extraction['frames']+1),6)
+        key=digest(canonical({'video':asset['sha256'],'timestamp':timestamp,'extraction':extraction}).encode())
+        output=directory/(key+'.jpg'); meta=directory/(key+'.json')
+        if output.exists() and meta.exists():
+            saved=json.loads(meta.read_text())
+            if digest_file(output)!=saved.get('sha256'): raise ValueError('cached frame hash mismatch')
+        else:
+            temp=None
+            try:
+                with tempfile.NamedTemporaryFile(dir=directory,suffix='.jpg',prefix='.frame-',delete=False) as f: temp=f.name
+                subprocess.run([binaries['ffmpeg']['path'],'-nostdin','-v','error','-threads','2','-filter_threads','1','-protocol_whitelist','file,pipe','-ss',str(timestamp),'-i',path,'-frames:v','1','-vf','scale=512:512:force_original_aspect_ratio=decrease','-q:v','2','-y',temp],capture_output=True,check=True,timeout=120)
+                if pathlib.Path(temp).stat().st_size==0: raise ValueError('empty video frame')
+                frame_hash=digest_file(temp); os.replace(temp,output); temp=None
+                with tempfile.NamedTemporaryFile(mode='w',dir=directory,prefix='.meta-',delete=False) as f:
+                    json.dump({'sha256':frame_hash},f); meta_temp=f.name
+                os.replace(meta_temp,meta)
+            finally:
+                if temp: pathlib.Path(temp).unlink(missing_ok=True)
+        frames.append({'path':str(output),'sha256':digest_file(output),'video_sha256':asset['sha256'],'timestamp_seconds':timestamp,'duration_seconds':duration,'method':extraction['version']})
+    return frames
+
 def prepare(post, tool, cache, site):
     selected = [a for a in post['assets'] if a.get('role') == 'src' and a.get('kind') == 'image' and a.get('status') == 'ready']
     all_media = [a for a in post['assets'] if a.get('role') == 'src']
     paths = []
+    frames = []
     if tool['input'] in ('image','multimodal'):
         if not selected:
             raise ValueError('no verified archived image')
         # Single-image adapters must not claim coverage of a multi-attachment post.
         paths = [cached_image(selected[0],cache,site)]
+    elif tool['input'] in ('video','multimodal_video'):
+        videos=[a for a in all_media if a.get('kind')=='video' and a.get('status')=='ready']
+        if not videos: raise ValueError('no verified archived video')
+        video=cached_asset(videos[0],cache,site)
+        frames=video_frames(videos[0],video,cache,tool['video_extraction'])
+        paths=[frame['path'] for frame in frames]
     complete = len(all_media) == len(selected) == len(paths) if tool['input'] in ('image','multimodal') else not all_media
     if tool['input'] == 'image' and (post.get('text') or post.get('title')):
         complete = False
     if tool['input'] in ('multimodal','text') and len(post.get('text','')) > 8000:
         complete = False
+    if frames:
+        complete=False  # Sampled frames cannot cover all video, audio or attachments.
     # Ground truth must never be included in an adapter's input.
     input_post={key:value for key,value in post.items() if key!='human_labels'}
-    return {'post':input_post, 'images':paths, 'coverage':{'complete':complete,'image_count':len(paths),'attachment_count':len(all_media)}, 'tool':tool}
+    return {'post':input_post, 'images':paths, 'frames':frames, 'coverage':{'complete':complete,'image_count':len(paths),'attachment_count':len(all_media),'sampled_video':bool(frames)}, 'tool':tool}
 
 def execute(db, run, cache, site, max_jobs=0, retry_errors=False):
     if max_jobs < 0: raise ValueError('max_jobs cannot be negative')
@@ -218,12 +288,14 @@ def execute(db, run, cache, site, max_jobs=0, retry_errors=False):
             value = json.loads(result.stdout)
             if not isinstance(value,dict):
                 raise ValueError('adapter must return a JSON object')
-            status='done'; error=None; result_json=canonical({'output':value,'coverage':request['coverage']})
+            status='done'; error=None; result_json=canonical({'output':value,'coverage':request['coverage'],'frames':request['frames']})
         except Exception as exc:
             status='error'; result_json=None
             if isinstance(exc,ValueError): error='ValueError: '+str(exc)[:200]
             elif isinstance(exc,urllib.error.HTTPError): error='Archive HTTP '+str(exc.code)
-            elif isinstance(exc,subprocess.CalledProcessError): error='Adapter exit '+str(exc.returncode)
+            elif isinstance(exc,subprocess.CalledProcessError):
+                error='Adapter exit '+str(exc.returncode)
+                if 'insufficient available memory for Gemma' in (exc.stderr or ''): error='Gemma memory reserve not met'
             else: error=type(exc).__name__
         with db:
             db.execute('INSERT INTO attempts(job_id,status,result,error,preparation_ms,wall_ms) VALUES(?,?,?,?,?,?)',(job,status,result_json,error,preparation_ms,wall_ms))
@@ -238,7 +310,7 @@ def summary(db, run):
     for tool in config['tools']:
         counts=dict(db.execute('SELECT status,count(*) FROM jobs WHERE battery_id=? AND tool_id=? GROUP BY status',(run,tool['id'])).fetchall())
         rows=db.execute("SELECT j.input_id,j.iteration,a.wall_ms,a.preparation_ms,a.result,i.payload,i.split FROM jobs j JOIN inputs i ON i.id=j.input_id JOIN attempts a ON a.id=(SELECT max(a2.id) FROM attempts a2 WHERE a2.job_id=j.id) WHERE j.battery_id=? AND j.tool_id=? AND j.status='done'",(run,tool['id'])).fetchall()
-        matched[tool['id']]={(r[0],r[1]) for r in rows}
+        matched[tool['id']]={(r[0],r[1],tuple(frame['sha256'] for frame in json.loads(r[4]).get('frames',[]))) for r in rows}
         times=[r[2] for r in rows if r[2] is not None]; prep=[r[3] for r in rows if r[3] is not None]
         partial=sum(not json.loads(r[4])['coverage']['complete'] for r in rows)
         metric_values={}
@@ -249,7 +321,9 @@ def summary(db, run):
                 if type(value) in (int,float) and value>=0: metric_values.setdefault(key,[]).append(value)
         errors=db.execute("SELECT coalesce(a.error,'unknown'),count(*) FROM jobs j JOIN attempts a ON a.id=(SELECT max(a2.id) FROM attempts a2 WHERE a2.job_id=j.id) WHERE j.battery_id=? AND j.tool_id=? AND j.status='error' GROUP BY a.error",(run,tool['id'])).fetchall()
         duration=sum((r[2] or 0)+(r[3] or 0) for r in rows)
-        entry={'id':tool['id'],'task':tool['task'],'model':tool['model'],'counts':counts,'errors':dict(errors),'partial_coverage':partial,'median_adapter_wall_ms':round(statistics.median(times),2) if times else None,'median_cache_preparation_ms':round(statistics.median(prep),2) if prep else None,'measured_adapter_and_preparation_jobs_per_second':round(len(rows)*1000/duration,3) if duration else None,'median_model_metrics':{key:round(statistics.median(values),2) for key,values in metric_values.items()}}
+        entry={'id':tool['id'],'task':tool['task'],'input':tool['input'],'model':tool['model'],'counts':counts,'errors':dict(errors),'partial_coverage':partial,'sampled_video_jobs':sum(bool(json.loads(r[4])['coverage'].get('sampled_video')) for r in rows),'median_adapter_wall_ms':round(statistics.median(times),2) if times else None,'median_cache_preparation_ms':round(statistics.median(prep),2) if prep else None,'measured_adapter_and_preparation_jobs_per_second':round(len(rows)*1000/duration,3) if duration else None,'median_model_metrics':{key:round(statistics.median(values),2) for key,values in metric_values.items()}}
+        if 'video_extraction' in tool:
+            spec=tool['video_extraction']; entry['video_extraction']={'method':spec['version'],'frames':spec['frames'],'max_dimension':spec['max_dimension'],'tools':[{'name':x['name'],'version':x['version'],'sha256':x['sha256']} for x in spec['binaries']]}
         if tool['task']=='rating':
             classes=('general','r','x'); matrix={actual:{predicted:0 for predicted in classes} for actual in classes}; uncertain=0
             for _,iteration,_,_,raw_output,raw_input,split in rows:
@@ -284,20 +358,20 @@ def compare(db, left, right):
         for right_tool in configurations[1]['tools']:
             if left_tool['task']!=right_tool['task']: continue
             def measurements(run,tool):
-                rows=db.execute("SELECT i.input_sha256,j.iteration,a.wall_ms FROM jobs j JOIN inputs i ON i.id=j.input_id JOIN attempts a ON a.id=(SELECT max(a2.id) FROM attempts a2 WHERE a2.job_id=j.id) WHERE j.battery_id=? AND j.tool_id=? AND j.status='done'",(run,tool)).fetchall()
-                return {(h,iteration):wall for h,iteration,wall in rows if wall is not None}
+                rows=db.execute("SELECT i.input_sha256,j.iteration,a.wall_ms,a.result FROM jobs j JOIN inputs i ON i.id=j.input_id JOIN attempts a ON a.id=(SELECT max(a2.id) FROM attempts a2 WHERE a2.job_id=j.id) WHERE j.battery_id=? AND j.tool_id=? AND j.status='done'",(run,tool)).fetchall()
+                return {(h,iteration,tuple(frame['sha256'] for frame in json.loads(result).get('frames',[]))):wall for h,iteration,wall,result in rows if wall is not None}
             before=measurements(left,left_tool['id']); after=measurements(right,right_tool['id']); keys=before.keys() & after.keys()
             comparisons.append({'left_tool':left_tool['id'],'right_tool':right_tool['id'],'task':left_tool['task'],'left_input':left_tool['input'],'right_input':right_tool['input'],'same_configuration':canonical(left_tool)==canonical(right_tool),'matched_post_iterations':len(keys),'left_median_adapter_wall_ms':round(statistics.median(before[k] for k in keys),2) if keys else None,'right_median_adapter_wall_ms':round(statistics.median(after[k] for k in keys),2) if keys else None})
     return {'left_run':left,'right_run':right,'comparisons':comparisons}
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument('--db',required=True); subs=p.add_subparsers(dest='command',required=True)
-    new=subs.add_parser('create'); new.add_argument('--manifest',required=True); new.add_argument('--config',required=True); new.add_argument('--name',required=True); new.add_argument('--limit',type=int,default=0)
+    new=subs.add_parser('create'); new.add_argument('--manifest',required=True); new.add_argument('--config',required=True); new.add_argument('--name',required=True); new.add_argument('--limit',type=int,default=0); new.add_argument('--media-kind',choices=['any','image','video'],default='any'); new.add_argument('--ready-only',action='store_true')
     run=subs.add_parser('run'); run.add_argument('--id',type=int,required=True); run.add_argument('--cache',required=True); run.add_argument('--archive-site',required=True); run.add_argument('--max-jobs',type=int,default=0); run.add_argument('--retry-errors',action='store_true')
     report=subs.add_parser('summary'); report.add_argument('--id',type=int,required=True)
     diff=subs.add_parser('compare'); diff.add_argument('--left',type=int,required=True); diff.add_argument('--right',type=int,required=True)
     args=p.parse_args(); db=connect(args.db)
-    if args.command=='create': print(json.dumps({'battery_id':create(db,args.name,args.manifest,json.loads(pathlib.Path(args.config).read_text()),args.limit)}))
+    if args.command=='create': print(json.dumps({'battery_id':create(db,args.name,args.manifest,json.loads(pathlib.Path(args.config).read_text()),args.limit,args.media_kind,args.ready_only)}))
     elif args.command=='run':
         lock_path=pathlib.Path(args.db).with_name(pathlib.Path(args.db).name+'.lock')
         with lock_path.open('w') as lock:
