@@ -52,6 +52,10 @@ def main():
  p=argparse.ArgumentParser(); p.add_argument('--handle',required=True); p.add_argument('--name',default='baseline'); p.add_argument('--limit',type=int,default=0); p.add_argument('--resume',type=int); p.add_argument('--create-only',action='store_true'); args=p.parse_args()
  os.umask(0o077); STATE.mkdir(mode=0o700,parents=True,exist_ok=True); cache=STATE/'images'; cache.mkdir(mode=0o700,exist_ok=True)
  c=sqlite3.connect(STATE/'results.sqlite',timeout=30); c.execute('PRAGMA foreign_keys=ON'); c.execute('PRAGMA journal_mode=WAL'); create_schema(c)
+ if args.resume:
+  finished=c.execute('SELECT finished_at,account FROM runs WHERE id=?',(args.resume,)).fetchone()
+  if not finished or finished[1]!=args.handle: raise ValueError('run or account not found')
+  if finished[0]: print(json.dumps({'run':args.resume,'finished':True,'already_complete':True}),flush=True); return
  qwen='qwen3.5:2b'; models=json_request('http://127.0.0.1:11434/api/tags')['models']; digest=next(m['digest'] for m in models if m['name']==qwen)
  mobile_digest=hashlib.sha256(MODEL.read_bytes()+MODEL.with_suffix('.data').read_bytes()).hexdigest(); labels=LABELS.read_text().splitlines(); assert len(labels)==1000
  so=ort.SessionOptions(); so.intra_op_num_threads=2; so.inter_op_num_threads=1
