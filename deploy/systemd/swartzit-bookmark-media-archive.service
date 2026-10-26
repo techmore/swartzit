@@ -1,0 +1,18 @@
+[Unit]
+Description=Archive X bookmark images and videos for Swartzit
+After=network-online.target swartzit.service
+[Service]
+Type=oneshot
+User=swartzit
+Group=swartzit
+WorkingDirectory=/var/lib/swartzit
+EnvironmentFile=/etc/swartzit/bookmark-archive.env
+ExecStart=/usr/bin/python3 /var/lib/swartzit/state/archive-bookmark-media.py --handle ${SWARTZIT_ARCHIVE_HANDLE}
+ExecStartPost=/usr/bin/python3 /var/lib/swartzit/state/export-bookmark-media-manifest.py --handle ${SWARTZIT_ARCHIVE_HANDLE}
+TimeoutStartSec=0
+UMask=0077
+Nice=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/swartzit

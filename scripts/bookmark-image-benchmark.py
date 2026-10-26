@@ -32,7 +32,13 @@ def json_request(url, value=None, timeout=120):
 def image_data(url):
  p=urllib.parse.urlparse(url)
  if p.scheme!='https' or p.hostname!='pbs.twimg.com' or p.username or p.password: raise ValueError('unsupported image origin')
- req=urllib.request.Request(url,headers={'User-Agent':'Swartzit-image-benchmark/1'})
+ site=os.environ.get('SWARTZIT_ARCHIVE_SITE','').rstrip('/')
+ if site:
+  origin=urllib.parse.urlparse(site)
+  if origin.scheme!='https' or not origin.hostname or origin.username or origin.password or origin.path: raise ValueError('invalid archive site')
+  source=site+'/archived-media?'+urllib.parse.urlencode({'src':url})
+ else: source=url
+ req=urllib.request.Request(source,headers={'User-Agent':'Swartzit-image-benchmark/1'})
  with urllib.request.build_opener(SameOriginRedirect()).open(req,timeout=20) as resp:
   if not resp.headers.get('Content-Type','').startswith('image/'): raise ValueError('not an image')
   raw=resp.read(5*1024*1024+1)

@@ -4,6 +4,7 @@
   import VideoLoopToggle from '#lib/VideoLoopToggle.svelte';
   import XAuthorFollowButton from '#lib/XAuthorFollowButton.svelte';
   import { youtubeEmbedUrl } from '#lib/youtube-source.mjs';
+  import { archivedXMedia } from '#lib/archive-source.mjs';
   import { cleanXSourceText, splitXPost } from '#lib/x-post-display.mjs';
   export let source;
   export let text = '';
@@ -24,7 +25,10 @@
   let videoLoops = {};
   let activeMedia = 0;
   let relativeClock = Date.now();
-  const attachment = m => typeof m === 'string' ? {kind:'image',src:m} : m;
+  const attachment = m => {
+    const item = typeof m === 'string' ? {kind:'image',src:m} : m;
+    return source.provider === 'x' ? {...item, src: archivedXMedia(item.src), poster: archivedXMedia(item.poster)} : item;
+  };
   const isLocalMedia = src => /^\/media\/\d+(?:\/[^?]+)?(?:\?|$)/i.test(String(src ?? ''));
   const clean = value => String(value ?? '').trim();
   $: parsed = splitXPost(source.provider === 'x' ? cleanXSourceText(text, source) : text);
@@ -57,7 +61,7 @@
   }
   function syncVideoLoop(event) {
     const { src, enabled } = event.detail ?? {};
-    if (!src || !source.media?.some(item => (typeof item === 'string' ? item : item?.src) === src)) return;
+    if (!src || !source.media?.some(item => attachment(item)?.src === src)) return;
     videoLoops = { ...videoLoops, [src]: enabled === true };
   }
   onMount(() => {
@@ -75,7 +79,7 @@
     window.dispatchEvent(new CustomEvent('swartzit-media-ended', { detail: { element: event.currentTarget } }));
   }
   $: profileImageSrc = source.profile_image_url && source.post_id
-    ? `/profile-images/${source.post_id}?src=${encodeURIComponent(source.profile_image_url)}`
+    ? archivedXMedia(source.profile_image_url)
     : null;
   function observeMedia(node, media) {
     // Muted inline playback is allowed by mobile browsers. Keep only the
