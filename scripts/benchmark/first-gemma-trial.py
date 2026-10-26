@@ -45,4 +45,6 @@ def main():
     result=subprocess.run([str(python),str(root/'battery.py'),'--db',str(root/'batteries.sqlite'),'summary','--id',str(run)],capture_output=True,text=True,check=True,timeout=60)
     with (root/'gemma-first-trial-summary.json').open('w',encoding='utf8') as out: out.write(result.stdout)
     print(json.dumps({'battery_id':run,'summary':str(root/'gemma-first-trial-summary.json')}),flush=True)
+    if any(tool['counts'].get('error',0) for tool in json.loads(result.stdout)['tools']):
+        raise RuntimeError('one or more benchmark tools failed; see the saved summary')
 if __name__=='__main__': main()
