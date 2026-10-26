@@ -12,6 +12,13 @@
   let newParentId = '', moveParentId = '', importFolderId = '', importRating = 'general';
   let importProgress = null, importSummary = '', importFailures = [], importPlan = null, previewLoading = false, ownerHandle = '';
   let previewVersion = 0;
+  let tags = [], tagFilter = '', tagDrafts = {}, sort = 'newest', total = 0;
+  async function saveTags(item) {
+    await run(async()=>{
+      await request(`/api/posts/${item.post_id}/bookmark-tags`,'POST',{tags:(tagDrafts[item.post_id]||'').split(',').map(tag=>tag.trim()).filter(Boolean)});
+      message='Private tags saved.';
+    });
+  }
   let postContent = {}, contentErrors = {}, refreshVersion = 0;
   async function loadContent(rows, version = refreshVersion) {
     await loadBookmarkContent(rows, {request,
@@ -33,11 +40,15 @@
   async function refresh() {
     const version = ++refreshVersion;
     const query = new URLSearchParams({page:String(page)});
+    query.set('sort',sort);
+    if(tagFilter)query.set('tag',tagFilter);
     if (filter === 'unfiled') query.set('unfiled','true');
     else if (filter !== 'all') query.set('folder_id',filter);
-    const [f,result] = await Promise.all([request('/api/bookmark-folders'),request('/api/bookmarks?'+query)]);
+    const [f,result,t] = await Promise.all([request('/api/bookmark-folders'),request('/api/bookmarks?'+query),request('/api/bookmark-tags')]);
     if (version !== refreshVersion) return;
-    folders = f; items = result.items; hasMore = result.has_more;
+    folders = f; items = result.items; hasMore = result.has_more;total=result.total??result.items.length;tags=t;
+    for(const item of items)if(tagDrafts[item.post_id]===undefined)tagDrafts[item.post_id]=(item.tags||[]).join(', ');
+    tagDrafts={...tagDrafts};
     loaded = true;
     await loadContent(items.filter(item => !postContent[item.post_id]), version);
   }
@@ -144,6 +155,7 @@
   {#if !loaded}<p role="status">Loading bookmarks…</p>
   {:else if !token}<p><a href="/login">Sign in</a> to save posts and manage folders.</p>
   {:else}
+    <div class="bookmark-toolbar"><label>Order<select bind:value={sort} on:change={()=>{page=1;run(async()=>{});}} disabled={busy}><option value="newest">Newest bookmarked first</option><option value="oldest">Oldest bookmarked first</option></select></label><label>Tags<select bind:value={tagFilter} on:change={()=>{page=1;run(async()=>{});}} disabled={busy}><option value="">All tags</option>{#each tags as tag}<option value={tag.tag}>#{tag.tag} ({tag.count})</option>{/each}</select></label></div>
     <details class="x-bookmark-import">
       <summary id="x-bookmark-import-title">Import X bookmarks</summary>
       {#if ownerHandle}<p class="import-account">Private bookmarks will be saved to <strong>u/{ownerHandle}</strong>.</p>{/if}
@@ -163,8 +175,9 @@
     </details>
     <div class="bookmark-layout">
       <aside>
+        <nav class="folder-shortcuts" aria-label="Bookmark folders"><button class:chosen={filter==='all'} disabled={busy} on:click={()=>{filter='all';changeFilter();}}>All bookmarks</button><button class:chosen={filter==='unfiled'} disabled={busy} on:click={()=>{filter='unfiled';changeFilter();}}>Unfiled</button>{#each folders.filter(folder=>folder.parent_id==null) as folder}<button class:chosen={filter===String(folder.id)} disabled={busy} on:click={()=>openFolder(folder.id)}>{folder.name} ({folder.count})</button>{/each}</nav>
         <label>Browse <select bind:value={filter} on:change={changeFilter} disabled={busy}><option value="all">All bookmarks</option><option value="unfiled">Unfiled</option>{#each folderOptions as folder}<option value={String(folder.id)}>{folder.label} ({folder.count})</option>{/each}</select></label>
-        <details class="folder-tools"><summary>Organize folders</summary>
+        <details class="folder-tools"><summary>+ New folder / manage folders</summary>
         <form on:submit|preventDefault={create}>
           <label>New folder<input bind:value={name} required maxlength="80" placeholder="e.g. Read later" /></label>
           <label>Inside folder<select bind:value={newParentId} disabled={busy}><option value="">Top level</option>{#each folderOptions as folder}<option value={String(folder.id)}>{folder.label}</option>{/each}</select></label>
@@ -181,7 +194,7 @@
         </details>
       </aside>
       <section aria-label="Saved posts" aria-busy={busy}>
-        <h2>{selected?.name || (filter === 'unfiled' ? 'Unfiled' : 'All bookmarks')}</h2>
+        <h2>{selected?.name || (filter === 'unfiled' ? 'Unfiled' : 'All bookmarks')} <small>· {total.toLocaleString()}</small></h2>
         {#if selectedPath.length > 1}<nav class="breadcrumbs" aria-label="Folder breadcrumbs"><button type="button" on:click={() => { filter = 'all'; changeFilter(); }}>All bookmarks</button>{#each selectedPath as folder, index}<span aria-hidden="true">/</span>{#if index < selectedPath.length - 1}<button type="button" on:click={() => openFolder(folder.id)}>{folder.name}</button>{:else}<strong>{folder.name}</strong>{/if}{/each}</nav>{/if}
         {#if subfolders.length}<div class="subfolders" aria-label="Subfolders"><h3>Folders</h3>{#each subfolders as folder}<button type="button" disabled={busy} on:click={() => openFolder(folder.id)}><strong>{folder.name}</strong><span>{folder.count} saved</span></button>{/each}</div>{/if}
         {#if !items.length && !error}<p>{busy ? 'Loading your saved posts…' : 'No bookmarks here yet. Use “Bookmark” on any discussion to save it.'}</p>{/if}
@@ -194,6 +207,8 @@
             {:else if contentErrors[item.post_id]}<h3>{item.title}</h3><p role="alert">{contentErrors[item.post_id]} <button type="button" on:click={() => loadContent([item])}>Retry</button></p>
             {:else if item.moderation_status !== 'pending'}<h3>{item.title}</h3><p role="status">Loading saved post…</p>{/if}
             {#if item.moderation_status === 'pending'}<h3>{item.title}</h3><p class="pending-note">Waiting for moderation — visible only to you until approved.</p>{/if}
+            {#if item.tags?.length}<div class="tag-chips">{#each item.tags as tag}<button disabled={busy} on:click={()=>{tagFilter=tag;page=1;run(async()=>{});}}>#{tag}</button>{/each}</div>{/if}
+            <details class="edit-tags"><summary>Edit private tags</summary><form on:submit|preventDefault={()=>saveTags(item)}><label>Tags, separated by commas<input bind:value={tagDrafts[item.post_id]} maxlength="820" placeholder="ai, security, read later" disabled={busy} /></label><button disabled={busy}>Save tags</button></form></details>
             <div class="actions"><label>Folder <select value={item.folder_id == null ? '' : String(item.folder_id)} disabled={busy} on:change={e => {const value=e.currentTarget.value;run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'POST',{folder_id:value ? Number(value) : null});message='Bookmark moved.';});}}><option value="">Unfiled</option>{#each folderOptions as folder}<option value={String(folder.id)}>{folder.label}</option>{/each}</select></label>
             <button disabled={busy} on:click={() => run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'DELETE');message='Bookmark removed.';})}>Remove bookmark</button></div>
           </article>
@@ -206,6 +221,7 @@
 </main>
 <MediaDock />
 <style>
+  .bookmark-toolbar{display:flex;flex-wrap:wrap;gap:16px;margin:18px 0}.bookmark-toolbar label{display:grid;gap:6px;min-width:180px}.folder-shortcuts{display:grid;gap:6px;margin:0 0 16px}.folder-shortcuts button{text-align:left;margin:0;background:var(--surface);color:var(--text);border:1px solid var(--border)}.folder-shortcuts button.chosen{background:var(--subtle);font-weight:800}.folder-tools{margin:18px 0}.folder-tools>summary,.edit-tags>summary{cursor:pointer;font-size:.82rem;font-weight:700}.tag-chips{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.tag-chips button{font-size:.76rem;padding:4px 8px;border-radius:20px}.edit-tags{margin:12px 0}.edit-tags form{display:flex;align-items:end;gap:10px;margin:12px 0}.edit-tags label{display:grid;gap:6px;flex:1}
   .bookmark-tabs{display:flex;flex-wrap:nowrap;gap:20px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;margin:0 0 26px;border-bottom:1px solid var(--border,#dedfd7)}
   .bookmark-tabs a{position:relative;flex-shrink:0;padding:0 2px 12px;color:var(--muted,#66766c);font-size:.9rem;font-weight:700}
   .bookmark-tabs a.active{color:var(--heading,#173d34)}

@@ -31,7 +31,7 @@
         <a href="/history"><Icon name="clock" />History</a>
         {#if handle}<a href="/?feed=buddies"><Icon name="user" />Buddies</a><a href="/bookmarks"><Icon name="bookmark" />Favorites</a>{/if}
         <a href="/api/export" download="swartzit-export.json"><Icon name="download" />Export data</a>
-        {#if isAdmin}<a href="/admin"><Icon name="admin" />Admin</a>{/if}
+        {#if isAdmin}<a href="/admin"><Icon name="admin" />Admin</a><a href="/admin/rating-review"><Icon name="bookmark" />Rating review</a>{/if}
       </div>
     </details>
     {#if handle}
@@ -44,7 +44,7 @@
   {:else}
     <span class="preferences" aria-label="Display preferences"><ThemeToggle compact /><AutoplayToggle compact /></span>
     <a href="/about">About</a><a href="/communities">Communities</a><a href="/history">History</a>
-    {#if handle}<a href="/?feed=buddies">Buddies</a><a href="/bookmarks">Favorites</a><a class="profile-link" href={'/u/' + handle}>{#if avatarUrl}<img src={avatarUrl} alt="" />{/if}u/{handle}</a>{#if isAdmin}<a href="/admin">Admin</a>{/if}<a href="/logout">Sign out</a>
+    {#if handle}<a href="/?feed=buddies">Buddies</a><a href="/bookmarks">Favorites</a><a class="profile-link" href={'/u/' + handle}>{#if avatarUrl}<img src={avatarUrl} alt="" />{/if}u/{handle}</a>{#if isAdmin}<a href="/admin">Admin</a><a href="/admin/rating-review">Rating review</a>{/if}<a href="/logout">Sign out</a>
     {:else}<a href={signInHref}>Sign in</a><a href="/signup">Create account</a>{/if}
   {/if}
 </nav>

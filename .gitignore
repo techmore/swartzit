@@ -10,3 +10,5 @@ build/
 playwright-report/
 test-results/
 .dev/
+
+__pycache__/
