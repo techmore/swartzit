@@ -12,4 +12,4 @@ To retry failed items from a finished run without changing its results, use the 
 
 ## Candidate model
 
-`litert-community/gemma-4-12B-it-litert-lm` is cataloged for a later image trial. The model card identifies text, image and audio inputs, a roughly 6.9 GB model file, and LiteRT-LM 0.17 or later. It has not yet been downloaded or scored on Ser8. Actual memory use, compatibility and speed on this AMD host need measurement; model-card figures from other hardware are not Ser8 results. Record a separate run and model digest when evaluating it, and compare against held-out human labels when enough are available.
+`litert-community/gemma-4-12B-it-litert-lm` was downloaded for a separate video-frame smoke trial on Ser8. That single three-frame job completed in about 130 seconds of adapter wall time and used about 7.8 GB peak adapter RSS; one sample does not establish accuracy. It was not part of this image baseline. The current preference is Qwen 3.5 4B for the review worker, not Gemma 4. Record separate model digests and compare against held-out human labels when enough are available.

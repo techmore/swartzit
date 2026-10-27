@@ -25,6 +25,7 @@ async fn snapshot(
 #[derive(Deserialize, Default)]
 pub struct ListQuery {
     status: Option<String>,
+    rating: Option<String>,
     after: Option<i64>,
     limit: Option<i64>,
 }
@@ -119,10 +120,17 @@ pub async fn list(
     if !matches!(status.as_str(), "pending" | "reviewed" | "dismissed") {
         return Err(ApiError::Invalid("Invalid review status"));
     }
-    let items:Vec<serde_json::Value>=sqlx::query_scalar("SELECT json_object('id',r.id,'post_id',r.post_id,'model',r.model,'model_digest',r.model_digest,'policy_version',r.policy_version,'snapshot',json(r.snapshot),'proposed_rating',r.proposed_rating,'details',json(r.details),'artifacts',json(r.artifacts),'status',r.status,'final_rating',r.final_rating,'created_at',r.created_at,'current_rating',p.content_rating,'current_rating_source',p.content_rating_source) FROM rating_reviews r JOIN posts p ON p.id=r.post_id WHERE r.status=?1 AND r.id>?2 ORDER BY r.id LIMIT 20")
-        .bind(status).bind(q.after.unwrap_or(0)).fetch_all(&db).await?;
+    let rating = q.rating.as_deref();
+    if rating.is_some_and(|r| !matches!(r, "general" | "r" | "x" | "unrated")) {
+        return Err(ApiError::Invalid("Invalid review rating filter"));
+    }
+    let items:Vec<serde_json::Value>=sqlx::query_scalar("SELECT json_object('id',r.id,'post_id',r.post_id,'model',r.model,'model_digest',r.model_digest,'policy_version',r.policy_version,'snapshot',json(r.snapshot),'proposed_rating',r.proposed_rating,'details',json(r.details),'artifacts',json(r.artifacts),'status',r.status,'final_rating',r.final_rating,'created_at',r.created_at,'reviewed_at',r.reviewed_at,'reviewer',a.handle,'current_rating',p.content_rating,'current_rating_source',p.content_rating_source,'history',json(COALESCE((SELECT json_group_array(json(entry)) FROM (SELECT json_object('rating',t.label,'reviewer',u.handle,'notes',t.notes,'reviewed_at',t.created_at) AS entry FROM rating_training_labels t LEFT JOIN authors u ON u.id=t.reviewer_id WHERE t.review_id=r.id ORDER BY t.id DESC)), '[]'))) FROM rating_reviews r JOIN posts p ON p.id=r.post_id LEFT JOIN authors a ON a.id=r.reviewer_id WHERE r.status=?1 AND r.id>?2 AND (?3 IS NULL OR COALESCE(CASE WHEN r.status='reviewed' THEN r.final_rating ELSE r.proposed_rating END,'unrated')=?3) ORDER BY r.id LIMIT 20")
+        .bind(&status).bind(q.after.unwrap_or(0)).bind(rating).fetch_all(&db).await?;
     let counts:serde_json::Value=sqlx::query_scalar("SELECT json_object('pending',count(*) FILTER(WHERE status='pending'),'reviewed',count(*) FILTER(WHERE status='reviewed'),'dismissed',count(*) FILTER(WHERE status='dismissed')) FROM rating_reviews").fetch_one(&db).await?;
-    Ok(Json(serde_json::json!({"items":items,"counts":counts})))
+    let distribution:serde_json::Value=sqlx::query_scalar("SELECT json_object('pending',json_object('general',count(*) FILTER(WHERE status='pending' AND proposed_rating='general'),'r',count(*) FILTER(WHERE status='pending' AND proposed_rating='r'),'x',count(*) FILTER(WHERE status='pending' AND proposed_rating='x'),'unrated',count(*) FILTER(WHERE status='pending' AND proposed_rating IS NULL)),'reviewed',json_object('general',count(*) FILTER(WHERE status='reviewed' AND final_rating='general'),'r',count(*) FILTER(WHERE status='reviewed' AND final_rating='r'),'x',count(*) FILTER(WHERE status='reviewed' AND final_rating='x'),'unrated',count(*) FILTER(WHERE status='reviewed' AND final_rating IS NULL))) FROM rating_reviews").fetch_one(&db).await?;
+    Ok(Json(
+        serde_json::json!({"items":items,"counts":counts,"distribution":distribution}),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -262,6 +270,12 @@ mod tests {
             .0;
         assert_eq!(empty["items"].as_array().unwrap().len(), 0);
         let id = first["id"].as_i64().unwrap();
+        let pending = list(State(db.clone()), h.clone(), Query(ListQuery::default()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(pending["distribution"]["pending"]["r"], 1);
+        assert_eq!(pending["distribution"]["reviewed"]["r"], 0);
         for rating in ["r", "x"] {
             let _ = decide(
                 State(db.clone()),
@@ -283,6 +297,26 @@ mod tests {
         assert_eq!(exported["items"].as_array().unwrap().len(), 1);
         assert_eq!(exported["items"][0]["label"], "x");
         assert_eq!(exported["items"][0]["label_source"], "human");
+        let reviewed = list(
+            State(db.clone()),
+            h.clone(),
+            Query(ListQuery {
+                status: Some("reviewed".into()),
+                rating: Some("x".into()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(reviewed["distribution"]["reviewed"]["x"], 1);
+        assert_eq!(reviewed["items"][0]["reviewer"], "reviewer");
+        assert_eq!(reviewed["items"][0]["history"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            reviewed["items"][0]["history"][0]["notes"],
+            "Human correction"
+        );
+        assert_eq!(reviewed["items"][0]["history"][0]["rating"], "x");
         assert_eq!(exported["items"][0]["input"]["body"], "Review this content");
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT count(*) FROM rating_training_labels")

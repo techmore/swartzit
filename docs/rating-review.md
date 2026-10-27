@@ -2,6 +2,11 @@
 
 Open **Admin → Rating review** (also available from the account menu). Qwen's
 suggestion is displayed beside the current post rating and the full saved post.
+The overview charts all review-queue suggestions and saved human decisions
+separately. Select a chart bar to filter the queue; reviewed cards show the
+rating, reviewer, timestamp, and notes for each saved decision. Dismissed cards
+show who dismissed them and when. These counts describe review records, not the
+separate bookmark-image benchmark or a measure of model accuracy.
 Choose General, R or X explicitly and save the human rating. Contradictory
 model reasons are flagged and do not produce a suggested rating; the review
 screen also flags conflicts in older queued suggestions. That action updates the post
