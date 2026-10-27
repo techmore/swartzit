@@ -996,11 +996,15 @@ public feeds and community exports. Their API routes require a bearer session:
 `GET/POST /api/bookmark-folders`, `POST/DELETE /api/bookmark-folders/{id}`,
 and `GET/POST/DELETE /api/posts/{id}/bookmark`. Folder writes accept `{ "name":
 "Reading" }`; bookmark writes accept `{ "folder_id": null }` or a folder ID.
-Migration `0013_bookmarks.sql` runs automatically when the server starts.
+The SQLite baseline creates the bookmark tables, and subsequent SQLite
+migrations run automatically when the server starts.
 
-The bookmark isolation/lifecycle integration test uses a disposable database:
-`DATABASE_URL=... cargo test --locked private_bookmarks_and_folder_lifecycle -- --ignored`.
-The database role must have permission to create test databases.
+The bookmark isolation/lifecycle test uses a disposable SQLite database:
+`cargo test --locked private_bookmarks_and_folder_lifecycle`.
+
+For optional host-side tools, see the guides for [bookmark organization](docs/bookmark-organizer.md),
+[media archival](docs/bookmark-media-archive.md), and
+[classifier benchmark batteries](docs/benchmark-batteries.md).
 
 ### Appearance
 
