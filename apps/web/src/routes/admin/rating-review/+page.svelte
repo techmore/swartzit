@@ -5,6 +5,11 @@
   import PostBody from '#lib/PostBody.svelte';
   import SourcePost from '#lib/SourcePost.svelte';
   let token='', ready=false, busy=false, error='', message='', items=[], counts={}, status='pending', after=0, hasMore=false, choices={}, notes={};
+  function policyConflict(item) {
+    const reasons=Array.isArray(item.details?.reasons)?item.details.reasons:[];
+    const rating=item.proposed_rating || item.details?.rating;
+    return item.details?.policy_conflict || (rating==='general' && reasons.some(reason=>['sexual_suggestiveness','strong_language','nudity','sexual_activity','graphic_violence'].includes(reason))) || (rating==='r' && reasons.some(reason=>['nudity','sexual_activity','graphic_violence'].includes(reason)));
+  }
   async function request(path, method='GET', body) {
     const response=await fetch('/api/admin/rating-reviews'+path,{method,headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
     const result=await response.json().catch(()=>({}));
@@ -13,7 +18,7 @@
   }
   async function load() {
     error='';busy=true;
-    try { const result=await request('?status='+status+'&after='+after);items=result.items;counts=result.counts;hasMore=items.length===20;for(const item of items)choices[item.id]=item.final_rating||item.proposed_rating||'';choices={...choices}; }
+    try { const result=await request('?status='+status+'&after='+after);items=result.items;counts=result.counts;hasMore=items.length===20;for(const item of items)choices[item.id]=item.final_rating||'';choices={...choices}; }
     catch(e){error=e.message;}finally{busy=false;}
   }
   onMount(async()=>{token=localStorage.getItem('swartzit_session')||'';ready=true;if(token)await load();});
@@ -58,6 +63,7 @@
         <div class="review-heading"><strong>Qwen: {item.proposed_rating?.toUpperCase()||'Needs manual review'}</strong><span>Current: {item.current_rating.toUpperCase()} · {item.current_rating_source}</span></div>
         {#if item.details.coverage_partial || item.details.error}<p class="attention">{item.details.error?'The model could not complete this review.': 'Partial media review — check every attachment before choosing a label.'}</p>{/if}
         {#if item.details.uncertain}<p class="attention">Qwen marked this suggestion uncertain.</p>{/if}
+        {#if policyConflict(item)}<p class="attention">The model's rating conflicts with its reasons. Choose a rating after reviewing the post.</p>{/if}
         {#if item.snapshot.media?.length}<SourcePost source={sourceFor(item)} text={item.snapshot.body} embedded />{:else}<h2>{item.snapshot.title}</h2><PostBody body={item.snapshot.body} />{/if}
         <p><a href={'/post/'+item.snapshot.public_id} target="_blank" rel="noopener noreferrer">Open full post ↗</a></p>
         <div class="decision"><label>Your rating<select bind:value={choices[item.id]} disabled={busy}><option value="" disabled>Choose a rating</option><option value="general">General</option><option value="r">R — suggestive / mature</option><option value="x">X — nudity / explicit</option></select></label><label>Correction notes (optional)<input bind:value={notes[item.id]} maxlength="1000" disabled={busy} /></label><button onclick={()=>save(item)} disabled={busy||!choices[item.id]}>Save human rating</button><button class="secondary" onclick={()=>save(item,true)} disabled={busy}>Dismiss</button></div>

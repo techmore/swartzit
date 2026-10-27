@@ -51,6 +51,10 @@ def review(item, site, ollama, model, cache):
     if media and not images: return None,{'error':'No reviewable image; inspect media manually','coverage_partial':True,'reasons':problems},artifacts
     response=read_json(ollama+'/api/chat',{'model':model,'stream':False,'think':False,'keep_alive':'30s','format':SCHEMA,'options':{'num_ctx':4096,'num_predict':256,'temperature':0,'num_thread':4,'presence_penalty':0},'messages':[{'role':'system','content':PROMPT},{'role':'user','content':json.dumps({'post_text':body[:8000]}),'images':images[:2]}]})
     result=validate_decision(json.loads(response['message']['content']))
+    reasons=set(result['reasons'])
+    conflict=(result['rating']=='general' and bool(reasons & {'sexual_suggestiveness','strong_language','nudity','sexual_activity','graphic_violence'})) or (result['rating']=='r' and bool(reasons & {'nudity','sexual_activity','graphic_violence'}))
+    if conflict:
+        return None,{**result,'policy_conflict':True,'uncertain':True,'coverage_partial':partial,'input_problems':problems},artifacts
     return result['rating'],{**result,'coverage_partial':partial,'input_problems':problems},artifacts
 
 def export_training(site,token,cache,destination):

@@ -29,6 +29,10 @@ with tempfile.TemporaryDirectory() as directory:
  video={'snapshot':{'body':'','media':[{'kind':'video','src':'https://video.twimg.com/a.mp4'}]}}
  rating,details,artifacts=w.review(video,'https://example.test','http://127.0.0.1:11434','qwen',cache)
  assert rating is None and details['coverage_partial']
+ for rating,reasons in [('general',['nudity']),('general',['sexual_suggestiveness']),('general',['strong_language']),('r',['graphic_violence'])]:
+  w.read_json=lambda *args,**kwargs:{'message':{'content':json.dumps({'rating':rating,'uncertain':False,'reasons':reasons})}}
+  decision,details,_=w.review(item,'https://example.test','http://127.0.0.1:11434','qwen',cache)
+  assert decision is None and details['policy_conflict'] and details['uncertain']
  image=b'captured training pixels';digest=hashlib.sha256(image).hexdigest();(cache/(digest+'.jpg')).write_bytes(image)
  row={'label_source':'human','label':'r','artifacts':[{'sha256':digest,'cache_key':digest+'.jpg'}]}
  w.read_json=lambda *args,**kwargs:{'items':[row],'has_more':False}
