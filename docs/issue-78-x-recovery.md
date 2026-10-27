@@ -95,7 +95,7 @@ returned `uncertain=false`, so that field must not be treated as calibrated
 confidence or an adequate abstention mechanism. Detailed samples, model digests,
 measurements and suggested labels remain in private operational state.
 
-Qwen3.5 2B is the current candidate for a host-side suggestion queue. A host
+At the time of this pilot, Qwen3.5 2B was the candidate for a host-side suggestion queue. The current review worker defaults to Qwen3.5 4B. A host
 worker can read Swartzit through its normal API, call Ollama on host loopback,
 and submit versioned review proposals through a controlled API. Imports awaiting
 a required review should remain pending until review succeeds; errors must not
