@@ -124,12 +124,15 @@ def create(db, name, manifest, config, limit=0, media_kind='any', ready_only=Fal
         tool['file_digests']=files
     raw = pathlib.Path(manifest).read_bytes()
     posts = [snapshot_post(json.loads(line)) for line in raw.splitlines() if line.strip()]
+    manifest_count = len(posts)
     if media_kind!='any' or ready_only:
         posts=[post for post in posts if any(a.get('role')=='src' and (media_kind=='any' or a.get('kind')==media_kind) and (not ready_only or a.get('status')=='ready') for a in post['assets'])]
+    eligible_count = len(posts)
     if limit:
         posts = posts[:limit]
     if not posts:
         raise ValueError('manifest contains no posts')
+    config['dataset_selection'].update({'manifest_posts':manifest_count,'excluded_by_filter':manifest_count-eligible_count,'excluded_by_limit':eligible_count-len(posts),'selected_posts':len(posts)})
     host = host_info()
     with db:
         run = db.execute('INSERT INTO batteries(name,manifest_sha256,config,host) VALUES(?,?,?,?) RETURNING id', (name,digest(raw),canonical(config),canonical(host))).fetchone()[0]
@@ -305,7 +308,7 @@ def execute(db, run, cache, site, max_jobs=0, retry_errors=False):
 def summary(db, run):
     row=db.execute('SELECT name,manifest_sha256,config,host FROM batteries WHERE id=?',(run,)).fetchone()
     if not row: raise ValueError('battery not found')
-    config=json.loads(row[2]); result={'run':run,'name':row[0],'manifest_sha256':row[1],'host':json.loads(row[3]),'splits':dict(db.execute('SELECT split,count(*) FROM inputs WHERE battery_id=? GROUP BY split',(run,)).fetchall()),'tools':[],'comparisons':[]}
+    config=json.loads(row[2]); result={'run':run,'name':row[0],'manifest_sha256':row[1],'host':json.loads(row[3]),'dataset_selection':config.get('dataset_selection'), 'splits':dict(db.execute('SELECT split,count(*) FROM inputs WHERE battery_id=? GROUP BY split',(run,)).fetchall()),'tools':[],'comparisons':[]}
     matched={}
     for tool in config['tools']:
         counts=dict(db.execute('SELECT status,count(*) FROM jobs WHERE battery_id=? AND tool_id=? GROUP BY status',(run,tool['id'])).fetchall())
