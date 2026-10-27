@@ -1,10 +1,11 @@
 <script>
   import { onMount } from 'svelte';
+  import { AUTOPLAY_KEY, autoplayEnabled } from '#lib/autoplay-video.mjs';
   export let compact = false;
   let enabled = false;
-  const key = 'swartzit_autoplay';
+  const key = AUTOPLAY_KEY;
   function read() {
-    try { enabled = localStorage.getItem(key) === 'on'; } catch { enabled = false; }
+    try { enabled = autoplayEnabled(localStorage); } catch { enabled = true; }
   }
   function toggle() {
     enabled = !enabled;
@@ -14,8 +15,10 @@
   onMount(() => {
     read();
     const storage = event => { if (event.key === key || event.key === null) read(); };
+    const change = event => { enabled = event.detail?.enabled === true; };
     window.addEventListener('storage', storage);
-    return () => window.removeEventListener('storage', storage);
+    window.addEventListener('swartzit-autoplay-change', change);
+    return () => { window.removeEventListener('storage', storage); window.removeEventListener('swartzit-autoplay-change', change); };
   });
 </script>
 <button class:compact class="autoplay-toggle" type="button" aria-label="Autoplay videos" aria-pressed={enabled} title={enabled ? 'Turn off video autoplay' : 'Turn on muted video autoplay'} on:click={toggle}>
