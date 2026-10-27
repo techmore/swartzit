@@ -22,7 +22,7 @@
 
 <div class="share-control" class:compact>
   <button class:copied={message === 'Link copied'} class="share-button pill" type="button" on:click={share} aria-label={label || (media ? 'Share media' : 'Share discussion')}>
-    <Icon name={message === 'Link copied' ? 'check' : 'share'} size={compact ? 15 : 18} />
+    <Icon name={message === 'Link copied' ? 'check' : 'share'} size={compact ? 14 : 16} />
     <span class="share-label">{message === 'Link copied' ? 'Copied' : 'Share'}</span>
   </button>
   <span class="visually-hidden" role="status" aria-live="polite">{message}</span>
@@ -31,7 +31,7 @@
 
 <style>
   .share-control { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .share-button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .875rem; font-weight: 600; }
+  .share-button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .8rem; font-weight: 600; }
   .share-button:hover:not(:disabled) { background: var(--hover); color: var(--heading); filter: none; }
   .share-button.copied { color: var(--success); border-color: var(--success); }
   .share-control input { min-width: 240px; max-width: 100%; }

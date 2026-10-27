@@ -177,7 +177,7 @@
       {#if showWelcome}
         <section class="welcome" aria-label="About Swartzit">
           <p><strong>Read freely.</strong> Participate under a pseudonym. Take your community with you.</p>
-          <div class="welcome-actions"><a class="btn btn-sm" href="/signup">Join</a><a class="btn btn-secondary btn-sm" href="/about">How it works</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
+          <div class="welcome-actions"><a class="btn btn-sm" href="/signup">Join</a><a class="about-link" href="/about">About</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
         </section>
       {/if}
 
@@ -239,8 +239,10 @@
   .chip-row { display: none; }
 
   .welcome { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px 12px 10px 16px; border-radius: var(--radius); background: var(--wash); border: 1px solid var(--border); }
-  .welcome p { margin: 0; font-size: .9rem; color: var(--heading); }
-  .welcome-actions { display: flex; align-items: center; gap: 6px; }
+  .welcome { flex-wrap: nowrap; }
+  .welcome p { flex: 1; min-width: 0; margin: 0; font-size: .85rem; color: var(--heading); }
+  .welcome-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .about-link { font-size: .8rem; font-weight: 600; color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
   .welcome .dismiss { width: 30px; min-height: 30px; }
 
   .feed-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 2px 2px 10px; }
@@ -284,6 +286,6 @@
     .controls { width: 100%; justify-content: space-between; }
     .pagination { padding: 20px 12px 36px; }
     .skeletons { padding: 0 12px; }
-    .welcome { padding: 10px 12px; }
+    .welcome { padding: 10px 12px; flex-wrap: wrap; }
   }
 </style>

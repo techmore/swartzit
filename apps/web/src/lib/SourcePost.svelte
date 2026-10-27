@@ -120,7 +120,6 @@
       <iframe src={youtubeEmbedUrl(source.source_url)} title={source.title || 'YouTube video'} loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
     </div>
   {/if}
-  {#if post}<PostActions {post} />{/if}
   {#if source.media?.length}
     <div class:carousel-shell={source.media.length > 1} class="media-shell">
       {#if source.media.length > 1}<button class="carousel-button previous" type="button" aria-label="Previous media" onclick={() => moveMedia(-1)}>‹</button>{/if}
@@ -143,6 +142,7 @@
     </div>
     {#if source.media.length > 1}<div class="carousel-status" aria-live="polite"><span>Photo {activeMedia + 1} of {source.media.length}</span><div class="carousel-dots" aria-label="Choose media">{#each source.media as _, index}<button class:active={index === activeMedia} type="button" aria-label={`Show media ${index + 1}`} aria-current={index === activeMedia ? 'true' : undefined} onclick={() => activeMedia = index}></button>{/each}</div></div>{/if}
   {/if}
+  {#if post}<PostActions {post} />{/if}
   {#if source.provider === 'reddit' && source.source_comments?.length}
     <details class="source-comments">
       <summary>Top Reddit comments ({source.source_comments.length})</summary>
@@ -161,7 +161,7 @@
   .source-post{border:1px solid var(--border,#c7d0c6);border-radius:12px;background:var(--surface,#fff);padding:14px 16px;margin:14px 0;font-size:.92rem}
   .source-post.embedded{border:0;border-radius:0;background:transparent;padding:0;margin:0}
   .source-post>div:first-child{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap}
-  .source-heading{align-items:center}.source-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;background:var(--subtle,#dde3da)}.source-avatar-fallback{display:grid;place-items:center;font-weight:700;color:var(--link,#215e47)}
+  .source-heading{align-items:center}.source-avatar{width:32px;height:32px;border-radius:50%;object-fit:cover;background:var(--subtle,#dde3da)}.source-avatar-fallback{display:grid;place-items:center;font-weight:700;color:var(--link,#215e47)}
   .source-identity{display:flex;align-items:center;gap:7px;flex-wrap:wrap;flex:1}.source-identity strong{font-size:.92rem}.source-handle,.source-identity time{font-size:.78rem;color:var(--muted,#66766c)}.source-right{display:flex;align-items:center;gap:8px}.provider-badge{font-size:.8rem;color:var(--muted,#66766c);font-weight:700}.source-link{font-size:1.1rem;text-decoration:none}
   .profile-hover{position:relative;display:flex;align-items:center;outline:none}.profile-hover:focus-visible .source-avatar{box-shadow:0 0 0 3px var(--link,#215e47)}
   .profile-card{position:absolute;z-index:5;top:42px;left:0;width:280px;padding:14px;border:1px solid var(--border,#89a28c);border-radius:10px;background:var(--surface,#fff);box-shadow:0 8px 24px #0003;visibility:hidden;opacity:0;transform:translateY(-4px);transition:opacity .12s,transform .12s,visibility .12s;pointer-events:none}
@@ -190,4 +190,13 @@
   .count-3 img{aspect-ratio:16/9}
   .count-4,.count-many{grid-template-columns:1fr 1fr}
   .count-4 img,.count-many img{aspect-ratio:16/9}
+  .source-post.embedded .source-heading{margin-bottom:2px}
+  .source-post.embedded .source-text{margin:4px 0}
+  .source-post.embedded .quoted-post,.source-post.embedded .thread-context{margin:6px 0;padding:6px 10px}
+  .source-post.embedded .source-metrics small{display:none}
+  .source-post.embedded .source-metrics{margin:2px 0}
+  .source-post.embedded .source-images{margin:6px 0}
+  .source-post.embedded .source-images img{max-height:340px}
+  .source-post.embedded .source-images video{height:clamp(200px,26vw,340px)}
+  .source-post.embedded .youtube-embed{margin:6px 0}
 </style>

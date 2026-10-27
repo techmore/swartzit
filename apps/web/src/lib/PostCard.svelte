@@ -38,14 +38,10 @@
     {/if}
     <div class="meta-text">
       <a class="community" href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a>
-      <span class="sep" aria-hidden="true">·</span>
-      {#if provider === 'reddit'}<span>From Reddit · {post.source.source_author}</span>
-      {:else if isExternalCard}<span>Shared from {providerName(provider)}</span>
-      {:else}<a href={'/u/' + post.author}>u/{post.author}</a>{/if}
-      <span class="sep" aria-hidden="true">·</span>
-      <time datetime={post.created_at} title={fullDate(post.created_at)}>{timeAgo(post.created_at)}</time>
-      <span class="sep" aria-hidden="true">·</span>
-      <PostViews id={post.id} initial={post} />
+      {#if provider === 'reddit'}<span class="sep" aria-hidden="true">·</span><span>From Reddit · {post.source.source_author}</span>
+      {:else if !isExternalCard}<span class="sep" aria-hidden="true">·</span><a href={'/u/' + post.author}>u/{post.author}</a>{/if}
+      {#if !isExternalCard}<span class="sep" aria-hidden="true">·</span><time datetime={post.created_at} title={fullDate(post.created_at)}>{timeAgo(post.created_at)}</time>{/if}
+      <span class="sep" aria-hidden="true">·</span><PostViews id={post.id} initial={post} />
     </div>
     {#if rating}<span class="content-rating content-rating-{rating}" title={rating === 'r' ? 'R-rated content' : 'X-rated content'}>{rating.toUpperCase()}</span>{/if}
   </div>
@@ -71,27 +67,27 @@
 </article>
 
 <style>
-  .post-card { padding: 18px 20px; transition: border-color .15s, box-shadow .15s; }
+  .post-card { padding: 12px 16px; margin-bottom: 10px; transition: border-color .15s, box-shadow .15s; }
   .post-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
-  .meta { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: .8rem; color: var(--muted); }
+  .meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: .78rem; color: var(--muted); }
   .meta-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; row-gap: 2px; }
   .community { font-weight: 700; color: var(--heading); }
   .community:hover, .meta-text a:hover { text-decoration: underline; text-underline-offset: 3px; }
-  .title { margin: 0 0 8px; font: 650 1.3rem/1.25 var(--font-sans); letter-spacing: -.015em; overflow-wrap: anywhere; }
+  .title { margin: 0 0 6px; font: 650 1.15rem/1.3 var(--font-sans); letter-spacing: -.015em; overflow-wrap: anywhere; }
   .title a:hover { color: var(--accent); }
   .buddy-context { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; padding: 7px 10px; border-radius: var(--radius-sm); background: var(--wash); color: var(--muted); font-size: .78rem; }
   .buddy-context a { color: var(--heading); font-weight: 700; }
   :global(.post-card .post-body) { color: var(--text); font-size: .975rem; line-height: 1.6; }
-  .preview { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; align-items: start; margin: 4px 0 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface2); }
+  .preview { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: start; margin: 2px 0 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface2); }
   .preview.no-image { grid-template-columns: minmax(0, 1fr); }
   .preview-image { display: block; overflow: hidden; border-radius: var(--radius-sm); aspect-ratio: 16 / 10; background: var(--subtle); }
   .preview-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .preview-label { display: block; color: var(--accent); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-  .preview-copy p { display: -webkit-box; margin: 6px 0 10px; overflow: hidden; color: var(--muted); font-size: .9rem; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; }
+  .preview-copy p { display: -webkit-box; margin: 4px 0 6px; overflow: hidden; color: var(--muted); font-size: .9rem; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
   .read-link { color: var(--heading); font-size: .85rem; font-weight: 700; }
   .read-link:hover { color: var(--accent); }
   @media (max-width: 700px) {
-    .post-card { padding: 16px 16px 14px; border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; margin-bottom: 0; border-bottom: 0; }
+    .post-card { padding: 12px 14px 10px; border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; margin-bottom: 0; border-bottom: 0; }
     .post-card:hover { box-shadow: none; }
     .title { font-size: 1.2rem; }
     .preview { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 10px; }
