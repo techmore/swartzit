@@ -141,7 +141,7 @@
 </script>
 <svelte:head><title>Bookmarks — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
 <main id="main-content" class="bookmarks-page">
-  <h1 class="page-title">Bookmarks</h1><p class="muted">Private to your account. Save discussions and organize them into folders.</p>
+  <h1 class="page-title">Bookmarks</h1><p class="muted page-intro">Private to your account. Save discussions and organize them into folders.</p>
   {#if !loaded}<p role="status">Loading bookmarks…</p>
   {:else if !token}<div class="state-card"><h2>Sign in to use bookmarks</h2><p class="muted">Save posts and organize them into private folders.</p><a class="btn" href="/login?next=%2Fbookmarks">Sign in</a></div>
   {:else}
@@ -198,9 +198,9 @@
             {:else if item.moderation_status !== 'pending'}<h3>{item.title}</h3><p role="status">Loading saved post…</p>{/if}
             {#if item.moderation_status === 'pending'}<h3>{item.title}</h3><p class="pending-note">Waiting for moderation — visible only to you until approved.</p>{/if}
             {#if item.tags?.length}<div class="tag-chips">{#each item.tags as tag}<button disabled={busy} on:click={()=>{tagFilter=tag;page=1;run(async()=>{});}}>#{tag}</button>{/each}</div>{/if}
-            <details class="edit-tags"><summary>Edit private tags</summary><form on:submit|preventDefault={()=>saveTags(item)}><label>Tags, separated by commas<input bind:value={tagDrafts[item.post_id]} maxlength="820" placeholder="ai, security, read later" disabled={busy} /></label><button disabled={busy}>Save tags</button></form></details>
+            <div class="card-controls"><details class="edit-tags"><summary>Edit private tags</summary><form on:submit|preventDefault={()=>saveTags(item)}><label>Tags, separated by commas<input bind:value={tagDrafts[item.post_id]} maxlength="820" placeholder="ai, security, read later" disabled={busy} /></label><button disabled={busy}>Save tags</button></form></details>
             <div class="actions"><label>Folder <select value={item.folder_id == null ? '' : String(item.folder_id)} disabled={busy} on:change={e => {const value=e.currentTarget.value;run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'POST',{folder_id:value ? Number(value) : null});message='Bookmark moved.';});}}><option value="">Unfiled</option>{#each folderOptions as folder}<option value={String(folder.id)}>{folder.label}</option>{/each}</select></label>
-            <button disabled={busy} on:click={() => run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'DELETE');message='Bookmark removed.';})}>Remove bookmark</button></div>
+            <button disabled={busy} on:click={() => run(async()=>{await request(`/api/posts/${item.post_id}/bookmark`,'DELETE');message='Bookmark removed.';})}>Remove bookmark</button></div></div>
           </article>
         {/each}
         <nav aria-label="Bookmark pages">{#if page > 1}<button disabled={busy} on:click={() => {page--;run(async()=>{});}}>Previous</button>{/if}<span>Page {page}</span>{#if hasMore}<button disabled={busy} on:click={() => {page++;run(async()=>{});}}>Next</button>{/if}</nav>
@@ -215,4 +215,23 @@
   .bookmark-card{min-width:0}.open-discussion{display:inline-block;margin:14px 0 6px;font-size:.82rem;font-weight:700}.x-bookmark-import>summary{cursor:pointer;font-weight:700}.folder-import-help{margin:12px 0;font-size:.82rem}.folder-import-help pre{max-height:240px;overflow:auto;padding:12px;background:var(--background,#f4f4ef)}.import-account,.import-preview,.pending-note{font-size:.82rem}.pending-note{color:var(--muted,#66766c)}
   .x-bookmark-import{margin-top:24px;padding:18px;border:1px solid var(--border,#ccd6cd);border-radius:10px;background:var(--surface,#fff)}.x-bookmark-import>summary{margin:0}.x-bookmark-import>p{max-width:850px;color:var(--muted,#66766c);font-size:.86rem}.x-bookmark-import form{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(180px,1fr) minmax(180px,1fr) auto;align-items:end;gap:12px;margin:16px 0}.x-bookmark-import label,aside label{display:flex;flex-direction:column;gap:8px}.x-bookmark-import input[type=file]{max-width:100%;padding:8px;border:1px solid var(--border,#c7ccc3);border-radius:6px}.x-bookmark-import form button{margin:0;min-height:40px}.import-note,.import-progress{font-size:.78rem!important}.x-bookmark-import progress{width:min(100%,720px);height:12px}.import-failures{font-size:.82rem;color:var(--muted,#66766c)}.import-failures li{margin:5px 0}.bookmark-layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:30px;margin-top:24px}aside form{display:grid;gap:10px;margin:24px 0}aside label{gap:7px}input,select{min-width:0;max-width:100%}button{margin:6px 0}article{padding:20px 0;border-bottom:1px solid var(--border,#ccd6cd)}.actions,nav{display:flex;flex-wrap:wrap;align-items:center;gap:16px}nav{margin-top:20px}h3{overflow-wrap:anywhere}.breadcrumbs{margin:12px 0;color:var(--muted,#66766c);font-size:.84rem}.breadcrumbs button{background:none;padding:0;color:var(--link,#215e47)}.subfolders{display:grid;gap:8px;margin:16px 0}.subfolders h3{margin:0}.subfolders button{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0;padding:10px;border:1px solid var(--border,#ccd6cd);border-radius:7px;background:var(--surface,#fff);text-align:left}.subfolders button span{font-size:.76rem;color:var(--muted,#66766c)}@media(max-width:800px){.x-bookmark-import form{grid-template-columns:1fr 1fr}.x-bookmark-import form label:first-child{grid-column:1/-1}.x-bookmark-import form button{grid-column:1/-1}.bookmark-layout{grid-template-columns:1fr}}
   .state-card{display:grid;justify-items:start;gap:6px;padding:28px 24px;border:1px dashed var(--border-strong);border-radius:var(--radius);background:var(--surface)}.state-card h2{margin:0;font-size:1.1rem}.state-card p{margin:0 0 8px}
+  /* Density (#102): tighter page chrome and one-row per-item controls so more bookmarks fit per screen. */
+  .bookmarks-page .page-title{margin-bottom:2px}.page-intro{margin:0;font-size:.86rem}
+  .bookmarks-page .bookmark-toolbar{gap:10px;margin:10px 0}.bookmarks-page .bookmark-toolbar label{gap:3px;font-size:.82rem}
+  .bookmarks-page .x-bookmark-import{margin-top:10px;padding:8px 14px}
+  .bookmarks-page .bookmark-layout{gap:22px;margin-top:14px}
+  .bookmarks-page section>h2{margin:0 0 6px}.bookmarks-page .subfolders{gap:6px;margin:8px 0}.bookmarks-page .subfolders button{padding:6px 10px}
+  .bookmarks-page .folder-shortcuts{gap:4px;margin-bottom:10px}.bookmarks-page .folder-tools{margin:10px 0}
+  .bookmarks-page article.bookmark-card{padding:10px 0;margin:0}
+  .bookmark-card>small{display:block;margin:0 0 2px;font-size:.76rem}
+  .bookmark-card h3{margin:2px 0 4px}
+  .bookmarks-page .open-discussion{margin:4px 0 0}
+  .bookmarks-page .tag-chips{margin:4px 0}.bookmarks-page .tag-chips button{margin:0}
+  .card-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-top:6px;font-size:.82rem}
+  .card-controls .edit-tags{margin:0}.card-controls .edit-tags[open]{flex-basis:100%}.card-controls .edit-tags form{margin:6px 0}
+  .card-controls .actions{gap:10px}.card-controls .actions label{display:flex;align-items:center;gap:6px}.card-controls button{margin:0}
+  .bookmarks-page .bookmark-card :global(.source-post.embedded .source-images){margin:6px 0}
+  .bookmarks-page .bookmark-card :global(.source-post.embedded .source-images img){max-height:260px}
+  .bookmarks-page .bookmark-card :global(.source-post.embedded .source-images video){height:clamp(180px,22vw,260px)}
+  .bookmarks-page nav[aria-label="Bookmark pages"]{margin-top:12px}
 </style>
