@@ -8,7 +8,7 @@
   import MediaDock from '#lib/MediaDock.svelte';
   import PostCard from '#lib/PostCard.svelte';
   import { loginHref } from '#lib/auth-session.mjs';
-  let mounted = false;
+  let mounted = false, welcomeDismissed = false;
   let railFilter = '';
   function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (['following', 'buddies'].includes(targetFeed) && ['following', 'buddies'].includes(data.feed) && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; params.set('hide_r', String(data.hideR)); if (!data.hideX) params.set('show_x', 'true'); return params; }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
@@ -42,6 +42,7 @@
   }
   onMount(() => {
     token = localStorage.getItem('swartzit_session') ?? '';
+    try { welcomeDismissed = localStorage.getItem('swartzit_welcome_dismissed') === '1'; } catch { /* Show the welcome card when storage is unavailable. */ }
     mounted = true;
     const timer = setInterval(() => { if (!document.hidden) invalidateAll(); }, 300000);
     return () => clearInterval(timer);
@@ -54,7 +55,8 @@
   $: matureLabel = !data.hideR && !data.hideX ? 'R + X shown' : !data.hideR ? 'R shown' : !data.hideX ? 'X shown' : 'Mature hidden';
   const submitForm = event => event.currentTarget.form?.requestSubmit();
   const feedTitle = { timeline: 'Timeline', following: 'Following', buddies: 'Buddies', rated: 'Rated posts' };
-  $: showWelcome = mounted && !token && data.feed === 'timeline' && !data.q && !data.community && data.page === 1;
+  function dismissWelcome() { welcomeDismissed = true; try { localStorage.setItem('swartzit_welcome_dismissed', '1'); } catch { /* Dismissal lasts for this page view only. */ } }
+  $: showWelcome = mounted && !welcomeDismissed && !token && data.feed === 'timeline' && !data.q && !data.community && data.page === 1;
   $: railCommunities = activeCommunities.filter(c => !railFilter || c.slug.includes(railFilter.toLowerCase()));
   async function loadFeedPage(page, append = true) {
     if (feedLoading || (append && !feedHasMore)) return;
@@ -137,35 +139,13 @@
     </aside>
 
     <section class="feed">
-      <nav class="feed-tabs" aria-label="Feed">
+      <div class="feed-bar">
+        <nav class="feed-tabs" aria-label="Feed">
         <a class:active={data.feed === 'timeline'} aria-current={data.feed === 'timeline' ? 'page' : undefined} href={feedHref('timeline')}>Timeline</a>
         <a class:active={data.feed === 'following'} aria-current={data.feed === 'following' ? 'page' : undefined} href={feedHref('following')}>Following</a>
         <a class:active={data.feed === 'buddies'} aria-current={data.feed === 'buddies' ? 'page' : undefined} href={feedHref('buddies')}>Buddies</a>
         <a class:active={data.feed === 'rated'} aria-current={data.feed === 'rated' ? 'page' : undefined} href={feedHref('rated')}>Rated</a>
       </nav>
-
-      <div class="chip-row" aria-label="Communities">
-        <a class="chip" class:active={!data.community} href={communityHref()}>All</a>
-        {#each activeCommunities.slice(0, 14) as community}<a class="chip" class:active={data.community === community.slug} href={communityHref(community.slug)}>c/{community.slug}</a>{/each}
-        <a class="chip" href="/communities">More →</a>
-      </div>
-
-      {#if showWelcome}
-        <section class="welcome" aria-label="About Swartzit">
-          <div><p class="eyebrow">Open discussion network</p><h2>Read freely. Participate under a pseudonym. Take your community with you.</h2></div>
-          <div class="welcome-actions"><a class="btn" href="/signup">Create account</a><a class="btn btn-secondary" href="/about">How it works</a></div>
-        </section>
-      {/if}
-
-      {#if data.feed === 'following'}<FollowingXAuthors />{/if}
-      {#if data.feed === 'buddies' && token}<BuddiesPanel />{/if}
-
-      <div class="feed-head">
-        <div class="title-block">
-          {#if data.community}<a class="back-all" href={communityHref()}><Icon name="arrow-left" size={15} />All communities</a>{/if}
-          <h1>{data.community ? `c/${data.community}` : data.q ? `Results for “${data.q}”` : feedTitle[data.feed]}</h1>
-          {#if data.q}<a class="clear-search" href={communityHref(data.community)}>Clear search</a>{/if}
-        </div>
         <form class="controls" method="GET" action="/">
           {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
           <input type="hidden" name="feed" value={data.feed} />
@@ -187,6 +167,30 @@
           <noscript><button type="submit" class="btn-sm">Apply</button></noscript>
         </form>
       </div>
+
+      <div class="chip-row" aria-label="Communities">
+        <a class="chip" class:active={!data.community} href={communityHref()}>All</a>
+        {#each activeCommunities.slice(0, 14) as community}<a class="chip" class:active={data.community === community.slug} href={communityHref(community.slug)}>c/{community.slug}</a>{/each}
+        <a class="chip" href="/communities">More →</a>
+      </div>
+
+      {#if showWelcome}
+        <section class="welcome" aria-label="About Swartzit">
+          <p><strong>Read freely.</strong> Participate under a pseudonym. Take your community with you.</p>
+          <div class="welcome-actions"><a class="btn btn-sm" href="/signup">Join</a><a class="about-link" href="/about">About</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
+        </section>
+      {/if}
+
+      {#if data.feed === 'following'}<FollowingXAuthors />{/if}
+      {#if data.feed === 'buddies' && token}<BuddiesPanel />{/if}
+
+      {#if data.community || data.q}
+        <div class="feed-head">
+          {#if data.community}<a class="back-all" href={communityHref()}><Icon name="arrow-left" size={15} />All communities</a>{/if}
+          <h1>{data.community ? `c/${data.community}` : `Results for “${data.q}”`}</h1>
+          {#if data.q}<a class="clear-search" href={communityHref(data.community)}>Clear search</a>{/if}
+        </div>
+      {:else}<h1 class="visually-hidden">{feedTitle[data.feed]}</h1>{/if}
 
       {#if ['following', 'buddies'].includes(data.feed) && !token}
         <div class="state"><h2>Sign in to see your {data.feed === 'buddies' ? 'buddies' : 'followed feed'}</h2><p>Sign in to see your followed feeds.</p><a class="btn" href={loginHref(feedHref(data.feed))}>Sign in</a></div>
@@ -213,7 +217,7 @@
 <MediaDock />
 <style>
   .home { padding-top: 24px; }
-  .layout { display: grid; grid-template-columns: 220px minmax(0, var(--feed)); justify-content: center; gap: 40px; }
+  .layout { display: grid; grid-template-columns: 220px minmax(0, var(--feed)); justify-content: center; gap: 36px; }
   .rail { position: sticky; top: calc(var(--header-h) + 20px); align-self: start; max-height: calc(100vh - var(--header-h) - 40px); overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
   .rail-head { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; margin-bottom: 6px; }
   .rail-head h2 { margin: 0; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
@@ -227,26 +231,28 @@
   .quiet > summary { cursor: pointer; padding: 8px 10px; color: var(--text-light); font-size: .78rem; font-weight: 600; }
 
   .feed { min-width: 0; }
-  .feed-tabs { display: flex; gap: 4px; margin: 0 0 14px; padding: 4px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); }
-  .feed-tabs a { flex: 1; text-align: center; padding: 8px 10px; border-radius: 999px; font-size: .875rem; font-weight: 600; color: var(--muted); }
+  .feed-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; margin: 0 0 10px; }
+  .feed-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); }
+  .feed-tabs a { padding: 6px 14px; border-radius: 999px; font-size: .85rem; font-weight: 600; color: var(--muted); }
   .feed-tabs a:hover { color: var(--heading); }
   .feed-tabs a.active { background: var(--surface); color: var(--heading); box-shadow: var(--shadow-sm); }
   .chip-row { display: none; }
 
-  .welcome { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; padding: 22px 24px; border-radius: var(--radius); background: var(--wash); border: 1px solid var(--border); }
-  .welcome h2 { margin: 0; max-width: 34ch; font: 600 1.35rem/1.3 var(--font-serif); }
-  .welcome .eyebrow { margin-bottom: 6px; }
-  .welcome-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .welcome { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px 12px 10px 16px; border-radius: var(--radius); background: var(--wash); border: 1px solid var(--border); }
+  .welcome { flex-wrap: nowrap; }
+  .welcome p { flex: 1; min-width: 0; margin: 0; font-size: .85rem; color: var(--heading); }
+  .welcome-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .about-link { font-size: .8rem; font-weight: 600; color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
+  .welcome .dismiss { width: 30px; min-height: 30px; }
 
-  .feed-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 6px 2px 14px; }
-  .title-block { min-width: 0; }
-  .feed-head h1 { margin: 0; font: 650 1.5rem/1.2 var(--font-sans); letter-spacing: -.02em; overflow-wrap: anywhere; }
-  .back-all, .clear-search { display: inline-flex; align-items: center; gap: 5px; margin-right: 10px; font-size: .78rem; font-weight: 600; color: var(--muted); }
+  .feed-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 2px 2px 10px; }
+  .feed-head h1 { margin: 0; font: 650 1.3rem/1.2 var(--font-sans); letter-spacing: -.02em; overflow-wrap: anywhere; }
+  .back-all, .clear-search { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; font-weight: 600; color: var(--muted); }
   .back-all:hover, .clear-search:hover { color: var(--heading); text-decoration: underline; }
-  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .ctl { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; color: var(--muted); }
-  .ctl select { width: auto; min-height: 34px; padding: 4px 8px; border-radius: 999px; font-size: .8rem; font-weight: 600; }
-  .ctl-button { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ctl { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 600; color: var(--muted); }
+  .ctl select { width: auto; min-height: 32px; padding: 3px 8px; border-radius: 999px; font-size: .78rem; font-weight: 600; }
+  .ctl-button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); font-size: .78rem; font-weight: 600; color: var(--muted); }
   .ctl-button:hover, .filter[open] .ctl-button { background: var(--hover); color: var(--heading); }
   .filter .menu-panel { right: 0; left: auto; min-width: 200px; padding: 10px; display: grid; gap: 4px; }
   .check { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500; }
@@ -274,10 +280,12 @@
   }
   @media (max-width: 700px) {
     .home { padding: 12px 0 120px; }
-    .feed-tabs, .chip-row, .welcome, .feed-head, .state { margin-left: 12px; margin-right: 12px; }
-    .feed-tabs { margin-bottom: 12px; }
+    .feed-bar, .chip-row, .welcome, .feed-head, .state { margin-left: 12px; margin-right: 12px; }
+    .feed-tabs { width: 100%; }
+    .feed-tabs a { flex: 1; text-align: center; padding: 7px 4px; }
+    .controls { width: 100%; justify-content: space-between; }
     .pagination { padding: 20px 12px 36px; }
     .skeletons { padding: 0 12px; }
-    .welcome { padding: 18px; }
+    .welcome { padding: 10px 12px; flex-wrap: wrap; }
   }
 </style>

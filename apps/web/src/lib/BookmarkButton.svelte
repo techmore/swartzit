@@ -38,7 +38,7 @@
 </script>
 {#if token}
   <div class="bookmark-control">
-    <button class="bookmark-toggle pill" class:saved disabled={busy || !ready} aria-label={saved ? 'Remove bookmark' : 'Bookmark post'} title={saved ? 'Remove bookmark' : 'Bookmark post'} aria-pressed={saved} on:click={() => save(saved)}><Icon name="bookmark" size={18} filled={saved} /><span class="label">{saved ? 'Saved' : 'Save'}</span></button>
+    <button class="bookmark-toggle pill" class:saved disabled={busy || !ready} aria-label={saved ? 'Remove bookmark' : 'Bookmark post'} title={saved ? 'Remove bookmark' : 'Bookmark post'} aria-pressed={saved} on:click={() => save(saved)}><Icon name="bookmark" size={16} filled={saved} /><span class="label">{saved ? 'Saved' : 'Save'}</span></button>
     {#if saved}<details class="folder-menu menu" bind:this={folderMenu} on:toggle={e => { if (e.currentTarget.open) loadFolders(); }}>
       <summary class="pill" aria-label="Choose bookmark folder" title="Move to a folder"><Icon name="chevron-down" size={16} /></summary>
       <form class="menu-panel" on:submit|preventDefault={async () => { await save(); if (folderMenu) folderMenu.open = false; }}>
@@ -52,7 +52,7 @@
 {/if}
 <style>
   .bookmark-control { display: inline-flex; align-items: center; gap: 4px; }
-  .pill { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .875rem; font-weight: 600; cursor: pointer; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .8rem; font-weight: 600; cursor: pointer; }
   .pill:hover:not(:disabled) { background: var(--hover); color: var(--heading); filter: none; }
   .bookmark-toggle.saved { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
   .folder-menu > summary { padding: 0 10px; }

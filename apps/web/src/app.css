@@ -278,16 +278,16 @@ article, .card {
   border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface);
 }
 .vote-button.icon-button {
-  width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%;
+  width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 50%;
   background: transparent; color: var(--muted); border: 0;
 }
-.vote-button.icon-button svg { width: 20px; height: 20px; }
+.vote-button.icon-button svg { width: 17px; height: 17px; }
 .vote-button.icon-button.upvote:hover:not(:disabled) { background: color-mix(in srgb, var(--upvote) 14%, transparent); color: var(--upvote); filter: none; }
 .vote-button.icon-button.downvote:hover:not(:disabled) { background: color-mix(in srgb, var(--downvote) 14%, transparent); color: var(--downvote); filter: none; }
 .vote-button.icon-button.upvote.active { color: var(--upvote); background: color-mix(in srgb, var(--upvote) 14%, transparent); }
 .vote-button.icon-button.downvote.active { color: var(--downvote); background: color-mix(in srgb, var(--downvote) 14%, transparent); }
 .vote-button.icon-button[aria-pressed="true"] svg { stroke-width: 2.2; }
-.vote-score { min-width: 24px; text-align: center; font-size: .875rem; font-weight: 700; color: var(--heading); font-variant-numeric: tabular-nums; }
+.vote-score { min-width: 20px; text-align: center; font-size: .8rem; font-weight: 700; color: var(--heading); font-variant-numeric: tabular-nums; }
 
 /* ---------- Mobile ---------- */
 @media (max-width: 700px) {
