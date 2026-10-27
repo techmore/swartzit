@@ -79,7 +79,7 @@ def export_training(site,token,cache,destination):
     return count
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--site',default='https://swartzit.stoverparc.org');parser.add_argument('--ollama',default='http://127.0.0.1:11434');parser.add_argument('--model',default='qwen3.5:2b');parser.add_argument('--state-dir',default=os.path.expanduser('~/.local/share/swartzit-review'));parser.add_argument('--limit',type=int,default=10);parser.add_argument('--export-training',type=pathlib.Path)
+    parser=argparse.ArgumentParser();parser.add_argument('--site',default='https://swartzit.stoverparc.org');parser.add_argument('--ollama',default='http://127.0.0.1:11434');parser.add_argument('--model',default='qwen3.5:4b');parser.add_argument('--state-dir',default=os.path.expanduser('~/.local/share/swartzit-review'));parser.add_argument('--limit',type=int,default=10);parser.add_argument('--export-training',type=pathlib.Path)
     args=parser.parse_args()
     if urllib.parse.urlparse(args.ollama).hostname not in ('127.0.0.1','localhost','::1'):raise ValueError('The model must run on host loopback')
     if not 1<=args.limit<=20:raise ValueError('Limit must be 1–20')

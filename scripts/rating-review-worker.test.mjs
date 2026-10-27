@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory() as directory:
  def request(url,data=None,token=None,method=None,**kwargs):
   calls.append((url,data,method))
   if url.endswith('/api/sessions'):return {'token':'test'} if method!='DELETE' else None
-  if url.endswith('/api/tags'):return {'models':[{'name':'qwen3.5:2b','digest':'a'*64}]}
+  if url.endswith('/api/tags'):return {'models':[{'name':'qwen3.5:4b','digest':'a'*64}]}
   if url.endswith('/candidates'):return {'items':[item]}
   if url.endswith('/api/chat'):return {'message':{'content':json.dumps({'rating':'general','uncertain':False,'reasons':['ordinary_content']})}}
   if url.endswith('/rating-reviews'):return {'id':1}
@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory() as directory:
  w.main()
  assert not any('/decision' in url or 'content-rating' in url for url,_,_ in calls)
  proposal=next(data for url,data,_ in calls if url.endswith('/rating-reviews'))
- assert proposal['proposed_rating']=='general' and 'label_source' not in proposal
+ assert proposal['proposed_rating']=='general' and proposal['model']=='qwen3.5:4b' and 'label_source' not in proposal
  video={'snapshot':{'body':'','media':[{'kind':'video','src':'https://video.twimg.com/a.mp4'}]}}
  rating,details,artifacts=w.review(video,'https://example.test','http://127.0.0.1:11434','qwen',cache)
  assert rating is None and details['coverage_partial']
