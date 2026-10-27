@@ -8,6 +8,8 @@ A baseline run snapshots the account's approved bookmark image URLs at creation.
 
 Run `python3 bookmark-benchmark-summary.py` to see per-run counts, median timings, Qwen ratings, and internal policy conflicts. The summary contains no bookmark text or images. Inspect the local `results.sqlite` for individual results. The benchmark does not write Swartzit bookmarks or post ratings.
 
+To retry failed items from a finished run without changing its results, use the same model files and runtime with `venv/bin/python benchmark.py --handle HANDLE --retry-failed-from RUN_ID --name RETRY_NAME`. This creates a separate run, copies existing predictions and cached-input references, and retries only items marked as errors. Account, model digests and relevant configuration must match; cached image hashes are rechecked during execution. The original run and its errors remain intact. The command requires a running Ollama service.
+
 ## Candidate model
 
 `litert-community/gemma-4-12B-it-litert-lm` is cataloged for a later image trial. The model card identifies text, image and audio inputs, a roughly 6.9 GB model file, and LiteRT-LM 0.17 or later. It has not yet been downloaded or scored on Ser8. Actual memory use, compatibility and speed on this AMD host need measurement; model-card figures from other hardware are not Ser8 results. Record a separate run and model digest when evaluating it, and compare against held-out human labels when enough are available.

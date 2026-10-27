@@ -68,8 +68,26 @@ def policy_conflict(result):
 def create_schema(c):
  c.executescript('''CREATE TABLE IF NOT EXISTS runs(id INTEGER PRIMARY KEY,name TEXT NOT NULL,account TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,finished_at TEXT,config TEXT NOT NULL); CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY,run_id INTEGER NOT NULL REFERENCES runs(id),post_id INTEGER NOT NULL,media_index INTEGER NOT NULL,source_url TEXT NOT NULL,input_sha256 TEXT,image_path TEXT,status TEXT NOT NULL DEFAULT 'pending',error TEXT,UNIQUE(run_id,post_id,media_index)); CREATE TABLE IF NOT EXISTS predictions(id INTEGER PRIMARY KEY,run_id INTEGER NOT NULL REFERENCES runs(id),item_id INTEGER NOT NULL REFERENCES items(id),tool TEXT NOT NULL,model TEXT NOT NULL,model_digest TEXT NOT NULL,result_json TEXT NOT NULL,elapsed_ms REAL NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE(run_id,item_id,tool));'''); c.commit()
 
+def create_failed_retry(c, source, account, config, name):
+ original=c.execute('SELECT account,config,finished_at FROM runs WHERE id=?',(source,)).fetchone()
+ if not original or original[0]!=account: raise ValueError('source run or account not found')
+ if not original[2]: raise ValueError('source run is not finished')
+ previous=json.loads(original[1])
+ for key in ('qwen_digest','mobile_digest','qwen_prompt','qwen_schema','qwen_options','mobile_input','qwen_input','onnxruntime'):
+  if previous.get(key)!=config.get(key): raise ValueError('source configuration changed; cannot retry as a comparable run')
+ rows=c.execute("SELECT id,post_id,media_index,source_url,input_sha256,image_path FROM items WHERE run_id=? AND status='error' ORDER BY id",(source,)).fetchall()
+ if not rows: raise ValueError('source run has no failed items')
+ config=dict(config,items=len(rows),retry_of=source)
+ with c:
+  run=c.execute('INSERT INTO runs(name,account,config) VALUES(?,?,?) RETURNING id',(name,account,json.dumps(config))).fetchone()[0]
+  for old,post,index,url,sha,path in rows:
+   new=c.execute('INSERT INTO items(run_id,post_id,media_index,source_url,input_sha256,image_path) VALUES(?,?,?,?,?,?) RETURNING id',(run,post,index,url,sha,path)).fetchone()[0]
+   c.execute("INSERT INTO predictions(run_id,item_id,tool,model,model_digest,result_json,elapsed_ms) SELECT ?,?,tool,model,model_digest,result_json,elapsed_ms FROM predictions WHERE run_id=? AND item_id=?",(run,new,source,old))
+ return run
+
 def main():
- p=argparse.ArgumentParser(); p.add_argument('--handle',required=True); p.add_argument('--name',default='baseline'); p.add_argument('--limit',type=int,default=0); p.add_argument('--resume',type=int); p.add_argument('--create-only',action='store_true'); args=p.parse_args()
+ p=argparse.ArgumentParser(); p.add_argument('--handle',required=True); p.add_argument('--name',default='baseline'); p.add_argument('--limit',type=int,default=0); p.add_argument('--resume',type=int); p.add_argument('--retry-failed-from',type=int); p.add_argument('--create-only',action='store_true'); args=p.parse_args()
+ if args.retry_failed_from and (args.resume or args.limit): p.error('--retry-failed-from cannot be combined with --resume or --limit')
  os.umask(0o077); STATE.mkdir(mode=0o700,parents=True,exist_ok=True); cache=STATE/'images'; cache.mkdir(mode=0o700,exist_ok=True)
  c=sqlite3.connect(STATE/'results.sqlite',timeout=30); c.execute('PRAGMA foreign_keys=ON'); c.execute('PRAGMA journal_mode=WAL'); create_schema(c)
  if args.resume:
@@ -86,6 +104,14 @@ def main():
   if row[0]: print(json.dumps({'run':run,'finished':True,'already_complete':True}),flush=True); return
   original=json.loads(row[1])
   if row[2]!=args.handle or original['qwen_digest']!=digest or original['mobile_digest']!=mobile_digest: raise ValueError('run account or model changed; start a new run')
+ elif args.retry_failed_from:
+  config={'qwen_digest':digest,'qwen_prompt':PROMPT,'qwen_schema':RATING_SCHEMA,'qwen_options':{'num_ctx':4096,'num_predict':256,'temperature':0,'num_thread':4},'mobile_digest':mobile_digest,'onnxruntime':ort.__version__,'mobile_input':'RGB [0,1], resize shorter side 256, center crop 224','qwen_input':'512px JPEG, image only'}
+  source=c.execute('SELECT config FROM runs WHERE id=?',(args.retry_failed_from,)).fetchone()
+  if not source: raise ValueError('source run not found')
+  original=json.loads(source[0]); config={**original,**config}
+  run=create_failed_retry(c,args.retry_failed_from,args.handle,config,args.name)
+  print(json.dumps({'run':run,'retry_of':args.retry_failed_from}),flush=True)
+  if args.create_only: return
  else:
   raw=subprocess.run(['incus','exec','swartzit','--','python3','-c',GUEST],input=json.dumps({'handle':args.handle}),text=True,capture_output=True,check=True,timeout=60)
   items=json.loads(raw.stdout)
