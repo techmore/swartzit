@@ -38,6 +38,13 @@ class BatteryTest(unittest.TestCase):
  def test_video_sample_selection_requires_cached_video(self):
   original=json.loads(self.manifest.read_text()); missing=json.loads(json.dumps(original)); missing['post_id']=8; missing['assets'][0].update(kind='video',status='pending'); ready=json.loads(json.dumps(original)); ready['post_id']=9; ready['assets'][0].update(kind='video',status='ready'); self.manifest.write_text(''.join(json.dumps(x)+'\n' for x in (original,missing,ready)))
   run=b.create(self.db,'ready-video',self.manifest,self.config,media_kind='video',ready_only=True); self.assertEqual(self.db.execute('select post_id from inputs where battery_id=?',(run,)).fetchall(),[(9,)]); self.assertEqual(json.loads(self.db.execute('select config from batteries where id=?',(run,)).fetchone()[0])['dataset_selection']['media_kind'],'video')
+ def test_summary_accounts_for_filtered_and_limited_posts(self):
+  post=json.loads(self.manifest.read_text()); records=[]
+  for pid,status in ((1,'ready'),(2,'pending'),(3,'ready')):
+   record=json.loads(json.dumps(post)); record['post_id']=pid; record['assets'][0]['status']=status; records.append(record)
+  self.manifest.write_text(''.join(json.dumps(record)+'\n' for record in records))
+  run=b.create(self.db,'selection',self.manifest,self.config,limit=1,media_kind='image',ready_only=True)
+  self.assertEqual(b.summary(self.db,run)['dataset_selection'],{'media_kind':'image','ready_only':True,'limit':1,'manifest_posts':3,'excluded_by_filter':1,'excluded_by_limit':1,'selected_posts':1})
  def test_content_hash_ignores_review_labels(self):
   run=b.create(self.db,'first',self.manifest,self.config); post=json.loads(self.manifest.read_text()); post['human_labels'].append({'label':'r','content_hash':'new'}); self.manifest.write_text(json.dumps(post)+'\n'); other=b.create(self.db,'second',self.manifest,self.config); self.assertEqual(self.db.execute('select input_sha256 from inputs where battery_id=?',(run,)).fetchone(),self.db.execute('select input_sha256 from inputs where battery_id=?',(other,)).fetchone())
 if __name__=='__main__': unittest.main()

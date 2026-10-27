@@ -25,6 +25,8 @@ state="$HOME/.local/share/swartzit-mobilenet-trial"
 
 Use the ID returned by `create`. `--max-jobs` limits one invocation, and `--retry-errors` records another attempt for failed jobs. Runs compare only matching post-input hashes and iteration numbers, and the comparison keeps different tasks separate. Original image bytes are read from the local archive endpoint without following redirects to X, verified by SHA-256 and size, and reused from the private host cache on subsequent iterations and runs. An unavailable original is recorded as an error; it is not silently redownloaded from X. For still images, the runner currently reviews at most one image per post and records partial coverage for additional images or truncated text. Video inputs use the sampled-frame workflow below; a general-purpose multi-image adapter remains future work.
 
+For newly created batteries, the summary reports the number of manifest posts, posts excluded by the media/ready filters, posts excluded by the limit, and selected posts. Older batteries retain their original selection settings but do not have these counts.
+
 Adapters consume one JSON request on stdin and return one JSON object on stdout. Their reported metrics are preserved as supplied. Wall time includes adapter process startup; model timing metrics and cache-preparation time are reported separately. Adapter peak RSS does not include an external Ollama server's memory or GPU usage. External adapters must verify their own model digest and describe their preprocessing and coverage. Treat configurations and executables as trusted host code.
 
 ## Video frames and Gemma 4 12B
