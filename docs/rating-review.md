@@ -19,7 +19,8 @@ means the reviewer has checked the full post, including attachments.
 
 The worker runs on the Linux host, reads Swartzit through its normal HTTPS API,
 and calls the existing Ollama service on host loopback. Default model:
-`qwen3.5:2b`, context 4096, one request at a time. It queues at most ten items per
+`qwen3.5:4b`, context 4096, one request at a time. Pass `--model` to select a
+different installed model. It queues at most ten items per
 run and stops collecting when 100 reviews are pending. It never calls a rating
 decision endpoint or writes a human training label.
 
