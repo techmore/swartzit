@@ -2,7 +2,9 @@
 
 Open **Admin → Rating review** (also available from the account menu). Qwen's
 suggestion is displayed beside the current post rating and the full saved post.
-Choose General, R or X and save the human rating. That action updates the post
+Choose General, R or X explicitly and save the human rating. Contradictory
+model reasons are flagged and do not produce a suggested rating; the review
+screen also flags conflicts in older queued suggestions. That action updates the post
 with moderator provenance and appends a training-label history record.
 Dismissed items and unreviewed model suggestions never become training labels.
 Relabeling preserves history; exports contain only the latest human label for
