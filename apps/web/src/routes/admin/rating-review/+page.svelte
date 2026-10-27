@@ -1,7 +1,5 @@
 <script>
   import {onMount} from 'svelte';
-  import Brand from '#lib/Brand.svelte';
-  import SessionNav from '#lib/SessionNav.svelte';
   import PostBody from '#lib/PostBody.svelte';
   import SourcePost from '#lib/SourcePost.svelte';
   let token='', ready=false, busy=false, error='', message='', items=[], counts={}, distribution=null, status='pending', ratingFilter='', after=0, hasMore=false, choices={}, notes={};
@@ -52,7 +50,6 @@
   const sourceFor=item=>({provider:item.snapshot.provider||'runner',source_author:item.snapshot.source_author||'Submitted post',source_url:item.snapshot.source_url||'/post/'+item.snapshot.public_id,media:item.snapshot.media||[],observed_at:item.created_at});
 </script>
 <svelte:head><title>Rating review — Swartzit</title><meta name="robots" content="noindex" /></svelte:head>
-<header><Brand /><SessionNav /></header>
 <main id="main-content">
   <a href="/admin">← Admin</a><h1>Rating review</h1>
   <p>Suggestive photos are <strong>R</strong>. Nudity and explicit material are <strong>X</strong>. Review the full post, then save your rating.</p>

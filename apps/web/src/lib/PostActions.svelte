@@ -1,5 +1,6 @@
 <script>
   import BookmarkButton from '#lib/BookmarkButton.svelte';
+  import Icon from '#lib/Icon.svelte';
   import { mediaShareUrl } from '#lib/media-share.js';
   import ShareButton from '#lib/ShareButton.svelte';
   import VoteButtons from '#lib/VoteButtons.svelte';
@@ -9,21 +10,15 @@
 </script>
 
 <div class="post-actions" aria-label="Discussion actions">
-  <a class="comment-action" href={'/post/' + post.public_id}>{post.comment_count} comments</a>
   <VoteButtons id={post.id} score={post.score} yourVote={post.your_vote} />
+  <a class="pill comment-action" href={'/post/' + post.public_id + '#comments'} aria-label={`${post.comment_count} comments`}><Icon name="comment" size={18} /><span>{post.comment_count}<span class="word">&nbsp;comments</span></span></a>
   <ShareButton id={post.public_id} title={post.title} url={shareUrl} media={Boolean(shareUrl)} />
   <BookmarkButton id={post.id} />
 </div>
 
 <style>
-  .post-actions{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;margin:14px 0;padding:12px 0;border-top:1px solid var(--border,#c7ccc3);border-bottom:1px solid var(--border,#c7ccc3);color:var(--muted,#66766c)}
-  .comment-action{color:var(--heading,#292524);font-size:.82rem;font-weight:750;white-space:nowrap}
-  .comment-action:hover{color:var(--accent,#575d3d);text-decoration:underline;text-underline-offset:3px}
-  :global(.post-actions .comment-action),:global(.post-actions .vote-controls),:global(.post-actions .share-control),:global(.post-actions .bookmark-control){flex:0 0 auto;margin:0}
-  :global(.post-actions .vote-controls){gap:6px}
-  :global(.post-actions .vote-button.icon-button){width:34px;height:34px;padding:7px}
-  :global(.post-actions .vote-score){min-width:20px;text-align:center;font-size:.82rem}
-  :global(.post-actions .share-button){padding:6px 11px}
-  :global(.post-actions .bookmark-control){gap:8px}
-  @media(max-width:700px){.post-actions{gap:9px}.comment-action{font-size:.78rem}}
+  .post-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; color: var(--muted); }
+  .pill { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .875rem; font-weight: 600; white-space: nowrap; }
+  .pill:hover { background: var(--hover); color: var(--heading); }
+  @media (max-width: 460px) { .word { display: none; } .pill { padding: 0 12px; } }
 </style>

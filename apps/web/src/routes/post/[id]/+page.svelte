@@ -1,8 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { invalidateAll } from '$app/navigation';
-  import SessionNav from '#lib/SessionNav.svelte';
-  import Brand from '#lib/Brand.svelte';
+  import Icon from '#lib/Icon.svelte';
   import PostViews from '#lib/PostViews.svelte';
   import PostActions from '#lib/PostActions.svelte';
   import SourcePost from '#lib/SourcePost.svelte';
@@ -10,7 +9,6 @@
   import DrawThingsFeedback from '#lib/DrawThingsFeedback.svelte';
   import AuthorAvatar from '#lib/AuthorAvatar.svelte';
   import ShareButton from '#lib/ShareButton.svelte';
-  import PostComposer from '#lib/PostComposer.svelte';
   import ContentRatingControl from '#lib/ContentRatingControl.svelte';
   import { parseCommentDraft } from '#lib/comment-source.mjs';
   import { loginHref } from '#lib/auth-session.mjs';
@@ -84,13 +82,9 @@
   <meta name="twitter:title" content={previewTitle} />
   <meta name="twitter:description" content={previewDescription} />
 </svelte:head>
-<header>
-  <Brand />
-  <SessionNav />
-</header>
 <main id="main-content" class="post-page" class:article-page={Boolean(article)}>
   <div class="post-context">
-    <a class="back" href="/?community={data.post.community}">← c/{data.post.community}</a>
+    <a class="back" href="/?community={data.post.community}"><Icon name="arrow-left" size={16} />c/{data.post.community}</a>
     <a class="community-export" href="/api/export?community={data.post.community}" download="swartzit-community-export.json">Export data ↓</a>
   </div>
   <article class="post">
@@ -117,7 +111,7 @@
     </aside>
   {/if}
   {#if message}<p role="alert" class="form-error">{message}</p>{/if}
-  <section class="comments">
+  <section class="comments" id="comments">
     <div class="comments-heading"><div><p class="eyebrow">COMMUNITY DISCUSSION</p><h2>Comments <span>{data.post.comment_count}</span></h2></div><label>Sort<select aria-label="Sort comments" bind:value={commentOrder}><option value="oldest">Oldest</option><option value="newest">Newest</option></select></label></div>
     {#if token}
       <section class="comment-compose" id="reply">
@@ -134,7 +128,7 @@
     {#if data.post.source}<p class="source-replies-note">Comments here belong to Swartzit. <a href={data.post.source.source_url} target="_blank" rel="noopener noreferrer">See the original {data.post.source.provider === 'reddit' ? 'Reddit discussion' : data.post.source.provider === 'x' ? 'X replies' : 'source'} ↗</a></p>{/if}
     {#snippet thread(parentId, depth)}
       {#each children(parentId, commentOrder) as item (item.id)}
-        <div style:margin-left={depth > 0 ? '16px' : '0'}>
+        <div class:nested={depth > 0}>
           <article id={'comment-' + item.id}>
             <div class="meta comment-author"><AuthorAvatar handle={item.author} size="small" /><span><a href={'/u/' + item.author}>u/{item.author}</a> · {new Date(item.created_at).toLocaleDateString()}</span></div>
             {#if item.body}<p>{item.body}</p>{/if}
@@ -148,8 +142,8 @@
         </div>
       {/each}
     {/snippet}
-    {@render thread(null, 0)}
-    {#if !data.comments.length}<p>No comments yet.</p>{/if}
+    <div class="thread">{@render thread(null, 0)}</div>
+    {#if !data.comments.length}<p class="muted">No comments yet. Start the conversation.</p>{/if}
     {#if !showAllComments && data.comments.length > 50}
       <div class="comment-expansion">
         <p>Showing the first 50 comments of this deep thread.</p>
@@ -178,71 +172,79 @@
     </section>
   {/if}
 </main>
-<PostComposer selectedCommunity="general" />
 <style>
-  .post-page{max-width:780px;padding-top:32px;padding-bottom:80px}
-  .article-page{max-width:1120px;display:grid;grid-template-columns:minmax(0,780px) 250px;column-gap:36px;align-items:start}
-  .article-page>.post-context{grid-column:1/-1}
-  .article-page>.post,.article-page>.form-error,.article-page>.comments,.article-page>.content-loop{grid-column:1}
-  .post-context{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-  .back,.community-export{font-size:.82rem;color:var(--muted,#66766c)}
-  .community-export{font-size:.76rem;text-decoration:underline;text-underline-offset:3px}
-  .post{padding:20px 24px}
-  .content-rating-row{display:flex;align-items:center;gap:8px;margin:0 0 12px;color:var(--muted,#66766c);font-size:.72rem;font-weight:750;text-transform:uppercase;letter-spacing:.06em}
-  .content-rating{width:22px;height:22px;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:6px;font:800 .7rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:0}
-  .content-rating-r{background:#9b5e38;border-color:#9b5e38;color:#fff}
-  .content-rating-x{background:#6f263d;border-color:#6f263d;color:#fff}
-  .article-kicker{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px;color:var(--accent,#9b5e38);font-size:.7rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
-  .article-kicker span+span{padding-left:8px;border-left:1px solid var(--border,#d8d5ca);color:var(--muted,#77827d);font-weight:650;letter-spacing:.03em;text-transform:none}
-  .article-rail{grid-column:2;grid-row:2 / span 4;position:sticky;top:92px;padding:18px 16px;border:1px solid var(--border,#d8d5ca);border-radius:12px;background:var(--surface,#fff)}
-  .article-rail .eyebrow{margin:0 0 8px;font-size:.66rem;letter-spacing:.14em;color:var(--accent,#9b5e38);font-weight:800}
-  .article-rail h2{margin:0;color:var(--heading,#173d34);font:500 1.35rem/1.15 Georgia,serif;overflow-wrap:anywhere}
-  .article-rail-count{margin:7px 0 14px;color:var(--muted,#77827d);font-size:.75rem}
-  .article-rail ol{display:grid;gap:4px;margin:0;padding:0;list-style:none}
-  .article-rail li a{display:grid;gap:3px;padding:9px 10px;border-radius:8px;color:var(--muted,#66766c);text-decoration:none}
-  .article-rail li a:hover{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
-  .article-rail li.current a{background:var(--subtle,#e4e9df);color:var(--heading,#173d34);box-shadow:inset 3px 0 var(--accent,#9b5e38)}
-  .article-rail li span{font-size:.66rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--accent,#9b5e38)}
-  .article-rail li strong{font-size:.78rem;line-height:1.25;font-weight:700;overflow-wrap:anywhere}
-  .article-rail-nav{display:flex;justify-content:space-between;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#d8d5ca);font-size:.72rem;font-weight:750}
-  .article-rail-nav a{color:var(--accent,#9b5e38)}
-  .post-reading-stats{border:0!important;padding:4px 0!important;margin:8px 0 0!important;font-size:.72rem!important}
-  .comments{border-top:1px solid var(--border,#d8d5ca);margin-top:32px;padding-top:24px}
-  .comments-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:16px}
-  .comments-heading .eyebrow{margin:0 0 4px;font-size:.66rem;letter-spacing:.14em}
-  .comments-heading h2{font:500 1.7rem/1.1 Georgia,serif;color:var(--heading,#173d34);margin:0}
-  .comments-heading h2 span{font:500 .9rem ui-sans-serif,system-ui,sans-serif;color:var(--muted,#77827d);vertical-align:middle}
-  .comments-heading label{display:flex;align-items:center;gap:8px;color:var(--muted,#77827d);font-size:.78rem}
-  .comments-heading select{width:auto;padding:7px 28px 7px 9px;font-size:.8rem}
-  .comment-compose{margin:16px 0 22px;padding:12px;border:1px solid var(--border,#d8d5ca);border-radius:10px;background:var(--surface,#fff)}
-  .comment-compose form{gap:8px}
-  .comment-compose textarea{border:0;padding:4px;background:transparent;resize:vertical;min-height:64px}
-  .comment-submit{display:flex;justify-content:flex-end}
-  .comment-submit button{border-radius:6px;padding:8px 13px;font-size:.84rem}
-  .comment-source-hint,.comment-source-error{margin:0;color:var(--muted,#77827d);font-size:.78rem}
-  .comment-source-error{color:var(--danger,#9b3b36)}
-  .comment-source{margin-top:10px}
-  .comment-actions{display:flex;align-items:center;gap:12px;margin-top:10px}.comment-actions>a{font-size:.78rem;color:var(--link,#215e47)}
-  .join-prompt,.source-replies-note,.replying-to{font-size:.82rem;color:var(--muted,#77827d);margin:10px 0 18px}
-  .join-prompt a,.source-replies-note a{color:var(--link,#215e47);font-weight:650}
-  .replying-to{display:flex;align-items:center;gap:8px;margin:0 0 6px}
-  .text-button{background:transparent;color:var(--link,#215e47);padding:0;font-size:.78rem}
-  .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-  :global(.post-views){color:var(--muted,#77827d)}
-  .content-loop{border-top:1px solid var(--border,#d8d5ca);margin-top:52px;padding-top:28px}
-  .comment-expansion{border-top:1px solid var(--border,#dedfd7);margin-top:24px;padding-top:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  .comment-expansion p{color:var(--muted,#77827d);margin:0}
-  .comment-expansion button{border-radius:6px;padding:10px 14px}
-  .content-loop .eyebrow{font-size:.72rem;letter-spacing:.16em;color:var(--accent,#9b5e38);font-weight:700}
-  .content-loop h2{font:500 1.8rem/1.15 Georgia,serif;color:var(--heading,#173d34);margin:10px 0 8px}
-  .loop-copy{color:var(--muted,#53615d);margin:0 0 20px;max-width:620px}
-  .related-posts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-  .related-post{display:flex;flex-direction:column;gap:8px;border:1px solid var(--border,#dedfd7);border-radius:8px;background:var(--surface,#fff);padding:16px;transition:border-color .15s ease,transform .15s ease}
-  .related-post:hover{border-color:var(--accent,#9b5e38);transform:translateY(-1px)}
-  .related-post strong{font:600 1.05rem/1.25 Georgia,serif;color:var(--heading,#173d34)}
-  .related-post span{font-size:.8rem;color:var(--muted,#77827d)}
-  .browse-link{color:var(--accent,#9b5e38);font-weight:700;font-size:.9rem}
-  @media(max-width:900px){.article-page{display:block}.article-rail{position:static;margin:0 0 24px}.article-page>.post{margin-top:0}}
-  @media(max-width:700px){.related-posts{grid-template-columns:1fr}.content-loop h2{font-size:1.55rem}.post{padding:16px 14px}.comments-heading h2{font-size:1.5rem}}
-  @media(max-width:420px){.post-page{padding-left:14px;padding-right:14px}.post-context{margin:0 4px 12px}.post-context .back{font-size:.78rem}.post-context .community-export{font-size:.72rem}.post{padding-left:10px;padding-right:10px}.comments-heading{align-items:center}.comments-heading label{gap:5px}}
+  .post-page { max-width: 760px; padding-top: 20px; padding-bottom: 96px; }
+  .article-page { max-width: 1120px; display: grid; grid-template-columns: minmax(0, 760px) 260px; column-gap: 36px; align-items: start; }
+  .article-page > .post-context { grid-column: 1 / -1; }
+  .article-page > .post, .article-page > .form-error, .article-page > .comments, .article-page > .content-loop { grid-column: 1; }
+  .post-context { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .back { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px; border-radius: 999px; font-size: .85rem; font-weight: 600; color: var(--muted); }
+  .back:hover { background: var(--hover); color: var(--heading); }
+  .community-export { font-size: .78rem; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+  .post { padding: 26px 30px; }
+  .post :global(h1) { margin: 6px 0 14px; font: 600 clamp(1.7rem, 3.4vw, 2.3rem)/1.2 var(--font-serif); letter-spacing: -.02em; overflow-wrap: anywhere; }
+  .post :global(.post-body) { font-size: 1.05rem; line-height: 1.7; }
+  .post-author { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: .875rem; color: var(--muted); }
+  .post-author a { font-weight: 700; color: var(--heading); }
+  .post-author a:hover { text-decoration: underline; }
+  .article-kicker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; color: var(--accent); font-size: .72rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+  .article-kicker span + span { padding-left: 8px; border-left: 1px solid var(--border-strong); color: var(--muted); font-weight: 600; letter-spacing: 0; text-transform: none; }
+  .article-rail { grid-column: 2; grid-row: 2 / span 4; position: sticky; top: calc(var(--header-h) + 20px); padding: 18px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .article-rail h2 { margin: 0; font: 600 1.25rem/1.2 var(--font-serif); overflow-wrap: anywhere; }
+  .article-rail-count { margin: 7px 0 14px; color: var(--muted); font-size: .78rem; }
+  .article-rail ol { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+  .article-rail li a { display: grid; gap: 3px; padding: 9px 10px; border-radius: var(--radius-sm); color: var(--muted); }
+  .article-rail li a:hover { background: var(--hover); color: var(--heading); }
+  .article-rail li.current a { background: var(--accent-soft); color: var(--heading); box-shadow: inset 3px 0 var(--accent); }
+  .article-rail li span { font-size: .66rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--accent); }
+  .article-rail li strong { font-size: .8rem; line-height: 1.3; overflow-wrap: anywhere; }
+  .article-rail-nav { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: .78rem; font-weight: 700; }
+  .article-rail-nav a { color: var(--accent); }
+  .post-reading-stats { margin: 10px 0 0; font-size: .75rem; color: var(--text-light); }
+
+  .comments { margin-top: 36px; }
+  .comments-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+  .comments-heading h2 { margin: 0; font: 600 1.5rem/1.1 var(--font-serif); }
+  .comments-heading h2 span { font: 600 .9rem var(--font-sans); color: var(--muted); margin-left: 6px; }
+  .comments-heading label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .8rem; }
+  .comments-heading select { width: auto; min-height: 34px; padding: 4px 8px; border-radius: 999px; font-size: .8rem; }
+  .comment-compose { margin: 0 0 22px; padding: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); }
+  .comment-compose:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
+  .comment-compose form { gap: 8px; }
+  .comment-compose textarea { border: 0; padding: 4px; background: transparent; resize: vertical; min-height: 72px; box-shadow: none; }
+  .comment-compose textarea:focus-visible { box-shadow: none; }
+  .comment-submit { display: flex; justify-content: flex-end; }
+  .comment-source-hint, .comment-source-error { margin: 0; color: var(--muted); font-size: .8rem; }
+  .comment-source-error { color: var(--danger); }
+  .comment-source { margin-top: 10px; }
+  .comment-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .comment-actions > a { padding: 4px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .comment-actions > a:hover { background: var(--hover); color: var(--heading); }
+  .join-prompt, .source-replies-note, .replying-to { font-size: .875rem; color: var(--muted); margin: 10px 0 18px; }
+  .join-prompt { padding: 14px 16px; border-radius: var(--radius); background: var(--wash); }
+  .join-prompt a, .source-replies-note a { color: var(--link); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+  .replying-to { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
+  .thread article { margin: 0; padding: 14px 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
+  .thread article p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .thread .nested { margin-left: 14px; padding-left: 14px; border-left: 2px solid var(--border); }
+  .comment-author { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--muted); }
+  .comment-author a { font-weight: 700; color: var(--heading); }
+  .comment-expansion { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .comment-expansion p { color: var(--muted); margin: 0; }
+
+  .content-loop { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 26px; }
+  .content-loop h2 { font: 600 1.5rem/1.2 var(--font-serif); margin: 6px 0 8px; }
+  .loop-copy { color: var(--muted); margin: 0 0 18px; max-width: 60ch; }
+  .related-posts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .related-post { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 16px; transition: border-color .15s, transform .15s; }
+  .related-post:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .related-post strong { font-size: 1rem; line-height: 1.3; color: var(--heading); }
+  .related-post span { font-size: .8rem; color: var(--muted); }
+  .browse-link { color: var(--accent); font-weight: 700; }
+  @media (max-width: 960px) { .article-page { display: block; } .article-rail { position: static; margin: 0 0 24px; } }
+  @media (max-width: 700px) {
+    .related-posts { grid-template-columns: 1fr; }
+    .post { padding: 18px 16px; margin-left: -16px; margin-right: -16px; border-radius: 0; border-left: 0; border-right: 0; }
+    .post-context { margin-bottom: 8px; }
+  }
 </style>

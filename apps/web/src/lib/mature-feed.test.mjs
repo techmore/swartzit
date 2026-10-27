@@ -42,7 +42,8 @@ test('rated content remains opt-in and exact selection is visible in the UI', ()
 
 test('rated selection is preserved during pagination and sorting', () => {
   assert.match(page, /params\.set\('ratings', data\.ratings \|\| 'rx'\)/);
-  assert.match(page, /name="ratings" value=\{data\.ratings\}/);
+  assert.match(page, /name="ratings"[^>]*value=\{data\.ratings\}/);
+  assert.match(page, /name="feed" value=\{data\.feed\}/);
 });
 
 test('an admin can correct a rating from the post page', () => {
