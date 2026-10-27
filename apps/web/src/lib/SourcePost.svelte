@@ -5,6 +5,7 @@
   import XAuthorFollowButton from '#lib/XAuthorFollowButton.svelte';
   import { youtubeEmbedUrl } from '#lib/youtube-source.mjs';
   import { archivedXMedia } from '#lib/archive-source.mjs';
+  import { observeAutoplay } from '#lib/autoplay-video.mjs';
   import { cleanXSourceText, splitXPost } from '#lib/x-post-display.mjs';
   export let source;
   export let text = '';
@@ -81,28 +82,7 @@
   $: profileImageSrc = source.profile_image_url && source.post_id
     ? archivedXMedia(source.profile_image_url)
     : null;
-  function observeMedia(node, media) {
-    // Muted inline playback is allowed by mobile browsers. Keep only the
-    // visible card playing so scrolling never leaves background video running.
-    node.muted = true;
-    const autoplayEnabled = () => {
-      try { return localStorage.getItem('swartzit_autoplay') === 'on'; } catch { return false; }
-    };
-    const preferenceChanged = (event) => {
-      if (!event.detail?.enabled && !node.paused) node.pause();
-      if (event.detail?.enabled && node.getBoundingClientRect().top < innerHeight && node.getBoundingClientRect().bottom > 0) node.play().catch(() => {});
-    };
-    const observer = new IntersectionObserver(([entry]) => {
-      window.dispatchEvent(new CustomEvent('swartzit-media-visibility', { detail: { element: node, visible: entry.isIntersecting && entry.intersectionRatio >= 0.2 } }));
-      if (autoplayEnabled() && entry.isIntersecting && entry.intersectionRatio >= 0.45) {
-        node.muted = true;
-        node.play().catch(() => {});
-      } else if (!node.paused) node.pause();
-    }, { threshold: [0, 0.2, 0.45] });
-    observer.observe(node);
-    window.addEventListener('swartzit-autoplay-change', preferenceChanged);
-    return { destroy: () => { observer.disconnect(); window.removeEventListener('swartzit-autoplay-change', preferenceChanged); } };
-  }
+  function observeMedia(node) { return observeAutoplay(node); }
 </script>
 <section class="source-post" class:external-x={source.provider === 'x'} class:embedded aria-label={`Imported ${providerLabel} post`}>
   <div class="source-heading">

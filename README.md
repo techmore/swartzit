@@ -925,8 +925,9 @@ torrent storage or an offline media mirror. Source counts are timestamped
 snapshots, not live counters. The existing Hermes archive does not contain
 engagement counts, so those show as unknown unless supplied by a collector.
 X imports are automatically enriched with public photos, animated-GIF MP4s,
-videos, and quoted-post attachments where X exposes them. Videos play inline
-with controls and no autoplay. Legacy image-only records remain compatible.
+videos, and quoted-post attachments where X exposes them. Videos play inline,
+muted as they enter view, and pause when they leave; the autoplay control can
+turn this off. Legacy image-only records remain compatible.
 Source reply bodies and permanent video downloads are not implemented.
 Media stays on X's CDN and can become unavailable if X removes or blocks it.
 Backfill existing X cross-posts with `node scripts/backfill-x-media.mjs`;
