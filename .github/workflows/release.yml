@@ -11,6 +11,7 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       DATABASE_URL: sqlite:/tmp/swartzit-release.sqlite
     steps:
