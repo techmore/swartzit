@@ -3,6 +3,7 @@
   import Icon from '#lib/Icon.svelte';
   import { getBookmarkFolders, getBookmarkStatus, setBookmarkStatus } from '#lib/bookmark-state.js';
   export let id;
+  let folderMenu;
   let token = '', saved = false, folder = '', folders = [], busy = false, ready = false, error = '';
   async function request(path, method = 'GET', body) {
     const r = await fetch(path, {method, headers:{authorization:`Bearer ${token}`, 'content-type':'application/json'}, body:body === undefined ? undefined : JSON.stringify(body)});
@@ -37,21 +38,27 @@
 </script>
 {#if token}
   <div class="bookmark-control">
-    <button class="vote-button icon-button bookmark-toggle" class:saved disabled={busy || !ready} aria-label={saved ? 'Remove bookmark' : 'Bookmark post'} title={saved ? 'Remove bookmark' : 'Bookmark post'} aria-pressed={saved} on:click={() => save(saved)}><Icon name="bookmark" size={22} /></button>
-    {#if saved}<details on:toggle={e => { if (e.currentTarget.open) loadFolders(); }}>
-      <summary>Save to folder</summary>
-      <form on:submit|preventDefault={() => save()}>
+    <button class="bookmark-toggle pill" class:saved disabled={busy || !ready} aria-label={saved ? 'Remove bookmark' : 'Bookmark post'} title={saved ? 'Remove bookmark' : 'Bookmark post'} aria-pressed={saved} on:click={() => save(saved)}><Icon name="bookmark" size={18} filled={saved} /><span class="label">{saved ? 'Saved' : 'Save'}</span></button>
+    {#if saved}<details class="folder-menu menu" bind:this={folderMenu} on:toggle={e => { if (e.currentTarget.open) loadFolders(); }}>
+      <summary class="pill" aria-label="Choose bookmark folder" title="Move to a folder"><Icon name="chevron-down" size={16} /></summary>
+      <form class="menu-panel" on:submit|preventDefault={async () => { await save(); if (folderMenu) folderMenu.open = false; }}>
         <label>Folder <select bind:value={folder}><option value="">Unfiled</option>{#each folders as f}<option value={String(f.id)}>{f.name}</option>{/each}</select></label>
-        <button disabled={busy || !ready}>{saved ? 'Move bookmark' : 'Save bookmark'}</button>
+        <button disabled={busy || !ready}>Move bookmark</button>
         <a href="/bookmarks">Manage folders</a>
       </form>
     </details>{/if}
-    {#if error}<span role="alert">{error}</span>{/if}
+    {#if error}<span class="err" role="alert">{error}</span>{/if}
   </div>
 {/if}
 <style>
-  .bookmark-control{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:12px 0;font-size:.85rem}
-  .bookmark-toggle.saved{color:var(--accent);border-color:var(--accent)}
-  .bookmark-toggle.saved :global(svg){fill:currentColor}
-  summary{cursor:pointer} form{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px 0} select{max-width:220px} [role=alert]{color:var(--error,#973c35)}
+  .bookmark-control { display: inline-flex; align-items: center; gap: 4px; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .875rem; font-weight: 600; cursor: pointer; }
+  .pill:hover:not(:disabled) { background: var(--hover); color: var(--heading); filter: none; }
+  .bookmark-toggle.saved { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .folder-menu > summary { padding: 0 10px; }
+  .folder-menu .menu-panel { right: auto; left: 0; display: grid; gap: 10px; width: 250px; padding: 14px; }
+  .folder-menu .menu-panel label { display: grid; gap: 6px; }
+  .folder-menu .menu-panel a { font-size: .8rem; color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
+  .err { color: var(--error); font-size: .8rem; }
+  @media (max-width: 460px) { .label { display: none; } .pill { padding: 0 12px; } }
 </style>

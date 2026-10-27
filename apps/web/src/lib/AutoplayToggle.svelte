@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte';
+  import Icon from '#lib/Icon.svelte';
   import { AUTOPLAY_KEY, autoplayEnabled } from '#lib/autoplay-video.mjs';
-  export let compact = false;
-  let enabled = false;
+  let enabled = true;
   const key = AUTOPLAY_KEY;
   function read() {
     try { enabled = autoplayEnabled(localStorage); } catch { enabled = true; }
@@ -21,13 +21,12 @@
     return () => { window.removeEventListener('storage', storage); window.removeEventListener('swartzit-autoplay-change', change); };
   });
 </script>
-<button class:compact class="autoplay-toggle" type="button" aria-label="Autoplay videos" aria-pressed={enabled} title={enabled ? 'Turn off video autoplay' : 'Turn on muted video autoplay'} on:click={toggle}>
-  <span aria-hidden="true">{enabled ? '▶' : 'Ⅱ'}</span><span class="toggle-label">Autoplay {enabled ? 'on' : 'off'}</span>
+<button type="button" class="menu-item" role="menuitemcheckbox" aria-checked={enabled} title="Play videos muted as they scroll into view" on:click={toggle}>
+  <Icon name={enabled ? 'pause' : 'play'} size={18} />
+  <span>Video autoplay</span>
+  <span class="state" class:on={enabled}>{enabled ? 'On' : 'Off'}</span>
 </button>
 <style>
-  .autoplay-toggle{position:fixed;right:16px;bottom:70px;z-index:100;padding:9px 13px;min-height:40px;border-radius:999px;border:1px solid var(--border,#c7ccc3);background:var(--surface,#fff);color:var(--heading,#173d34);box-shadow:0 3px 16px #0002;font:inherit;font-size:.8rem;cursor:pointer;display:flex;gap:7px;align-items:center}
-  .autoplay-toggle.compact{position:static;z-index:auto;width:34px;height:34px;min-height:34px;padding:0;border-radius:9px;box-shadow:none;justify-content:center;font-size:.75rem}
-  .autoplay-toggle.compact:hover,.autoplay-toggle.compact:focus-visible{background:var(--subtle,#e4e9df)}
-  .autoplay-toggle.compact .toggle-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-  @media(max-width:520px){.autoplay-toggle{right:10px;bottom:62px;width:40px;height:40px;min-height:40px;padding:0;justify-content:center;font-size:.8rem}.autoplay-toggle .toggle-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}}
+  .state{margin-left:auto;font-size:.75rem;font-weight:700;color:var(--muted);padding:2px 8px;border-radius:999px;background:var(--subtle)}
+  .state.on{background:var(--accent-soft);color:var(--accent)}
 </style>

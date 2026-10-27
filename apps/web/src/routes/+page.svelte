@@ -3,21 +3,13 @@
   import { onMount } from 'svelte';
   import Icon from '#lib/Icon.svelte';
   import { invalidateAll } from '$app/navigation';
-  import SessionNav from '#lib/SessionNav.svelte';
-  import PostActions from '#lib/PostActions.svelte';
   import FollowingXAuthors from '#lib/FollowingXAuthors.svelte';
   import BuddiesPanel from '#lib/BuddiesPanel.svelte';
-  import PostBody from '#lib/PostBody.svelte';
-  import SourcePost from '#lib/SourcePost.svelte';
   import MediaDock from '#lib/MediaDock.svelte';
-  import AuthorAvatar from '#lib/AuthorAvatar.svelte';
-  import PostViews from '#lib/PostViews.svelte';
-  import PostComposer from '#lib/PostComposer.svelte';
-  import Brand from '#lib/Brand.svelte';
+  import PostCard from '#lib/PostCard.svelte';
   import { loginHref } from '#lib/auth-session.mjs';
-  let searchOpen = Boolean(data.q);
-  let composeOpen = false, composeMode = 'post';
-  let searchInput;
+  let mounted = false;
+  let railFilter = '';
   function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (['following', 'buddies'].includes(targetFeed) && ['following', 'buddies'].includes(data.feed) && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; params.set('hide_r', String(data.hideR)); if (!data.hideX) params.set('show_x', 'true'); return params; }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort,hide_r:'false'}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
@@ -48,25 +40,22 @@
     initialPosts = data.posts;
     if (feedPage === data.page) feedHasMore = data.hasMore;
   }
-  const TIMELINE_LONG_POST_THRESHOLD = 900;
-  const TIMELINE_EXCERPT_LIMIT = 420;
-  const redundantSourceTitle = post => post?.source?.provider === 'x' && post.title?.trim() === post.body?.split(/\r?\n/, 1)[0]?.trim();
-  const articleConfig = post => post?.source?.generation_config?.content_kind === 'article' ? post.source.generation_config : null;
-  const timelineMedia = post => { const item = post?.source?.media?.[0]; return typeof item === 'string' ? item : item?.kind === 'image' ? item.src : item?.poster || ''; };
-  const timelineLabel = post => { const config = articleConfig(post); return config ? `Article · Day ${config.unit_order || 1}${config.unit_count ? ` of ${config.unit_count}` : ''}` : 'Long post'; };
-  const timelineExcerpt = body => { const text = String(body || '').replace(/^#{1,6}\s+/gm, '').replace(/[*_>`]/g, '').replace(/\s+/g, ' ').trim(); return text.length > TIMELINE_EXCERPT_LIMIT ? `${text.slice(0, TIMELINE_EXCERPT_LIMIT).trimEnd()}…` : text; };
-  const isArticlePost = post => Boolean(articleConfig(post));
-  const isLongPost = post => String(post?.body || '').trim().length > TIMELINE_LONG_POST_THRESHOLD;
-  const isTimelinePreview = post => isArticlePost(post) || isLongPost(post);
   onMount(() => {
     token = localStorage.getItem('swartzit_session') ?? '';
+    mounted = true;
     const timer = setInterval(() => { if (!document.hidden) invalidateAll(); }, 300000);
     return () => clearInterval(timer);
   });
-  function toggleSearch() {
-    searchOpen = !searchOpen;
-    if (searchOpen) setTimeout(() => searchInput?.focus(), 0);
+  function dismissable(node) {
+    const close = event => { if (node.open && !node.contains(event.target)) node.open = false; };
+    document.addEventListener('pointerdown', close);
+    return { destroy: () => document.removeEventListener('pointerdown', close) };
   }
+  $: matureLabel = !data.hideR && !data.hideX ? 'R + X shown' : !data.hideR ? 'R shown' : !data.hideX ? 'X shown' : 'Mature hidden';
+  const submitForm = event => event.currentTarget.form?.requestSubmit();
+  const feedTitle = { timeline: 'Timeline', following: 'Following', buddies: 'Buddies', rated: 'Rated posts' };
+  $: showWelcome = mounted && !token && data.feed === 'timeline' && !data.q && !data.community && data.page === 1;
+  $: railCommunities = activeCommunities.filter(c => !railFilter || c.slug.includes(railFilter.toLowerCase()));
   async function loadFeedPage(page, append = true) {
     if (feedLoading || (append && !feedHasMore)) return;
     if (['following', 'buddies'].includes(data.feed) && !token) {
@@ -130,219 +119,165 @@
     return {destroy: () => observer.disconnect()};
   }
 </script>
-
-<svelte:head><title>Swartzit — the commons</title></svelte:head>
-<header class="home-header">
-  <div class="home-header-inner">
-    <Brand />
-    <span class="header-context">The community commons</span>
-    <div class="header-actions">
-      <button class="header-icon" type="button" aria-label={searchOpen ? 'Close search' : 'Search discussions'} title={searchOpen ? 'Close search' : 'Search discussions'} aria-expanded={searchOpen} onclick={toggleSearch}><Icon name={searchOpen ? 'x' : 'search'} /></button>
-      <SessionNav compact />
-    </div>
-  </div>
-  {#if searchOpen}
-    <form class="global-search" method="GET" action="/" onsubmit={() => searchOpen = false}>
-      <Icon name="search" size={19} />
-      <input bind:this={searchInput} name="q" value={data.q} maxlength="200" placeholder="Search discussions" aria-label="Search discussions" />
-      <input type="hidden" name="feed" value={data.feed} />
-      <input type="hidden" name="sort" value={data.sort} />
-      {#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else}<input type="hidden" name="hide_r" value={String(data.hideR)} />{/if}
-      {#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}
-      {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
-      <button type="submit" aria-label="Run search" title="Run search"><Icon name="search" size={18} /></button>
-    </form>
-  {/if}
-</header>
+<svelte:head><title>{data.community ? `c/${data.community} · Swartzit` : data.q ? `“${data.q}” · Swartzit` : 'Swartzit — the commons'}</title></svelte:head>
 <main id="main-content" class="home">
-<div class="layout">
-  <aside class="community-nav">
-    <div class="sidebar-heading"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div>
-    <a class:selected={!data.community} aria-current={!data.community ? "page" : undefined} href={communityHref()}>All discussions</a>
-    {#each activeCommunities as community}<a class:selected={data.community === community.slug} aria-current={data.community === community.slug ? "page" : undefined} href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} {community.post_count === 1 ? 'post' : 'posts'}</small></a>{/each}
-    {#if quietCommunities.length}<details class="quiet-communities" open={quietCommunities.some(community => community.slug === data.community)}><summary>{quietCommunities.length} with no posts yet</summary>{#each quietCommunities as community}<a class:selected={data.community === community.slug} aria-current={data.community === community.slug ? "page" : undefined} href={communityHref(community.slug)}><strong>c/{community.slug}</strong></a>{/each}</details>{/if}
-  </aside>
-  <section class="feed">
-    <nav class="feed-tabs" aria-label="Feed"><a class:active={data.feed === 'timeline'} aria-current={data.feed === 'timeline' ? 'page' : undefined} href={feedHref('timeline')}>Timeline</a><a href="/bookmarks">Bookmarks</a><a class:active={data.feed === 'following'} aria-current={data.feed === 'following' ? 'page' : undefined} href={feedHref('following')}>Following</a><a class:active={data.feed === 'buddies'} aria-current={data.feed === 'buddies' ? 'page' : undefined} href={feedHref('buddies')}>Buddies</a><a class:active={data.feed === 'rated'} aria-current={data.feed === 'rated' ? 'page' : undefined} href={feedHref('rated')}>Rated</a></nav>
-    {#if data.feed === 'following'}<FollowingXAuthors />{/if}
-    {#if data.feed === 'buddies' && token}<BuddiesPanel />{/if}
-    <details class="mobile-community-nav"><summary>Browse communities <span>{data.community ? `c/${data.community}` : 'All discussions'}</span></summary><div><a class:selected={!data.community} aria-current={!data.community ? "page" : undefined} href={communityHref()}>All discussions</a>{#each data.communities as community}<a class:selected={data.community === community.slug} aria-current={data.community === community.slug ? "page" : undefined} href={communityHref(community.slug)}><strong>c/{community.slug}</strong><small>{community.post_count} posts</small></a>{/each}</div></details>
-    <div class="feed-head">
-      <div><p class="eyebrow">{data.community ? `c/${data.community}` : data.feed === 'buddies' ? 'YOUR PEOPLE' : 'COMMUNITY TIMELINE'}</p><h1>{data.feed === 'following' ? 'Following' : data.feed === 'buddies' ? 'Buddies' : data.feed === 'rated' ? 'Rated posts' : 'Timeline'}</h1></div>
-      <div class="feed-head-actions">
-        {#if !token}<a class="visitor-post-link" href={loginHref(feedHref(data.feed))}>Sign in to post</a>{/if}
-        {#if data.feed !== 'buddies'}<details class="feed-options"><summary><Icon name="sliders" size={16} /><span>Sort</span></summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} />{#if data.ratings}<input type="hidden" name="ratings" value={data.ratings} />{:else}<input type="hidden" name="hide_r" value={String(data.hideR)} />{/if}{#if !data.ratings && !data.hideX}<input type="hidden" name="show_x" value="true" />{/if}<select name="sort" aria-label="Sort discussions" value={data.sort}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select><button type="submit">Apply</button></form></details>{/if}
-        {#if data.ratings}
-          <form class="rated-filter" method="GET"><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="community" value={data.community} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label for="rated-selection">Show</label><select id="rated-selection" name="ratings" aria-label="Choose ratings to show" value={data.ratings}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select><button type="submit">Apply</button></form>
-        {:else}
-          <details class="feed-options content-filters"><summary><span>Content</span>{#if data.hideR}<span class="filter-count">R-rated hidden</span>{:else if data.hideX}<span class="filter-count">X-rated hidden</span>{/if}</summary><form method="GET"><input type="hidden" name="community" value={data.community} /><input type="hidden" name="feed" value={data.feed} /><input type="hidden" name="q" value={data.q} /><input type="hidden" name="sort" value={data.sort} /><label class="content-filter-option"><input type="checkbox" name="show_r" value="true" checked={!data.hideR} /><span><span class="content-rating content-rating-r" aria-hidden="true">R</span> Show R-rated</span></label><label class="content-filter-option"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} /><span><span class="content-rating content-rating-x" aria-hidden="true">X</span> Show X-rated</span></label><button type="submit">Apply filters</button>{#if data.hideR}<a class="clear-content-filters" href={clearRHref()}>Clear R filter</a>{/if}</form></details>
-        {/if}
-      </div>
-    </div>
-    {#if ['following', 'buddies'].includes(data.feed) && !token}<p class="empty"><a href={loginHref(feedHref(data.feed))}>Sign in</a> to see your followed feeds.</p>{:else if feedPosts.length === 0 && feedLoading}<p role="status">Loading {data.feed === 'following' ? 'Following' : data.feed === 'buddies' ? 'Buddies' : data.feed === 'rated' ? 'rated posts' : 'discussions'}…</p>{:else if feedPosts.length === 0 && feedError}<p role="alert">{feedError}</p>{#if ['following', 'buddies'].includes(data.feed) && token}<button class="feed-load-more" type="button" onclick={() => loadFeedPage(data.page, false)}>Retry loading</button>{/if}{:else if feedPosts.length === 0}<p class="empty">{data.feed === 'buddies' ? 'Pin a buddy above to see the posts they upvote here.' : data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a person on X or a community to fill your Following feed.' : 'No discussions found.'}</p>{:else}
-      {#each feedPosts as post (post.id)}
-        <article class:source-article={Boolean(post.source)}>
-          {#if post.content_rating === 'r' || post.content_rating === 'x'}<div class="content-rating-row"><span class:content-rating-r={post.content_rating === 'r'} class:content-rating-x={post.content_rating === 'x'} class="content-rating" title={post.content_rating === 'r' ? 'R-rated content' : 'X-rated content'}>{post.content_rating.toUpperCase()}</span><span>{post.content_rating === 'r' ? 'R-rated' : 'X-rated'}</span></div>{/if}
-          {#if data.feed === 'buddies' && post.liked_by?.length}<div class="buddy-like-context"><span>Upvoted by</span>{#each post.liked_by as handle}<a href={'/u/' + handle}>u/{handle}</a>{/each}{#if post.liked_at}<time datetime={post.liked_at}>{new Date(post.liked_at).toLocaleString()}</time>{/if}</div>{/if}
-          {#if isTimelinePreview(post)}
-            {#if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
-              <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span class="sep" aria-hidden="true">·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
-              {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
-            {:else}
-              <div class="meta">
-                {#if post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From Reddit</strong><span class="sep" aria-hidden="true">·</span><span>{post.source.source_author}</span><span class="sep" aria-hidden="true">·</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
-                {:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span class="sep" aria-hidden="true">·</span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span class="sep" aria-hidden="true">·</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
-              </div>
-              {#if !redundantSourceTitle(post)}<h3><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
-            {/if}
-            <div class="timeline-preview-card" class:no-image={!timelineMedia(post)}>
-              {#if timelineMedia(post)}<a class="timeline-preview-image" href={'/post/' + post.public_id} aria-label={'Open ' + post.title}><img src={timelineMedia(post)} alt={post.title} loading="lazy" /></a>{/if}
-              <div class="timeline-preview-copy"><span class="timeline-preview-label">{timelineLabel(post)}</span><p>{timelineExcerpt(post.body)}</p><a class="timeline-read-link" href={'/post/' + post.public_id}>{isArticlePost(post) ? 'Read full article →' : 'Read full post →'}</a></div>
-            </div>
-            <PostActions {post} />
-          {:else if post.source?.provider === 'x' || post.source?.provider === 'youtube'}
-            <div class="feed-context"><a href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a><span class="sep" aria-hidden="true">·</span><span>Shared from {post.source.provider === 'youtube' ? 'YouTube' : 'X'}</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></div>
-            {#if !redundantSourceTitle(post) && post.title}<h3 class="feed-title"><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
-            <SourcePost source={post.source} text={post.body} post={post} embedded={true} />
-          {:else}
-            <div class="meta">
-              {#if post.source?.provider === 'reddit'}<AuthorAvatar handle={post.source.source_author} size="small" /><span><strong>From Reddit</strong><span class="sep" aria-hidden="true">·</span><span>{post.source.source_author}</span><span class="sep" aria-hidden="true">·</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>
-              {:else}<AuthorAvatar handle={post.author} size="small" /><span><a href="/?community={post.community}">c/{post.community}</a><span class="sep" aria-hidden="true">·</span><span>posted by <a href={'/u/' + post.author}>u/{post.author}</a></span><span class="sep" aria-hidden="true">·</span><time datetime={post.created_at}>{new Date(post.created_at).toLocaleDateString()}</time></span>{/if}
-            </div>
-            {#if !redundantSourceTitle(post)}<h3><a href={'/post/' + post.public_id}>{post.title}</a></h3>{/if}
-            <PostBody body={post.body} />
-            {#if post.source}<SourcePost source={post.source} text={post.body} post={post} embedded={true} />{:else}<PostActions {post} />{/if}
-          {/if}
-          <footer><PostViews id={post.id} initial={post} /><a class="open-discussion" href={'/post/' + post.public_id}>Open discussion →</a></footer>
-        </article>
+  <div class="layout">
+    <aside class="rail" aria-label="Communities">
+      <div class="rail-head"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div>
+      <a class="rail-link" class:selected={!data.community} aria-current={!data.community ? 'page' : undefined} href={communityHref()}><span>All discussions</span></a>
+      {#each activeCommunities as community}
+        <a class="rail-link" class:selected={data.community === community.slug} aria-current={data.community === community.slug ? 'page' : undefined} href={communityHref(community.slug)}><span>c/{community.slug}</span><small>{community.post_count}</small></a>
       {/each}
-    {/if}
-    {#if feedPosts.length > 0 && feedHasMore}
-      <div class="feed-pagination">
-        <div class="feed-scroll-sentinel" use:observeFeedEnd aria-hidden="true"></div>
-        {#if feedLoading}<p role="status">Loading more discussions…</p>{/if}
-        {#if feedError}<p role="alert">{feedError}</p><button class="feed-load-more" type="button" onclick={loadNextPage}>Retry loading</button>{:else}<button class="feed-load-more" type="button" disabled={feedLoading} onclick={loadNextPage}>Load more discussions</button>{/if}
+      {#if quietCommunities.length}
+        <details class="quiet" open={quietCommunities.some(community => community.slug === data.community)}>
+          <summary>{quietCommunities.length} with no posts yet</summary>
+          {#each quietCommunities as community}<a class="rail-link" class:selected={data.community === community.slug} aria-current={data.community === community.slug ? 'page' : undefined} href={communityHref(community.slug)}><span>c/{community.slug}</span></a>{/each}
+        </details>
+      {/if}
+    </aside>
+
+    <section class="feed">
+      <nav class="feed-tabs" aria-label="Feed">
+        <a class:active={data.feed === 'timeline'} aria-current={data.feed === 'timeline' ? 'page' : undefined} href={feedHref('timeline')}>Timeline</a>
+        <a class:active={data.feed === 'following'} aria-current={data.feed === 'following' ? 'page' : undefined} href={feedHref('following')}>Following</a>
+        <a class:active={data.feed === 'buddies'} aria-current={data.feed === 'buddies' ? 'page' : undefined} href={feedHref('buddies')}>Buddies</a>
+        <a class:active={data.feed === 'rated'} aria-current={data.feed === 'rated' ? 'page' : undefined} href={feedHref('rated')}>Rated</a>
+      </nav>
+
+      <div class="chip-row" aria-label="Communities">
+        <a class="chip" class:active={!data.community} href={communityHref()}>All</a>
+        {#each activeCommunities.slice(0, 14) as community}<a class="chip" class:active={data.community === community.slug} href={communityHref(community.slug)}>c/{community.slug}</a>{/each}
+        <a class="chip" href="/communities">More →</a>
       </div>
-    {/if}
-  </section>
-</div>
-<PostComposer communities={data.communities} selectedCommunity={data.community || 'general'} bind:open={composeOpen} bind:mode={composeMode} showVisitorLauncher={false} />
+
+      {#if showWelcome}
+        <section class="welcome" aria-label="About Swartzit">
+          <div><p class="eyebrow">Open discussion network</p><h2>Read freely. Participate under a pseudonym. Take your community with you.</h2></div>
+          <div class="welcome-actions"><a class="btn" href="/signup">Create account</a><a class="btn btn-secondary" href="/about">How it works</a></div>
+        </section>
+      {/if}
+
+      {#if data.feed === 'following'}<FollowingXAuthors />{/if}
+      {#if data.feed === 'buddies' && token}<BuddiesPanel />{/if}
+
+      <div class="feed-head">
+        <div class="title-block">
+          {#if data.community}<a class="back-all" href={communityHref()}><Icon name="arrow-left" size={15} />All communities</a>{/if}
+          <h1>{data.community ? `c/${data.community}` : data.q ? `Results for “${data.q}”` : feedTitle[data.feed]}</h1>
+          {#if data.q}<a class="clear-search" href={communityHref(data.community)}>Clear search</a>{/if}
+        </div>
+        <form class="controls" method="GET" action="/">
+          {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
+          <input type="hidden" name="feed" value={data.feed} />
+          {#if data.q}<input type="hidden" name="q" value={data.q} />{/if}
+          {#if data.ratings}
+            <label class="ctl"><span>Show</span><select name="ratings" aria-label="Choose ratings to show" value={data.ratings} onchange={submitForm}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select></label>
+          {:else}
+            <details class="menu filter" use:dismissable>
+              <summary class="ctl-button"><Icon name="sliders" size={16} /><span>{matureLabel}</span></summary>
+              <div class="menu-panel">
+                <label class="check"><input type="checkbox" name="show_r" value="true" checked={!data.hideR} onchange={submitForm} /><span class="content-rating content-rating-r" aria-hidden="true">R</span>Show R-rated</label>
+                <label class="check"><input type="checkbox" name="show_x" value="true" checked={!data.hideX} onchange={submitForm} /><span class="content-rating content-rating-x" aria-hidden="true">X</span>Show X-rated</label>
+              </div>
+            </details>
+          {/if}
+          {#if data.feed !== 'buddies'}
+            <label class="ctl"><span>Sort</span><select name="sort" aria-label="Sort discussions" value={data.sort} onchange={submitForm}><option value="newest">Newest</option><option value="score">Most upvoted</option><option value="comments">Most discussed</option><option value="views">Most viewed</option></select></label>
+          {/if}
+          <noscript><button type="submit" class="btn-sm">Apply</button></noscript>
+        </form>
+      </div>
+
+      {#if ['following', 'buddies'].includes(data.feed) && !token}
+        <div class="state"><h2>Sign in to see your {data.feed === 'buddies' ? 'buddies' : 'followed feed'}</h2><p>Sign in to see your followed feeds.</p><a class="btn" href={loginHref(feedHref(data.feed))}>Sign in</a></div>
+      {:else if feedPosts.length === 0 && feedLoading}
+        <div class="skeletons" role="status" aria-label="Loading discussions">{#each [1, 2, 3] as n (n)}<div class="skeleton"><i></i><i></i><i></i></div>{/each}</div>
+      {:else if feedPosts.length === 0 && feedError}
+        <div class="state" role="alert"><h2>Couldn’t load this feed</h2><p>{feedError}</p>{#if ['following', 'buddies'].includes(data.feed) && token}<button type="button" onclick={() => loadFeedPage(data.page, false)}>Retry</button>{/if}</div>
+      {:else if feedPosts.length === 0}
+        <div class="state"><h2>Nothing here yet</h2><p>{data.feed === 'buddies' ? 'Pin a buddy above to see the posts they upvote here.' : data.ratings ? `No ${data.ratings === 'r' ? 'R-rated' : data.ratings === 'x' ? 'X-rated' : 'R- or X-rated'} posts found${data.feed === 'following' ? ' in your Following feed' : ''}.` : data.feed === 'following' ? 'Follow a person on X or a community to fill your Following feed.' : data.q ? 'No discussions match that search. Try different words.' : 'No discussions found.'}</p>{#if data.feed === 'following'}<a class="btn btn-secondary" href="/communities">Browse communities</a>{/if}</div>
+      {:else}
+        {#each feedPosts as post (post.id)}<PostCard {post} feed={data.feed} />{/each}
+      {/if}
+
+      {#if feedPosts.length > 0 && feedHasMore}
+        <div class="pagination">
+          <div class="sentinel" use:observeFeedEnd aria-hidden="true"></div>
+          {#if feedLoading}<p role="status">Loading more discussions…</p>{/if}
+          {#if feedError}<p role="alert" class="form-error">{feedError}</p><button type="button" onclick={loadNextPage}>Retry loading</button>{:else}<button type="button" class="secondary" disabled={feedLoading} onclick={loadNextPage}>Load more discussions</button>{/if}
+        </div>
+      {/if}
+    </section>
+  </div>
 </main>
 <MediaDock />
 <style>
-  .home-header{height:auto;display:block;padding:0;background:color-mix(in srgb,var(--page,#f6f4ee) 94%,transparent);backdrop-filter:blur(14px);position:sticky;top:0;z-index:15}
-  .home-header-inner{height:64px;max-width:1180px;margin:auto;padding:0 24px;display:flex;align-items:center;gap:18px}
-  :global(.home-header .brand){flex:none}
-  .header-context{font-size:.78rem;color:var(--muted,#66766c);letter-spacing:.02em}
-  .header-actions{display:flex;align-items:center;gap:4px;margin-left:auto}
-  .header-icon{width:36px;height:36px;display:inline-grid;place-items:center;border-radius:9px;color:var(--muted,#66766c);background:transparent;border:0;cursor:pointer}
-  .header-icon:hover,.header-icon:focus-visible{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
-  :global(.header-icon svg){width:19px;height:19px}
-  .global-search{max-width:1180px;margin:auto;padding:0 24px 12px;display:flex;align-items:center;gap:10px}
-  :global(.global-search>svg){flex:none;color:var(--muted,#66766c)}
-  .global-search input{height:40px;min-width:0;flex:1;border:1px solid var(--border,#c7ccc3);border-radius:8px;background:var(--surface,#fff);font:inherit}
-  .global-search button{width:40px;height:40px;display:grid;place-items:center;border-radius:8px;padding:0}
-  .home{padding:34px 24px 110px}
-  .layout{grid-template-columns:204px minmax(0,720px);justify-content:center;gap:48px}
-  .community-nav{position:sticky;top:82px;align-self:start;max-height:calc(100vh - 104px);overflow-y:auto;padding-top:8px;scrollbar-width:thin}
-  .community-nav::-webkit-scrollbar{width:7px}
-  .community-nav::-webkit-scrollbar-thumb{background:var(--border,#c7ccc3);border-radius:999px}
-  .sidebar-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-  .sidebar-heading h2{margin:0}
-  .sidebar-heading a{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:var(--muted,#66766c)}
-  .sidebar-heading a:hover{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
-  .community-nav>a,.quiet-communities>a{padding:8px 10px;border-radius:8px}
-  .quiet-communities{margin-top:8px;border-top:1px solid var(--border,#dedfd7);padding-top:6px}
-  .quiet-communities>summary{cursor:pointer;padding:8px 10px;color:var(--muted);font-size:.78rem;font-weight:700;list-style:none}
-  .quiet-communities>summary::before{content:'▸';display:inline-block;width:1.1em}
-  .quiet-communities[open]>summary::before{content:'▾'}
-  .quiet-communities>summary::-webkit-details-marker{display:none}
-  .quiet-communities>a{display:flex;flex-direction:column;color:var(--muted)}
-  .quiet-communities>a.selected{background:var(--subtle);color:var(--heading)}
-  .feed{min-width:0;max-width:720px}
-  .feed>article.source-article{padding:20px 22px}
-  .feed-context{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px;color:var(--muted,#66766c);font-size:.76rem;font-weight:650}
-  .feed-context a{color:var(--accent,#575d3d);font-weight:800}
-  .feed-context time{margin-left:auto;font-weight:500}
-  .buddy-like-context{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 12px;padding:8px 10px;border-radius:8px;background:var(--wash,#f0ece4);color:var(--muted,#66766c);font-size:.76rem}
-  .buddy-like-context::before{content:'♥';color:#a34945;font-size:.9rem}
-  .buddy-like-context a{color:var(--heading,#173d34);font-weight:750}
-  .buddy-like-context time{margin-left:auto;font-size:.7rem}
-  .feed-title{margin:0 0 12px!important;font-size:1.45rem!important;line-height:1.15!important;overflow-wrap:anywhere}
-  .feed-title a,.feed>article h3 a{overflow-wrap:anywhere}
-  .feed-tabs{display:flex;gap:20px;margin:0 0 26px;border-bottom:1px solid var(--border,#dedfd7)}
-  .feed-tabs a{position:relative;padding:0 2px 12px;color:var(--muted,#66766c);font-size:.9rem;font-weight:700}
-  .feed-tabs a.active{color:var(--heading,#173d34)}
-  .feed-tabs a.active::after{content:'';position:absolute;right:0;bottom:-1px;left:0;height:3px;border-radius:3px 3px 0 0;background:var(--accent,#9b5e38)}
-  .feed-head{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:22px}
-  .feed-head .eyebrow{margin:0 0 5px}
-  .feed-head h1{margin:0;color:var(--heading,#173d34);font:500 clamp(2rem,3vw,2.7rem)/1.05 Georgia,serif;letter-spacing:-.04em}
-  .feed-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
-  .visitor-post-link{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:.78rem;font-weight:700;color:var(--heading)}
-  .visitor-post-link:hover{background:var(--hover)}
-  .feed-options{position:relative;flex:none}
-  .feed-options>summary{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--border,#c7ccc3);border-radius:8px;color:var(--muted,#66766c);font-size:.78rem;font-weight:700;cursor:pointer;list-style:none}
-  .feed-options>summary::-webkit-details-marker{display:none}
-  .feed-options[open]>summary,.feed-options>summary:hover{background:var(--subtle,#e4e9df);color:var(--heading,#173d34)}
-  .rated-filter{display:flex;align-items:center;gap:7px;padding:4px 7px 4px 11px;border:1px solid var(--border,#c7ccc3);border-radius:8px;color:var(--muted,#66766c);font-size:.78rem;font-weight:700}
-  .rated-filter select{height:30px;max-width:120px;border:0;background:transparent;color:var(--heading,#173d34);font:inherit;cursor:pointer}
-  .rated-filter button{height:30px;padding:0 9px;border-radius:6px;background:var(--button-bg,#173d34);color:var(--button-text,#fff);font-size:.72rem;font-weight:750}
-  .feed-options form{position:absolute;right:0;top:calc(100% + 8px);z-index:5;width:220px;padding:12px;border:1px solid var(--border,#c7ccc3);border-radius:10px;background:var(--surface,#fff);box-shadow:0 12px 28px #0002}
-  .feed-options select{width:100%;height:38px;border:1px solid var(--border,#c7ccc3);border-radius:7px;padding:0 8px;background:var(--page,#f6f4ee);font:inherit;font-size:.8rem}
-  .feed-options button{margin-top:9px;width:100%;height:36px;border-radius:7px;font-size:.78rem}
-  .content-filters>summary{justify-content:center}
-  .filter-count{font-size:.65rem;color:var(--accent,#9b5e38);text-transform:uppercase;letter-spacing:.05em}
-  .content-filters form{display:grid;gap:9px}
-  .content-filter-option{display:flex;align-items:center;gap:8px;color:var(--heading,#173d34);font-size:.78rem;font-weight:650;cursor:pointer}
-  .content-filter-option input{accent-color:var(--accent,#575d3d)}
-  .content-filter-option>span{display:inline-flex;align-items:center;gap:7px}
-  .content-rating-row{display:flex;align-items:center;gap:8px;margin:0 0 10px;color:var(--muted,#66766c);font-size:.72rem;font-weight:750;text-transform:uppercase;letter-spacing:.06em}
-  .content-rating{width:22px;height:22px;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:6px;font:800 .7rem/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:0}
-  .content-rating-r{background:#9b5e38;border-color:#9b5e38;color:#fff}
-  .content-rating-x{background:#6f263d;border-color:#6f263d;color:#fff}
-  .clear-content-filters{display:block;margin-top:1px;color:var(--accent,#9b5e38);font-size:.76rem;font-weight:700;text-align:center}
-  .timeline-preview-card{display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr);gap:16px;align-items:start;margin:10px 0 2px;padding:10px;border:1px solid var(--border,#c7ccc3);border-radius:10px;background:color-mix(in srgb,var(--subtle,#e4e9df) 48%,var(--surface,#fff))}
-  .timeline-preview-card.no-image{grid-template-columns:minmax(0,1fr)}
-  .timeline-preview-image{display:block;overflow:hidden;border-radius:7px;background:var(--subtle,#dde3da);aspect-ratio:16/10}
-  .timeline-preview-image img{display:block;width:100%;height:100%;object-fit:cover}
-  .timeline-preview-copy{min-width:0;padding:2px 2px 3px}
-  .timeline-preview-label{display:block;color:var(--accent,#9b5e38);font-size:.68rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
-  .timeline-preview-copy p{display:-webkit-box;margin:7px 0 10px;overflow:hidden;color:var(--muted,#66766c);font-size:.84rem;line-height:1.45;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4}
-  .timeline-read-link{color:var(--heading,#173d34);font-size:.8rem;font-weight:800}
-  .feed>article>footer{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border,#dedfd7);color:var(--muted,#66766c);font-size:.78rem}
-  .open-discussion{margin-left:auto;color:var(--accent,#9b5e38);font-weight:700}
-  .feed-pagination{display:grid;justify-items:center;gap:10px;padding:24px 0 36px}
-  .feed-scroll-sentinel{width:100%;height:1px;pointer-events:none}
-  .feed-pagination p{margin:0;color:var(--muted,#66766c);font-size:.8rem}
-  .feed-load-more{min-height:38px;padding:0 15px;border:1px solid var(--border,#c7ccc3);border-radius:999px;background:var(--surface,#fff);color:var(--heading,#173d34);font-size:.78rem;font-weight:750;cursor:pointer}
-  .feed-load-more:hover,.feed-load-more:focus-visible{border-color:var(--accent,#9b5e38);background:var(--subtle,#e4e9df)}
-  .feed-load-more:disabled{cursor:wait;opacity:.65}
-  .mobile-community-nav{display:none}
-  @media(max-width:900px){.header-context{display:none}.layout{grid-template-columns:180px minmax(0,720px);gap:28px}.community-nav{position:static;max-height:none;overflow:visible}}
-  @media(max-width:700px){
-    .home-header-inner{height:60px;padding:0 16px;gap:10px}
-    :global(.home-header .brand){font-size:1.2rem}
-    :global(.home-header .brand::before){width:26px;height:26px}
-    .header-actions{gap:0}
-    .header-icon{width:32px;height:32px}
-    .global-search{padding:0 16px 10px}
-    .home{padding:22px 0 110px}
-    .layout{display:block}
-    .community-nav{display:none}
-    .feed{max-width:none}
-  .feed>article.source-article{padding:20px 18px}
-  .timeline-preview-card{grid-template-columns:92px minmax(0,1fr);gap:11px;padding:8px}
-  .timeline-preview-card.no-image{grid-template-columns:minmax(0,1fr)}
-  .timeline-preview-copy p{font-size:.78rem;-webkit-line-clamp:3;line-clamp:3}
-    .feed-context time{margin-left:0}
-    .feed-tabs{padding:0 18px;margin-bottom:20px;gap:12px;overflow-x:auto}
-    .feed-head{padding:0 18px;margin-bottom:16px;flex-direction:column;align-items:stretch;gap:12px}
-    .feed-head-actions{justify-content:flex-start;margin-top:0}
-    .feed-head h1{font-size:2rem}
-    .feed-options>summary{padding:7px 8px}
-    .mobile-community-nav{display:none}
-    .feed>article{border:0;border-top:1px solid var(--border,#dedfd7);border-radius:0;background:transparent;padding:20px 18px;margin:0}
-    .feed>article:first-of-type{border-top:0}
-    .feed-pagination{padding:22px 18px 34px}
+  .home { padding-top: 24px; }
+  .layout { display: grid; grid-template-columns: 220px minmax(0, var(--feed)); justify-content: center; gap: 40px; }
+  .rail { position: sticky; top: calc(var(--header-h) + 20px); align-self: start; max-height: calc(100vh - var(--header-h) - 40px); overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+  .rail-head { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; margin-bottom: 6px; }
+  .rail-head h2 { margin: 0; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .rail-head a { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--muted); }
+  .rail-head a:hover { background: var(--hover); color: var(--heading); }
+  .rail-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); color: var(--muted); font-size: .9rem; font-weight: 500; }
+  .rail-link small { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--text-light); }
+  .rail-link:hover { background: var(--hover); color: var(--heading); }
+  .rail-link.selected { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+  .quiet { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
+  .quiet > summary { cursor: pointer; padding: 8px 10px; color: var(--text-light); font-size: .78rem; font-weight: 600; }
+
+  .feed { min-width: 0; }
+  .feed-tabs { display: flex; gap: 4px; margin: 0 0 14px; padding: 4px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); }
+  .feed-tabs a { flex: 1; text-align: center; padding: 8px 10px; border-radius: 999px; font-size: .875rem; font-weight: 600; color: var(--muted); }
+  .feed-tabs a:hover { color: var(--heading); }
+  .feed-tabs a.active { background: var(--surface); color: var(--heading); box-shadow: var(--shadow-sm); }
+  .chip-row { display: none; }
+
+  .welcome { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; padding: 22px 24px; border-radius: var(--radius); background: var(--wash); border: 1px solid var(--border); }
+  .welcome h2 { margin: 0; max-width: 34ch; font: 600 1.35rem/1.3 var(--font-serif); }
+  .welcome .eyebrow { margin-bottom: 6px; }
+  .welcome-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .feed-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 6px 2px 14px; }
+  .title-block { min-width: 0; }
+  .feed-head h1 { margin: 0; font: 650 1.5rem/1.2 var(--font-sans); letter-spacing: -.02em; overflow-wrap: anywhere; }
+  .back-all, .clear-search { display: inline-flex; align-items: center; gap: 5px; margin-right: 10px; font-size: .78rem; font-weight: 600; color: var(--muted); }
+  .back-all:hover, .clear-search:hover { color: var(--heading); text-decoration: underline; }
+  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ctl { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .ctl select { width: auto; min-height: 34px; padding: 4px 8px; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+  .ctl-button { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .ctl-button:hover, .filter[open] .ctl-button { background: var(--hover); color: var(--heading); }
+  .filter .menu-panel { right: 0; left: auto; min-width: 200px; padding: 10px; display: grid; gap: 4px; }
+  .check { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500; }
+  .check:hover { background: var(--hover); }
+
+  .state { display: grid; justify-items: start; gap: 6px; padding: 32px 24px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface); }
+  .state h2 { margin: 0; font-size: 1.1rem; }
+  .state p { margin: 0 0 8px; color: var(--muted); max-width: 52ch; }
+  .skeletons { display: grid; gap: 14px; }
+  .skeleton { display: grid; gap: 10px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .skeleton i { display: block; height: 14px; border-radius: 6px; background: linear-gradient(90deg, var(--subtle), var(--hover), var(--subtle)); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; }
+  .skeleton i:nth-child(1) { width: 35%; } .skeleton i:nth-child(2) { width: 85%; height: 20px; } .skeleton i:nth-child(3) { width: 60%; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  .pagination { display: grid; justify-items: center; gap: 10px; padding: 20px 0 36px; }
+  .pagination p { margin: 0; color: var(--muted); font-size: .85rem; }
+  .sentinel { width: 100%; height: 1px; pointer-events: none; }
+
+  @media (max-width: 960px) {
+    .layout { display: block; }
+    .rail { display: none; }
+    .chip-row { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 14px; padding-bottom: 4px; scrollbar-width: none; }
+    .chip-row::-webkit-scrollbar { display: none; }
+    .chip { flex: none; }
+  }
+  @media (max-width: 700px) {
+    .home { padding: 12px 0 120px; }
+    .feed-tabs, .chip-row, .welcome, .feed-head, .state { margin-left: 12px; margin-right: 12px; }
+    .feed-tabs { margin-bottom: 12px; }
+    .pagination { padding: 20px 12px 36px; }
+    .skeletons { padding: 0 12px; }
+    .welcome { padding: 18px; }
   }
 </style>

@@ -1,7 +1,5 @@
 <script>
   import { onMount } from 'svelte';
-  import SessionNav from '#lib/SessionNav.svelte';
-  import Brand from '#lib/Brand.svelte';
   import AuthorAvatar from '#lib/AuthorAvatar.svelte';
   import PostBody from '#lib/PostBody.svelte';
   import VideoLoopToggle from '#lib/VideoLoopToggle.svelte';
@@ -148,7 +146,6 @@
   <meta name="description" content={data.profile.bio || 'Profile for u/' + data.profile.handle + ' on Swartzit.'} />
 </svelte:head>
 
-<header><Brand /><span>Member profile</span><SessionNav /></header>
 <main id="main-content" class="profile-page">
   <section class="profile-card">
     <div class="profile-identity">

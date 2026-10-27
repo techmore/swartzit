@@ -39,7 +39,8 @@
           signal: controller.signal
         });
         if (response.ok && !stopped) {
-          counts = await response.json();
+          const next = await response.json();
+          if (typeof next?.view_count === 'number') counts = next;
           acknowledged = milestone;
           if (milestone === 0) rememberPost();
         }
@@ -62,6 +63,9 @@
     return () => { stopped = true; controller.abort(); clearInterval(timer); observer.disconnect(); document.removeEventListener('visibilitychange', tick); };
   });
 </script>
-<span bind:this={element} class="post-views" title="Opens and visible reading milestones. Repeat visits count; these are not unique people.">
-  {counts.view_count} views<span class="post-views-extra"> · {counts.engaged_view_count} engaged (10s) · {counts.deep_view_count} deeper reads (30s)</span>
+<span bind:this={element} class="post-views" title={`${counts.view_count} views · ${counts.engaged_view_count} read 10s+ · ${counts.deep_view_count} read 30s+. Repeat visits count; these are not unique people.`}>
+  {counts.view_count} {counts.view_count === 1 ? 'view' : 'views'}
 </span>
+<style>
+  .post-views { font-variant-numeric: tabular-nums; white-space: nowrap; }
+</style>

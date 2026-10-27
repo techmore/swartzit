@@ -40,7 +40,8 @@ test('new posts and cross-posts use the General community default', () => {
   const quickCrossPost = readFileSync(fileURLToPath(new URL('./QuickCrossPost.svelte', import.meta.url)), 'utf8');
   const crossPostRoute = readFileSync(fileURLToPath(new URL('../routes/api/cross-post/+server.js', import.meta.url)), 'utf8');
 
-  assert.match(page, /selectedCommunity=\{data\.community \|\| 'general'\}/);
+  // The shared composer reads the community from the URL and falls back to General.
+  assert.match(postComposer, /selectedCommunity = fromUrl \|\| 'general'/);
   assert.match(postComposer, /community = preferredCommunity\(communities, selectedCommunity\)/);
   assert.match(postComposer, /community: community \|\| 'general'/);
   assert.match(quickCrossPost, /community = xOnly && hideCommunity \? 'general' : preferredCommunity\(communities, selectedCommunity\)/);
@@ -48,16 +49,20 @@ test('new posts and cross-posts use the General community default', () => {
   assert.match(crossPostRoute, /crossPostCommunity\(input\.community\)/);
 });
 
-test('the floating X and regular post actions are available on the feed and post pages', () => {
-  const page = readFileSync(fileURLToPath(new URL('../routes/+page.svelte', import.meta.url)), 'utf8');
-  const composer = readFileSync(fileURLToPath(new URL('./PostComposer.svelte', import.meta.url)), 'utf8');
-  const detail = readFileSync(fileURLToPath(new URL('../routes/post/[id]/+page.svelte', import.meta.url)), 'utf8');
+test('one global composer serves every page, opened from the header or mobile bar', () => {
+  const read = rel => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  const composer = read('./PostComposer.svelte');
+  const layout = read('../routes/+layout.svelte');
+  const header = read('./SiteHeader.svelte');
+  const mobile = read('./MobileNav.svelte');
 
-  assert.match(page, /<PostComposer communities=\{data\.communities\} selectedCommunity=\{data\.community \|\| 'general'\}/);
-  assert.match(page, /bind:mode=\{composeMode\}/);
-  assert.match(composer, /class="composer-launcher"/);
-  assert.match(composer, /class="launcher-x"/);
-  assert.match(composer, /class="launcher-post"/);
-  assert.match(composer, /aria-controls="compose-panel"/);
-  assert.match(detail, /<PostComposer selectedCommunity="general" \/>/);
+  assert.match(layout, /<PostComposer \/>/);
+  assert.match(composer, /swartzit:compose/);
+  assert.match(composer, /role="dialog" aria-modal="true"/);
+  assert.match(composer, /mode === 'x'/);
+  assert.match(header, /swartzit:compose/);
+  assert.match(mobile, /swartzit:compose/);
+  // Pages no longer mount their own composer.
+  assert.doesNotMatch(read('../routes/+page.svelte'), /<PostComposer/);
+  assert.doesNotMatch(read('../routes/post/[id]/+page.svelte'), /<PostComposer/);
 });

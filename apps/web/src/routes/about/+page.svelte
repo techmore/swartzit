@@ -1,43 +1,26 @@
-<script>
-  import SessionNav from '#lib/SessionNav.svelte';
-  import Brand from '#lib/Brand.svelte';
-</script>
-
 <svelte:head><title>About Swartzit</title></svelte:head>
-
-<header>
-  <Brand />
-  <span>Read freely. Participate under a pseudonym. Take your community with you.</span>
-  <SessionNav />
-</header>
 
 <main id="main-content" class="about-page">
   <section class="about-hero">
-    <p class="eyebrow">THE OPEN DISCUSSION NETWORK</p>
+    <p class="eyebrow">The open discussion network</p>
     <h1>Conversations that belong to their communities.</h1>
     <p class="lede">Public posts and comments stay readable without an account. Join when you’re ready to contribute.</p>
+    <div class="actions"><a class="btn" href="/">Browse discussions</a><a class="btn btn-secondary" href="/signup">Create account</a></div>
   </section>
 
-  <section class="about-details" aria-label="About Swartzit">
-    <div>
-      <p class="eyebrow">A PUBLIC COMMONS</p>
-      <h2>Read first. Join when it feels right.</h2>
-    </div>
-    <p>Swartzit keeps community conversations open to everyone. Browse discussions, follow the ideas that matter to you, and participate under a pseudonym when you’re ready.</p>
+  <section class="pillars" aria-label="Principles">
+    <div class="card"><h2>Read freely</h2><p>No login wall stands between a reader and a public conversation. Open a link, read the discussion, follow an idea.</p></div>
+    <div class="card"><h2>Participate under a pseudonym</h2><p>Choose a handle for your conversations. No real name or external identity provider is required.</p></div>
+    <div class="card"><h2>Take your community with you</h2><p>Public data can be exported at any time, so communities are never locked in. Migration is a design goal.</p></div>
   </section>
-
-  <a class="back-link" href="/">← Browse discussions</a>
 </main>
 
 <style>
-  .about-page{max-width:1180px}
-  .about-hero{max-width:760px;padding:58px 0 84px}
-  .about-hero h1{font:500 clamp(2.8rem,7vw,5.8rem)/1.02 Georgia,serif;letter-spacing:-.055em;color:var(--heading,#173d34);margin:18px 0 24px}
-  .eyebrow{font-size:.72rem;letter-spacing:.16em;color:var(--accent,#9b5e38);font-weight:700}
-  .lede{font-size:1.2rem;line-height:1.6;color:var(--muted,#5c6b66);max-width:560px}
-  .about-details{border-top:1px solid var(--border,#d8d5ca);border-bottom:1px solid var(--border,#d8d5ca);display:grid;grid-template-columns:1fr 1fr;gap:60px;padding:32px 0;margin-bottom:28px;max-width:900px}
-  .about-details h2{font:500 1.8rem/1.15 Georgia,serif;color:var(--heading,#173d34);margin:12px 0 0;max-width:320px}
-  .about-details p:last-child{color:var(--muted,#53615d);margin:0;max-width:460px}
-  .back-link{color:var(--accent,#9b5e38);font-weight:700;font-size:.9rem}
-  @media(max-width:700px){.about-page{padding:28px 18px 80px}.about-hero{padding:28px 0 54px}.about-hero h1{font-size:2.8rem}.lede{font-size:1.05rem}.about-details{display:block;padding:24px 0}.about-details h2{margin-bottom:22px}}
+  .about-hero { max-width: 760px; padding: 40px 0 56px; }
+  .about-hero h1 { font: 600 clamp(2.4rem, 6vw, 4.2rem)/1.05 var(--font-serif); letter-spacing: -.03em; margin: 8px 0 20px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .pillars h2 { margin: 0 0 8px; font-size: 1.1rem; }
+  .pillars p { margin: 0; color: var(--muted); }
+  @media (max-width: 800px) { .pillars { grid-template-columns: 1fr; } .about-hero { padding: 16px 0 32px; } }
 </style>
