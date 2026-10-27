@@ -1,10 +1,24 @@
 name: CI
+# Run once per change: on pull requests, and on pushes to main.
+# Pushing to a PR branch used to start CI twice (push + pull_request), and every
+# techmore repo shares one account-wide concurrent job limit.
 on:
   push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+# A newer push to the same PR cancels the older run; runs on main always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   rust:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       DATABASE_URL: sqlite:/tmp/swartzit-ci.sqlite
     steps:
