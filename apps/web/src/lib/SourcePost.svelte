@@ -127,7 +127,7 @@
       {#each source.media as item, index}
         {@const media = attachment(item)}
         <figure class:carousel-slide={source.media.length > 1} class:inactive={source.media.length > 1 && index !== activeMedia}>
-          {#if failed[media.src]}<p>This browser could not load the {media.kind === 'video' ? 'video' : 'image'}. <a href={source.source_url} target="_blank" rel="noopener noreferrer">View original post</a></p>
+          {#if failed[media.src]}<p class="media-unavailable" role="status"><span aria-hidden="true">⚠</span> {media.kind === 'video' ? 'Video' : 'Image'} unavailable<span aria-hidden="true"> · </span><a href={source.source_url} target="_blank" rel="noopener noreferrer">View original post ↗</a></p>
           {:else if media.kind === 'video'}
             <!-- Source videos have no caption tracks available. -->
             <!-- svelte-ignore a11y_media_has_caption -->
@@ -176,6 +176,7 @@
   .source-images{display:grid;gap:8px;margin:8px 0;max-width:680px}
   .media-shell{position:relative}.carousel-shell{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}.carousel-images{display:block;min-height:220px}.carousel-slide.inactive{display:none}.carousel-button{width:36px;height:36px;border:1px solid var(--border,#c7d0c6);border-radius:50%;background:var(--surface,#fff);color:var(--text,#15251b);font-size:1.8rem;line-height:1;cursor:pointer}.carousel-button:hover{background:var(--subtle,#f0f3ec)}.carousel-status{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:680px;color:var(--muted,#66766c);font-size:.78rem}.carousel-dots{display:flex;gap:5px}.carousel-dots button{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:var(--border,#c7d0c6);cursor:pointer}.carousel-dots button.active{background:var(--link,#215e47);transform:scale(1.25)}
   figure{margin:0;min-width:0} figcaption{margin-top:6px;color:var(--muted,#66766c)}
+  .source-post .media-unavailable{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0;padding:8px 10px;border:1px dashed var(--border,#c7d0c6);border-radius:var(--radius-sm);background:var(--subtle,#f5f7f3);color:var(--muted,#53615d);font-size:.8rem;line-height:1.3}.media-unavailable a{font-weight:600}.carousel-images:has(.carousel-slide:not(.inactive) .media-unavailable){min-height:0}
   .source-images img,.source-images video{border-radius:var(--radius-sm);width:100%;max-height:420px;object-fit:contain;background:var(--subtle,#dde3da);display:block}
   .source-images video{height:clamp(220px,30vw,420px);aspect-ratio:16/9}
   .video-tools{display:flex;align-items:center;gap:10px;margin-top:7px}.video-tools a{font-size:.76rem;font-weight:600}
