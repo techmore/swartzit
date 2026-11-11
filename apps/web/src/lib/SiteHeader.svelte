@@ -6,6 +6,7 @@
   import Brand from '#lib/Brand.svelte';
   import ThemeToggle from '#lib/ThemeToggle.svelte';
   import AutoplayToggle from '#lib/AutoplayToggle.svelte';
+  import ModeSwitch from '#lib/ModeSwitch.svelte';
   import { currentUser, loadCurrentUser } from '#lib/session-store.js';
   import { loginHref } from '#lib/auth-session.mjs';
 
@@ -66,6 +67,7 @@
 
     <div class="actions">
       <button type="button" class="icon-btn mobile-only" aria-label={searchOpen ? 'Close search' : 'Search discussions'} aria-expanded={searchOpen} onclick={toggleSearch}><Icon name={searchOpen ? 'x' : 'search'} size={20} /></button>
+      <span class="mode-desktop"><ModeSwitch /></span>
       <ThemeToggle />
       {#if user}
         <button type="button" class="btn new-post" onclick={() => compose('post')}><Icon name="plus" size={18} /><span>New post</span></button>
@@ -96,6 +98,7 @@
               <a class="menu-item" role="menuitem" href="/history"><Icon name="clock" size={18} />Reading history</a>
             {/if}
             <hr class="menu-divider" />
+            <ModeSwitch variant="row" />
             <AutoplayToggle />
             <a class="menu-item" role="menuitem" href="/api/export" download="swartzit-export.json"><Icon name="download" size={18} />Export public data</a>
             <a class="menu-item" role="menuitem" href="/about"><Icon name="info" size={18} />About Swartzit</a>
@@ -146,7 +149,9 @@
   .who small { font-size: .75rem; }
   .mobile-only, .mobile-search { display: none; }
 
+  .mode-desktop { display: contents; }
   @media (max-width: 900px) {
+    .mode-desktop { display: none; }
     .primary { display: none; }
     .desktop-search { display: none; }
     .mobile-only { display: inline-flex; }

@@ -16,6 +16,7 @@
       <div class="listen-row">
         <button type="button" onclick={() => playTracks([data.track])}><Icon name={playing ? 'headphones' : 'play'} size={17} filled={!playing} /> {playing ? 'Now playing' : 'Listen'}{data.track.title !== data.label ? ` · ${data.track.title}` : ''}</button>
         {#if data.restOfBook.length > 1}<button type="button" class="secondary" onclick={() => playTracks(data.restOfBook, 0)}>Listen through to the end of {data.book.name}</button>{/if}
+        {#each data.videos as video (video.youtube)}<a class="watch-link" href={`/bible/${data.book.slug}#watch`}>Watch {video.reader} read {data.book.name}</a>{/each}
       </div>
     {/if}
   </header>
@@ -46,6 +47,7 @@
   .kicker { margin: 0 0 4px; color: var(--gilt, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
   h1 { margin: 0 0 14px; font: 600 clamp(1.9rem, 5vw, 2.6rem)/1.1 var(--font-serif); }
   .listen-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .watch-link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 6px; color: var(--link); font-weight: 600; font-size: .9rem; }
   .listen-row button { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 0 16px; min-height: 40px; }
   .scripture { padding: 0; border: 0; background: transparent; box-shadow: none; font: 400 1.16rem/1.85 var(--font-scripture, var(--font-serif)); color: var(--text); }
   .scripture p { margin: 0 0 .55em; }

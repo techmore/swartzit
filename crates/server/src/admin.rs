@@ -566,6 +566,7 @@ pub struct UpdateSettings {
     content_runners_enabled: Option<bool>,
     moderation_enabled: Option<bool>,
     bible_enabled: Option<bool>,
+    bible_default: Option<bool>,
     adsense_enabled: Option<bool>,
     adsense_publisher_id: Option<String>,
     media_primary: Option<String>,
@@ -604,6 +605,7 @@ pub async fn settings(
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
     let bible_enabled = bible_module_enabled(&db).await?;
+    let bible_default = bible_default_mode(&db).await?;
     let adsense_enabled: bool =
         sqlx::query_scalar("SELECT enabled FROM instance_modules WHERE module_key = 'adsense'")
             .fetch_optional(&db)
@@ -629,7 +631,8 @@ pub async fn settings(
                 "enabled": moderation_enabled
             },
             "bible": {
-                "enabled": bible_enabled
+                "enabled": bible_enabled,
+                "default_bible": bible_default
             },
             "adsense": {
                 "enabled": adsense_enabled
@@ -714,12 +717,54 @@ async fn set_bible_module(db: &SqlitePool, actor: i64, enabled: bool) -> Result<
     Ok(())
 }
 
-/// Public, unauthenticated: the web client uses this to choose the Reformed
-/// presentation and to show the Bible reader.
+/// Whether visitors who have not picked a mode start in Bible mode. Each
+/// visitor can switch for themselves. A missing row means yes, so instances
+/// that enabled the mode before it became per-visitor keep their behaviour.
+pub(crate) async fn bible_default_mode(db: &SqlitePool) -> Result<bool, ApiError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT enabled FROM instance_modules WHERE module_key = 'bible_default'",
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(true))
+}
+
+async fn set_bible_default(
+    db: &SqlitePool,
+    actor: i64,
+    start_in_bible: bool,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
+         VALUES ('bible_default', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+         ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+    )
+    .bind(start_in_bible)
+    .bind(actor)
+    .execute(db)
+    .await?;
+    log_event(
+        db,
+        "info",
+        "admin.module_toggled",
+        serde_json::json!({"actor_id": actor, "module": "bible_default", "enabled": start_in_bible}),
+    )
+    .await;
+    Ok(())
+}
+
+/// Public, unauthenticated: whether Bible mode is available on this instance,
+/// which mode new visitors start in, and the communities it focuses on. Each
+/// visitor's own choice is kept by the web client.
 pub async fn bible_config(
     State(db): State<SqlitePool>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let enabled = bible_module_enabled(&db).await?;
+    let default_mode = if enabled && bible_default_mode(&db).await? {
+        "bible"
+    } else {
+        "standard"
+    };
     let communities: Vec<&str> = if enabled {
         BIBLE_COMMUNITIES.iter().map(|(slug, _, _)| *slug).collect()
     } else {
@@ -727,6 +772,7 @@ pub async fn bible_config(
     };
     Ok(Json(serde_json::json!({
         "enabled": enabled,
+        "default_mode": default_mode,
         "communities": communities
     })))
 }
@@ -841,6 +887,7 @@ pub async fn update_settings(
         && input.content_runners_enabled.is_none()
         && input.moderation_enabled.is_none()
         && input.bible_enabled.is_none()
+        && input.bible_default.is_none()
         && input.adsense_enabled.is_none()
         && input.adsense_publisher_id.is_none()
         && input.media_primary.is_none()
@@ -905,6 +952,9 @@ pub async fn update_settings(
     }
     if let Some(enabled) = input.bible_enabled {
         set_bible_module(&db, actor, enabled).await?;
+    }
+    if let Some(start_in_bible) = input.bible_default {
+        set_bible_default(&db, actor, start_in_bible).await?;
     }
     if let Some(publisher_id) = normalized_adsense_publisher_id.as_ref() {
         sqlx::query(
@@ -1079,6 +1129,7 @@ pub async fn update_settings(
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
     let bible_enabled = bible_module_enabled(&db).await?;
+    let bible_default = bible_default_mode(&db).await?;
     let media = media_store::settings_view(&db)
         .await
         .map_err(ApiError::Storage)?;
@@ -1094,7 +1145,8 @@ pub async fn update_settings(
                 "enabled": moderation_enabled
             },
             "bible": {
-                "enabled": bible_enabled
+                "enabled": bible_enabled,
+                "default_bible": bible_default
             }
         },
         "media": media
@@ -4005,6 +4057,7 @@ mod tests {
         let Json(config) = bible_config(State(db.clone())).await.unwrap();
         assert_eq!(config["enabled"], false);
         assert_eq!(config["communities"], serde_json::json!([]));
+        assert_eq!(config["default_mode"], "standard");
 
         // A pre-existing community keeps its name; enabling twice is harmless.
         sqlx::query("INSERT INTO communities(slug,name) VALUES ('sermons','Our Sermons')")
@@ -4032,6 +4085,12 @@ mod tests {
         let Json(config) = bible_config(State(db.clone())).await.unwrap();
         assert_eq!(config["enabled"], true);
         assert_eq!(config["communities"][0], "scripture");
+        // New visitors start in Bible mode until the admin says otherwise.
+        assert_eq!(config["default_mode"], "bible");
+        set_bible_default(&db, admin, false).await.unwrap();
+        let Json(config) = bible_config(State(db.clone())).await.unwrap();
+        assert_eq!(config["default_mode"], "standard");
+        set_bible_default(&db, admin, true).await.unwrap();
 
         // Disabling hides the mode but keeps communities and their posts.
         set_bible_module(&db, admin, false).await.unwrap();

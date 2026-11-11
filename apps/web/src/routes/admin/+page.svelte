@@ -316,7 +316,8 @@
     finally { busy = false; }
   }
   async function toggleRunners(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { content_runners_enabled: enabled }); notice = enabled ? 'Content runners enabled.' : 'Content runners disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
-  async function toggleBible(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { bible_enabled: enabled }); notice = enabled ? 'Biblical mode enabled. Reload any open page to see the Reformed presentation (it can take up to 15 seconds).' : 'Biblical mode disabled. Biblical communities and their posts remain.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
+  async function toggleBible(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { bible_enabled: enabled }); notice = enabled ? 'Bible mode is available. Visitors can switch with the Standard / Bible control in the header (changes show within 15 seconds).' : 'Bible mode turned off for everyone. The Biblical communities and their posts remain.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
+  async function setBibleDefault(startInBible) { busy = true; notice = ''; try { await api('settings', 'POST', { bible_default: startInBible }); notice = startInBible ? 'New visitors start in Bible mode.' : 'New visitors start in Standard mode.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   async function toggleModeration(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { moderation_enabled: enabled }); notice = enabled ? 'Publication moderation enabled for posts and comments.' : 'Publication moderation disabled. Posts and comments publish immediately; profile changes always publish immediately.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   async function toggleAdsense(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { adsense_enabled: enabled }); notice = enabled ? 'Google AdSense enabled for public pages.' : 'Google AdSense disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   async function saveAdsensePublisherId() { busy = true; notice = ''; try { await api('settings', 'POST', { adsense_publisher_id: adsensePublisherId }); notice = adsensePublisherId.trim() ? 'AdSense publisher ID saved.' : 'AdSense publisher ID cleared; ads are disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
@@ -588,8 +589,15 @@
         </section>
         <section class="panel">
           <h3>Biblical mode</h3>
-          <p><label><input type="checkbox" checked={settings?.modules?.bible?.enabled === true} onchange={(event) => toggleBible(event.currentTarget.checked)} disabled={busy} /> Present this instance for Scripture, sermons, and study</label></p>
-          <p class="muted">Switches the site to a Reformed / Presbyterian presentation, adds the Bible reader and listening player, and focuses the public timeline on c/scripture, c/daily_reading, c/sermons, and c/deeper_dives (created on first enable). Readers can still choose “Everything”. Turning it off keeps those communities and posts. Fill the feed with <code>node scripts/bible-feed.mjs</code>; see <code>docs/biblical-mode.md</code>.</p>
+          <p><label><input type="checkbox" checked={settings?.modules?.bible?.enabled === true} onchange={(event) => toggleBible(event.currentTarget.checked)} disabled={busy} /> Offer Bible mode on this instance</label></p>
+          {#if settings?.modules?.bible?.enabled}
+            <fieldset class="bible-default" disabled={busy}>
+              <legend>New visitors start in</legend>
+              <label><input type="radio" name="bible-default" checked={settings?.modules?.bible?.default_bible !== false} onchange={() => setBibleDefault(true)} /> Bible mode</label>
+              <label><input type="radio" name="bible-default" checked={settings?.modules?.bible?.default_bible === false} onchange={() => setBibleDefault(false)} /> Standard mode</label>
+            </fieldset>
+          {/if}
+          <p class="muted">Each visitor picks Standard or Bible with the switch in the header, and their browser remembers it. Bible mode uses a Reformed / Presbyterian presentation, adds the Bible reader and listening player, and focuses the timeline on c/scripture, c/daily_reading, c/sermons, and c/deeper_dives (created on first enable). Turning it off returns everyone to Standard and keeps those communities and posts. Fill the feed with <code>node scripts/bible-feed.mjs</code>; see <code>docs/biblical-mode.md</code>.</p>
         </section>
         <section class="panel">
           <h3>Publication moderation</h3>
@@ -742,6 +750,8 @@
 {/if}
 
 <style>
+  .bible-default { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 10px; padding: 0; border: 0; }
+  .bible-default legend { width: 100%; margin-bottom: 4px; font-size: .85rem; font-weight: 650; color: var(--heading); }
   .admin-auth{max-width:620px}
   .admin .metrics a.admin-metric{display:grid;align-content:start;padding:18px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:inherit;text-decoration:none;transition:border-color .16s,box-shadow .16s}
   .admin .metrics a.admin-metric:hover{border-color:var(--accent);box-shadow:0 5px 16px color-mix(in srgb,var(--heading) 8%,transparent)}

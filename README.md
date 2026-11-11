@@ -355,7 +355,8 @@ public exports, and an admin dashboard.
 
 ### Biblical mode
 
-**Admin → Settings → Biblical mode** (off by default) turns the instance into a
+**Admin → Settings → Biblical mode** (off by default) offers each visitor a
+Standard / Bible switch in the header. Bible mode turns the instance into a
 place for Scripture, sermons, and study: a Reformed / Presbyterian presentation,
 a KJV Bible reader at `/bible` with public-domain LibriVox audio for every
 chapter, a persistent listening player (play a whole book such as Titus, a

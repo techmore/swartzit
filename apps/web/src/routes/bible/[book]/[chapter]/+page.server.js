@@ -1,3 +1,4 @@
+import { videosForBook } from '#lib/bible/readings-video.mjs';
 import { error } from '@sveltejs/kit';
 import { findBook, BOOKS, chapterLabel, chapterSourceUrl } from '#lib/bible/books.mjs';
 import { bookTracks, chapterTrack } from '#lib/bible/audio.mjs';
@@ -17,6 +18,7 @@ export async function load({ params, fetch }) {
   if (!book || book.slug !== params.book || !Number.isInteger(chapter) || chapter < 1 || chapter > book.chapters || String(chapter) !== params.chapter) error(404, 'No such chapter');
   return {
     book: { ...book },
+    videos: videosForBook(book.slug),
     chapter,
     label: chapterLabel(book, chapter),
     text: await chapterText(book, chapter, fetch),
