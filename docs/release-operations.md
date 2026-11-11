@@ -145,10 +145,19 @@ To allow unattended installation, add:
 SWARTZIT_AUTO_UPDATE=true
 ```
 
+For a fresh install, `SWARTZIT_AUTO_UPDATE=1` also requires an approved
+`SWARTZIT_RELEASE_TAG`; the installer writes these settings to
+`/etc/swartzit/upgrade.env` and refuses to overwrite an existing file.
+
 Only enable unattended mode after a successful manual `--yes` run and a
 restore rehearsal. Unattended mode still requires a valid backup, a successful
 restore rehearsal, matching release checksums, and a passing health check, so a
 bad release cannot install itself.
+
+The scheduled check skips an already installed pinned tag only when its success
+receipt, checked-out commit, and local tag all agree. Missing or inconsistent
+evidence invokes the guarded updater again. A dry run checks release asset
+metadata only; it does not download assets or verify their checksums.
 
 Inspect the timer and log with:
 

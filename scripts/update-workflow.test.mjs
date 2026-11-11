@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +8,70 @@ import test from 'node:test';
 
 const root = new URL('../', import.meta.url);
 const read = (relative) => fs.readFileSync(new URL(relative, root), 'utf8');
+
+test('release checksum gate rejects missing, duplicate, altered, and unexpected assets', () => {
+  const updater = read('scripts/swartzit-release-update.sh');
+  const fn = updater.slice(updater.indexOf('verify_release_checksums() {'), updater.indexOf('\n# Only tracked modifications'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'swartzit-checksums-'));
+  const names = ['swartzit-server-linux-amd64', 'swartzit-web-linux-amd64.tar.gz', 'VERSION'];
+  try {
+    const entries = names.map(name => {
+      fs.writeFileSync(path.join(dir, name), name);
+      return `${createHash('sha256').update(name).digest('hex')}  ${name}\n`;
+    });
+    const run = lines => {
+      fs.writeFileSync(path.join(dir, 'SHA256SUMS'), lines.join(''));
+      return spawnSync('bash', ['-c', `set -e\n${fn}\nverify_release_checksums`], { env: { ...process.env, WORK: dir }, encoding: 'utf8' });
+    };
+    assert.equal(run(entries).status, 0);
+    assert.notEqual(run(entries.slice(0, 2)).status, 0);
+    assert.notEqual(run([...entries, entries[0]]).status, 0);
+    assert.notEqual(run([...entries, `${'0'.repeat(64)}  other\n`]).status, 0);
+    fs.writeFileSync(path.join(dir, names[0]), 'tampered');
+    assert.notEqual(run(entries).status, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('an enabled but stopped worker timer stays stopped after an update', () => {
+  const updater = read('scripts/swartzit-release-update.sh');
+  const section = updater.slice(updater.indexOf('WORKER_TIMER_WAS_ACTIVE=0'), updater.indexOf('resume_services()'));
+  for (const [active, expected] of [[true, '1'], [false, '0']]) {
+    const result = spawnSync('bash', ['-c', `systemctl() { [[ "$1" == is-active ]] && return ${active ? 0 : 1}; return 0; }\n${section}\nprintf '%s' "$WORKER_TIMER_WAS_ACTIVE"`], { encoding: 'utf8' });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, expected);
+  }
+});
+
+test('scheduled updater skips only when receipt, checkout, and tag agree', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'swartzit-update-check-'));
+  const app = path.join(dir, 'app');
+  const scripts = path.join(dir, 'tools', 'scripts');
+  try {
+    fs.mkdirSync(app); fs.mkdirSync(scripts, { recursive: true });
+    const git = (...args) => {
+      const result = spawnSync('git', ['-C', app, ...args], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+    };
+    git('init', '-q'); git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.invalid');
+    fs.writeFileSync(path.join(app, 'tracked'), 'one'); git('add', 'tracked'); git('commit', '-qm', 'initial'); git('tag', 'v1');
+    const commit = git('rev-parse', 'HEAD');
+    fs.mkdirSync(path.join(app, 'state'));
+    const receipt = path.join(app, 'state', 'current-release.json');
+    fs.copyFileSync(new URL('swartzit-upgrade-check.sh', import.meta.url), path.join(scripts, 'swartzit-upgrade-check.sh'));
+    const marker = path.join(dir, 'called');
+    fs.writeFileSync(path.join(scripts, 'swartzit-release-update.sh'), 'printf called > "$MARKER"\n');
+    const run = () => spawnSync('bash', [path.join(scripts, 'swartzit-upgrade-check.sh')], { encoding: 'utf8', env: { ...process.env, SWARTZIT_AUTO_UPDATE: 'true', SWARTZIT_RELEASE_TAG: 'v1', SWARTZIT_APP_DIR: app, SWARTZIT_UPGRADE_LOG: path.join(dir, 'log'), MARKER: marker } });
+    fs.writeFileSync(receipt, JSON.stringify({ tag: 'v1', commit }));
+    assert.equal(run().status, 0); assert.equal(fs.existsSync(marker), false);
+    fs.writeFileSync(receipt, JSON.stringify({ tag: 'v1', commit: 'wrong' }));
+    assert.equal(run().status, 0); assert.equal(fs.readFileSync(marker, 'utf8'), 'called');
+    fs.unlinkSync(marker); fs.writeFileSync(receipt, '[]');
+    assert.equal(run().status, 0); assert.equal(fs.existsSync(marker), true);
+    fs.unlinkSync(marker); fs.writeFileSync(receipt, JSON.stringify({ tag: 'v1', commit }));
+    fs.writeFileSync(path.join(app, 'tracked'), 'two'); git('add', 'tracked'); git('commit', '-qm', 'later');
+    assert.equal(run().status, 0); assert.equal(fs.existsSync(marker), true);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 
 // The Linux entry point is a thin wrapper: the gates live in the release
 // updater it delegates to, so these assertions follow the behaviour rather than
