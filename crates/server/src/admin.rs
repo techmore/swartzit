@@ -696,7 +696,7 @@ async fn set_bible_module(db: &SqlitePool, actor: i64, enabled: bool) -> Result<
     if enabled {
         for (slug, name, description) in BIBLE_COMMUNITIES {
             sqlx::query(
-                "INSERT INTO communities(slug, name, description) VALUES (?1, ?2, ?3)
+                "INSERT INTO communities(slug, name, description, app_visible) VALUES (?1, ?2, ?3, 1)
                  ON CONFLICT (slug) DO NOTHING",
             )
             .bind(slug)
@@ -715,6 +715,43 @@ async fn set_bible_module(db: &SqlitePool, actor: i64, enabled: bool) -> Result<
     )
     .await;
     Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct CommunityAppVisibility {
+    visible: bool,
+}
+
+/// Choose whether native app clients (the iPhone app) receive a community.
+/// Apps only ever receive general-rated posts from the communities chosen
+/// here, so an instance can carry content that app stores do not allow.
+pub async fn set_community_app_visibility(
+    State(db): State<SqlitePool>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+    Json(input): Json<CommunityAppVisibility>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let updated = sqlx::query("UPDATE communities SET app_visible = ?1 WHERE slug = ?2")
+        .bind(input.visible)
+        .bind(&slug)
+        .execute(&db)
+        .await?
+        .rows_affected();
+    if updated == 0 {
+        return Err(ApiError::Missing);
+    }
+    operations::clear_public_cache();
+    log_event(
+        &db,
+        "info",
+        "admin.community_app_visibility",
+        serde_json::json!({"actor_id": actor, "community": slug, "visible": input.visible}),
+    )
+    .await;
+    Ok(Json(
+        serde_json::json!({"community": slug, "app_visible": input.visible}),
+    ))
 }
 
 /// Whether visitors who have not picked a mode start in Bible mode. Each

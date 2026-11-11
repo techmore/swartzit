@@ -75,6 +75,8 @@ struct Community {
     name: String,
     description: String,
     post_count: i64,
+    /// Whether native app clients (the iPhone app) receive this community.
+    app_visible: bool,
 }
 #[derive(Serialize, FromRow)]
 struct Post {
@@ -188,6 +190,27 @@ struct FeedQuery {
     mature_only: Option<bool>,
     /// `bible` limits the public timeline to Biblical-mode communities.
     scope: Option<String>,
+    /// `app` for native app clients: only app-visible communities and only
+    /// general-rated posts, whatever else the request asks for.
+    client: Option<String>,
+}
+/// Which kind of client is asking. Native apps (`app`) receive a narrower,
+/// administrator-chosen slice of the instance; see `communities.app_visible`.
+#[derive(Deserialize, Default)]
+struct ClientQuery {
+    client: Option<String>,
+}
+fn app_client(client: Option<&str>) -> Result<bool, ApiError> {
+    match client {
+        None | Some("") | Some("web") => Ok(false),
+        Some("app") => Ok(true),
+        Some(_) => Err(ApiError::Invalid("Client must be web or app")),
+    }
+}
+impl ClientQuery {
+    fn app(&self) -> Result<bool, ApiError> {
+        app_client(self.client.as_deref())
+    }
 }
 const FEED_PAGE_SIZE: i64 = 12;
 #[derive(Deserialize, Default)]
@@ -879,6 +902,73 @@ async fn nodeinfo() -> Json<serde_json::Value> {
     Json(
         serde_json::json!({"version":"2.0","software":{"name":"swartzit","version":env!("CARGO_PKG_VERSION")},"protocols":[],"usage":{"users":{"total":null},"localPosts":null},"openRegistrations":true}),
     )
+}
+#[derive(Deserialize)]
+struct DeleteAccountRequest {
+    password: String,
+}
+/// Lets a person delete their own account (required of apps that offer sign
+/// up). The row stays so that comment threads and moderation history remain
+/// consistent, but every personal detail goes: the handle becomes
+/// `deleted-<id>` (unclaimable, since sign-up rejects hyphens), the password
+/// is removed so nobody can sign in, their posts are withdrawn, their
+/// comments are blanked, and their sessions, votes, bookmarks, follows and
+/// other preferences are deleted. Administrators must be demoted first.
+async fn delete_account(
+    State(db): State<SqlitePool>,
+    headers: HeaderMap,
+    Json(input): Json<DeleteAccountRequest>,
+) -> Result<StatusCode, ApiError> {
+    let author_id = authenticated_author(&headers, &db).await?;
+    let row: Option<(String, bool)> = sqlx::query_as(
+        "SELECT password_hash, is_admin FROM authors WHERE id = ?1 AND password_hash IS NOT NULL AND deleted_at IS NULL",
+    )
+    .bind(author_id)
+    .fetch_optional(&db)
+    .await?;
+    let Some((password_hash, is_admin)) = row else {
+        return Err(ApiError::Unauthorized);
+    };
+    if !verify_password(&input.password, &password_hash) {
+        return Err(ApiError::Invalid("That password is not correct"));
+    }
+    if is_admin {
+        return Err(ApiError::Invalid(
+            "Administrator accounts cannot be deleted here. Remove admin access first.",
+        ));
+    }
+    let mut tx = db.begin().await?;
+    for sql in [
+        "DELETE FROM sessions WHERE author_id = ?1",
+        "DELETE FROM post_votes WHERE author_id = ?1",
+        "DELETE FROM bookmarks WHERE author_id = ?1",
+        "DELETE FROM bookmark_folders WHERE author_id = ?1",
+        "DELETE FROM community_subscriptions WHERE author_id = ?1",
+        "DELETE FROM buddy_follows WHERE follower_id = ?1 OR followed_id = ?1",
+        "DELETE FROM x_author_subscriptions WHERE author_id = ?1",
+        "DELETE FROM author_pinned_posts WHERE author_id = ?1",
+        "DELETE FROM author_post_preferences WHERE author_id = ?1",
+        "DELETE FROM author_like_privacy WHERE author_id = ?1",
+        "DELETE FROM author_like_share_recipients WHERE author_id = ?1 OR recipient_id = ?1",
+        "DELETE FROM author_projects WHERE author_id = ?1",
+        "DELETE FROM draw_things_feedback WHERE author_id = ?1",
+        "DELETE FROM reports WHERE reporter_id = ?1 AND resolved_at IS NULL",
+        "UPDATE posts SET moderation_status = 'rejected' WHERE author_id = ?1",
+        "UPDATE comments SET body = '[deleted]', source = NULL WHERE author_id = ?1",
+        "UPDATE authors SET handle = 'deleted-' || id, password_hash = NULL, display_name = '', bio = '', avatar_url = NULL, suspension_reason = '', profile_updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+    ] {
+        sqlx::query(sql).bind(author_id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    operations::clear_public_cache();
+    log_event(
+        &db,
+        "info",
+        "account.deleted",
+        serde_json::json!({"author_id": author_id}),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
 }
 async fn signup(
     State(db): State<SqlitePool>,
@@ -2055,7 +2145,7 @@ async fn create_community(
             "Community name or description is outside the allowed length",
         ));
     }
-    let community = sqlx::query_as::<_, Community>("INSERT INTO communities (slug, name, description) VALUES (?1, ?2, ?3) RETURNING slug, name, description, 0 AS post_count").bind(&slug).bind(name).bind(description).fetch_optional(&db).await.map_err(|e| if matches!(e, sqlx::Error::Database(ref db) if db.is_unique_violation()) { ApiError::Invalid("That community slug is already in use") } else { ApiError::Database(e) })?;
+    let community = sqlx::query_as::<_, Community>("INSERT INTO communities (slug, name, description) VALUES (?1, ?2, ?3) RETURNING slug, name, description, 0 AS post_count, app_visible").bind(&slug).bind(name).bind(description).fetch_optional(&db).await.map_err(|e| if matches!(e, sqlx::Error::Database(ref db) if db.is_unique_violation()) { ApiError::Invalid("That community slug is already in use") } else { ApiError::Database(e) })?;
     operations::clear_public_cache();
     Ok((
         StatusCode::CREATED,
@@ -2523,27 +2613,38 @@ async fn vote(
         your_vote: (input.value != 0).then_some(input.value),
     }))
 }
-async fn communities(State(db): State<SqlitePool>) -> Result<Json<Vec<Community>>, ApiError> {
+async fn communities(
+    State(db): State<SqlitePool>,
+    Query(client): Query<ClientQuery>,
+) -> Result<Json<Vec<Community>>, ApiError> {
+    let app = client.app()?;
+    let only_app = |rows: Vec<Community>| -> Vec<Community> {
+        if app {
+            rows.into_iter().filter(|c| c.app_visible).collect()
+        } else {
+            rows
+        }
+    };
     if let Some(value) = operations::public_cache_get("communities")
         && let Ok(rows) = serde_json::from_value::<Vec<Community>>(value)
     {
-        return Ok(Json(rows));
+        return Ok(Json(only_app(rows)));
     }
     let rows: Vec<Community> = operations::timed_query(
         "communities.list",
-        sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count FROM communities c ORDER BY c.name").fetch_all(&db),
+        sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count, c.app_visible FROM communities c ORDER BY c.name").fetch_all(&db),
     )
     .await?;
     if let Ok(value) = serde_json::to_value(&rows) {
         operations::public_cache_put("communities", value);
     }
-    Ok(Json(rows))
+    Ok(Json(only_app(rows)))
 }
 async fn community(
     State(db): State<SqlitePool>,
     Path(slug): Path<String>,
 ) -> Result<Json<Community>, ApiError> {
-    Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count FROM communities c WHERE c.slug = ?1").bind(slug).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
+    Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count, c.app_visible FROM communities c WHERE c.slug = ?1").bind(slug).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
 }
 /// Stamp the viewer's own vote onto a post payload.
 ///
@@ -2624,12 +2725,17 @@ async fn posts(
     let offset = query.validate()?;
     let q = query.q.as_deref().unwrap_or("").trim();
     let order = imports::order(query.sort.as_deref())?;
+    let app = app_client(query.client.as_deref())?;
+    if app && (query.ratings.is_some() || query.mature_only()) {
+        return Err(ApiError::Invalid("Apps receive general-rated posts only"));
+    }
     let ratings = query.ratings.as_deref();
     let mature_only = query.mature_only() && ratings.is_none();
     // Positive rated-feed selections must not inherit the default X-hidden
-    // preference or an exclusion from the mixed timeline.
-    let hide_r = ratings.is_none() && !mature_only && query.hide_r();
-    let hide_x = ratings.is_none() && !mature_only && query.hide_x();
+    // preference or an exclusion from the mixed timeline. App clients never
+    // receive R- or X-rated posts.
+    let hide_r = app || (ratings.is_none() && !mature_only && query.hide_r());
+    let hide_x = app || (ratings.is_none() && !mature_only && query.hide_x());
     let bible_scope = match query.scope.as_deref() {
         None | Some("") | Some("all") => false,
         Some("bible") => true,
@@ -2643,20 +2749,21 @@ async fn posts(
     )
     .to_string();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (NOT ?8 OR c.slug IN (SELECT value FROM json_each(?9))) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (NOT ?8 OR c.slug IN (SELECT value FROM json_each(?9))) AND (NOT ?10 OR c.app_visible = 1) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
         FEED_PAGE_SIZE + 1
     );
     // The cache is shared by every reader, so the key includes the exact rated
     // selection as well as the mixed-feed exclusions.
     let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
         Some(format!(
-            "posts:{}:{}:{}:{}:{}:{}",
+            "posts:{}:{}:{}:{}:{}:{}:{}",
             query.sort.as_deref().unwrap_or("newest"),
             hide_r,
             hide_x,
             mature_only,
             ratings.unwrap_or("all"),
             if bible_scope { "bible" } else { "all" },
+            if app { "app" } else { "web" },
         ))
     } else {
         None
@@ -2681,6 +2788,7 @@ async fn posts(
             .bind(ratings)
             .bind(bible_scope)
             .bind(&bible_slugs)
+            .bind(app)
             .fetch_all(&db),
     )
     .await?;
@@ -2733,7 +2841,9 @@ async fn post(
     State(db): State<SqlitePool>,
     headers: HeaderMap,
     Path(raw_id): Path<String>,
+    Query(client): Query<ClientQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let app = client.app()?;
     let post: Post = if let Ok(id) = raw_id.parse::<i64>() {
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "{POST_SELECT} WHERE p.moderation_status = 'approved' AND p.id = ?1"
@@ -2751,6 +2861,18 @@ async fn post(
     }
     .ok_or(ApiError::Missing)?;
     let id = post.id;
+    if app {
+        // An app client may only open what its feeds could show it.
+        let visible: bool = sqlx::query_scalar(
+            "SELECT c.app_visible FROM posts p JOIN communities c ON c.id = p.community_id WHERE p.id = ?1",
+        )
+        .bind(id)
+        .fetch_one(&db)
+        .await?;
+        if !visible || post.content_rating != "general" {
+            return Err(ApiError::Missing);
+        }
+    }
     // Bounded for the initial reader; expose truncation instead of silently losing replies.
     let mut comments: Vec<Comment> = sqlx::query_as("SELECT cm.id, cm.parent_id, cm.body, cm.source, a.handle AS author, cm.created_at FROM comments cm JOIN authors a ON a.id = cm.author_id WHERE cm.post_id = ?1 AND cm.moderation_status = 'approved' ORDER BY cm.id LIMIT 501").bind(id).fetch_all(&db).await?;
     let comments_truncated = comments.len() > 500;
@@ -2987,7 +3109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/.well-known/nodeinfo", get(nodeinfo))
         .route("/api/accounts", post_method(signup))
         .route("/api/sessions", post_method(login).delete(logout))
-        .route("/api/me", get(me))
+        .route("/api/me", get(me).delete(delete_account))
         .route("/api/me/profile", get(my_profile).post(update_profile))
         .route(
             "/api/me/post-preferences",
@@ -3073,6 +3195,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/admin/content", get(admin::content))
         .route("/api/admin/comments", get(admin::comments))
         .route("/api/admin/reports", get(admin::reports))
+        .route(
+            "/api/admin/communities/{slug}/app",
+            post_method(admin::set_community_app_visibility),
+        )
         .route(
             "/api/admin/rating-reviews",
             get(rating_reviews::list).post(rating_reviews::propose),
@@ -3566,5 +3692,211 @@ mod tests {
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
+    }
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn app_clients_receive_only_app_visible_general_posts(db: SqlitePool) {
+        let author: i64 =
+            sqlx::query_scalar("INSERT INTO authors(handle) VALUES ('alice') RETURNING id")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        for (slug, visible) in [("faith", 1), ("glam", 0)] {
+            sqlx::query("INSERT INTO communities(slug,name,app_visible) VALUES (?1,?1,?2)")
+                .bind(slug)
+                .bind(visible)
+                .execute(&db)
+                .await
+                .unwrap();
+        }
+        let mut ids = std::collections::HashMap::new();
+        for (slug, title, rating) in [
+            ("faith", "faith-general", "general"),
+            ("faith", "faith-x", "x"),
+            ("faith", "faith-r", "r"),
+            ("glam", "glam-general", "general"),
+        ] {
+            let id: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status,content_rating) SELECT id, ?2, ?3, 'approved', ?4 FROM communities WHERE slug = ?1 RETURNING id")
+                .bind(slug)
+                .bind(author)
+                .bind(title)
+                .bind(rating)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+            ids.insert(title, id);
+        }
+        let titles = |value: serde_json::Value| -> Vec<String> {
+            value["posts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["title"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        let feed = |community: &str,
+                    client: Option<&str>,
+                    hide_r: Option<bool>,
+                    hide_x: Option<bool>| FeedQuery {
+            community: Some(community.to_owned()),
+            client: client.map(str::to_owned),
+            hide_r,
+            hide_x,
+            ..Default::default()
+        };
+        // Apps get general posts only, even when they ask for mature ones.
+        let Json(app) = posts(
+            State(db.clone()),
+            HeaderMap::new(),
+            Query(feed("faith", Some("app"), Some(false), Some(false))),
+        )
+        .await
+        .unwrap();
+        assert_eq!(titles(app), ["faith-general"]);
+        let Json(app) = posts(
+            State(db.clone()),
+            HeaderMap::new(),
+            Query(feed("glam", Some("app"), None, None)),
+        )
+        .await
+        .unwrap();
+        assert!(titles(app).is_empty(), "glam is not app-visible");
+        // The website is unchanged.
+        let Json(web) = posts(
+            State(db.clone()),
+            HeaderMap::new(),
+            Query(feed("glam", None, None, None)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(titles(web), ["glam-general"]);
+        assert!(
+            posts(
+                State(db.clone()),
+                HeaderMap::new(),
+                Query(FeedQuery {
+                    client: Some("app".into()),
+                    ratings: Some("x".into()),
+                    ..Default::default()
+                })
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            posts(
+                State(db.clone()),
+                HeaderMap::new(),
+                Query(FeedQuery {
+                    client: Some("tv".into()),
+                    ..Default::default()
+                })
+            )
+            .await
+            .is_err()
+        );
+        // Opening a single post follows the same rule.
+        let open = |id: i64, client: Option<&str>| {
+            post(
+                State(db.clone()),
+                HeaderMap::new(),
+                Path(id.to_string()),
+                Query(ClientQuery {
+                    client: client.map(str::to_owned),
+                }),
+            )
+        };
+        assert!(open(ids["faith-general"], Some("app")).await.is_ok());
+        assert!(matches!(
+            open(ids["glam-general"], Some("app")).await,
+            Err(ApiError::Missing)
+        ));
+        assert!(matches!(
+            open(ids["faith-x"], Some("app")).await,
+            Err(ApiError::Missing)
+        ));
+        assert!(open(ids["glam-general"], None).await.is_ok());
+    }
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn people_can_delete_their_own_account(db: SqlitePool) {
+        let hash = hash_password("correct horse battery staple").unwrap();
+        let author: i64 = sqlx::query_scalar("INSERT INTO authors(handle,password_hash,display_name,bio) VALUES ('alice',?1,'Alice','Hello') RETURNING id")
+            .bind(&hash)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        let token = "d".repeat(64);
+        sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES (?1,?2,strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 hour'))")
+            .bind(Sha256::digest(token.as_bytes()).to_vec())
+            .bind(author)
+            .execute(&db)
+            .await
+            .unwrap();
+        let post_id: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) SELECT id, ?1, 'Mine', 'approved' FROM communities WHERE slug = 'general' RETURNING id")
+            .bind(author)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO comments(post_id,author_id,body,moderation_status) VALUES (?1,?2,'my comment','approved')")
+            .bind(post_id)
+            .bind(author)
+            .execute(&db)
+            .await
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        let wrong = delete_account(
+            State(db.clone()),
+            headers.clone(),
+            Json(DeleteAccountRequest {
+                password: "nope".into(),
+            }),
+        )
+        .await;
+        assert!(matches!(wrong, Err(ApiError::Invalid(_))));
+        let status = delete_account(
+            State(db.clone()),
+            headers.clone(),
+            Json(DeleteAccountRequest {
+                password: "correct horse battery staple".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (handle, password, name, deleted): (String, Option<String>, String, Option<String>) =
+            sqlx::query_as(
+                "SELECT handle, password_hash, display_name, deleted_at FROM authors WHERE id = ?1",
+            )
+            .bind(author)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(handle, format!("deleted-{author}"));
+        assert!(password.is_none() && name.is_empty() && deleted.is_some());
+        let sessions: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE author_id = ?1")
+                .bind(author)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(sessions, 0);
+        let status: String =
+            sqlx::query_scalar("SELECT moderation_status FROM posts WHERE id = ?1")
+                .bind(post_id)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(status, "rejected");
+        let body: String = sqlx::query_scalar("SELECT body FROM comments WHERE author_id = ?1")
+            .bind(author)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(body, "[deleted]");
+        // The old session no longer works.
+        assert!(matches!(
+            authenticated_author(&headers, &db).await,
+            Err(ApiError::Unauthorized)
+        ));
     }
 }
