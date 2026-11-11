@@ -87,6 +87,26 @@ export function parseFeed(xml) {
   return { channel, items };
 }
 
+/** A YouTube channel's Atom feed (https://www.youtube.com/feeds/videos.xml?channel_id=…). */
+export function parseYouTubeFeed(xml) {
+  const text = String(xml);
+  const channelId = tag(text.replace(/<entry[\s>][\s\S]*?<\/entry>/gi, ''), 'yt:channelId');
+  const entries = [];
+  for (const [, entry] of text.matchAll(/<entry[\s>]([\s\S]*?)<\/entry>/gi)) {
+    const id = tag(entry, 'yt:videoId');
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) continue;
+    const published = Date.parse(tag(entry, 'published'));
+    entries.push({
+      id,
+      channel_id: tag(entry, 'yt:channelId') || channelId,
+      title: htmlToText(tag(entry, 'title')),
+      description: htmlToText(tag(entry, 'media:description')),
+      published_at: Number.isFinite(published) ? new Date(published).toISOString() : null
+    });
+  }
+  return { channel_id: channelId, entries };
+}
+
 // ------------------------------------------------------------ record builders
 
 const isHttps = value => { try { return new URL(value).protocol === 'https:'; } catch { return false; } };
@@ -124,6 +144,27 @@ export function sermonRecord(feed, item, observedAt = new Date()) {
     observed_at: observedAt.toISOString(),
     media: [{ kind: 'audio', src: item.audio, alt: clip(item.title, 300), ...(art ? { poster: art } : {}) }],
     attribution: `From ${feed.name}${feed.church ? ` (${feed.church})` : ''}. Audio streams from the publisher.`
+  };
+}
+
+/** A YouTube video from an official channel, as an embed-only post. */
+export function youtubeRecord(feed, entry, observedAt = new Date()) {
+  if (!entry.title || !/^[A-Za-z0-9_-]{11}$/.test(entry.id ?? '')) return null;
+  // Only the pinned official channel: look-alike channels never get in.
+  if (feed.channel_id && entry.channel_id !== feed.channel_id) return null;
+  if (feed.title_match && !new RegExp(feed.title_match, 'i').test(entry.title)) return null;
+  return {
+    community: feed.community,
+    provider: 'youtube',
+    source_url: `https://www.youtube.com/watch?v=${entry.id}`,
+    source_author: feed.name,
+    profile_display_name: feed.name,
+    title: clip(entry.title, 300),
+    body: clip(entry.description || '', 1800),
+    published_at: entry.published_at,
+    observed_at: observedAt.toISOString(),
+    media: [],
+    attribution: `From the official ${feed.name} YouTube channel.`
   };
 }
 
@@ -258,13 +299,22 @@ async function buildRecords(job, opts, state) {
     }
     return records;
   }
-  if (job === 'sermons') {
+  // `feeds` is the same job for any curated list of podcast and YouTube feeds.
+  if (job === 'sermons' || job === 'feeds') {
+    if (job === 'feeds' && !opts.config) throw Error('--job feeds needs --config <file>');
     const config = await loadJson(resolve(root, opts.config ?? 'scripts/bible/sermon-feeds.json'), null);
     if (!Array.isArray(config?.feeds)) throw Error('Sermon feed config must contain a "feeds" array');
-    const perFeed = Math.min(Math.max(Number(opts['per-feed'] ?? 1), 1), 10);
+    const perFeed = Math.min(Math.max(Number(opts['per-feed'] ?? 1), 1), 15);
     const records = [];
     for (const feed of config.feeds.filter(feed => feed.enabled !== false)) {
       try {
+        if (feed.kind === 'youtube') {
+          if (!/^UC[A-Za-z0-9_-]{22}$/.test(feed.channel_id ?? '')) throw Error('YouTube feeds need the official channel_id');
+          const parsed = parseYouTubeFeed(await fetchText(`https://www.youtube.com/feeds/videos.xml?channel_id=${feed.channel_id}`));
+          if (parsed.channel_id && parsed.channel_id !== feed.channel_id) throw Error('feed is for a different channel');
+          records.push(...parsed.entries.map(entry => youtubeRecord(feed, entry, now)).filter(Boolean).slice(0, perFeed));
+          continue;
+        }
         const parsed = parseFeed(await fetchText(feed.url));
         const info = { ...feed, name: feed.name || parsed.channel.title, image: feed.image || parsed.channel.image };
         records.push(...sharedLinksRemoved(parsed.items).map(item => sermonRecord(info, item, now)).filter(Boolean).slice(0, perFeed));
@@ -283,7 +333,7 @@ async function buildRecords(job, opts, state) {
     if (!entry) throw Error(`No catechism question ${next}`);
     return [{ record: catechismRecord(entry, originFrom(opts), now), commit: () => { state.catechism = next; } }];
   }
-  throw Error('Use --job reading|book|sermons|catechism|daily');
+  throw Error('Use --job reading|book|sermons|feeds|catechism|daily');
 }
 
 async function main() {
@@ -291,10 +341,10 @@ async function main() {
   const api = (process.env.API_URL ?? 'http://127.0.0.1:18080').replace(/\/+$/, '');
   const statePath = resolve(root, opts.state ?? '.local/bible-feed.json');
   const state = await loadJson(statePath, {});
-  const JOBS = ['reading', 'book', 'sermons', 'catechism'];
+  const JOBS = ['reading', 'book', 'sermons', 'feeds', 'catechism'];
   const jobs = opts.job === 'daily' ? ['reading', 'sermons', 'catechism'] : [opts.job];
   if (!jobs.every(job => JOBS.includes(job))) {
-    console.error('Use --job reading|book|sermons|catechism|daily [--dry-run]');
+    console.error('Use --job reading|book|sermons|feeds|catechism|daily [--dry-run]');
     process.exitCode = 2;
     return;
   }

@@ -213,6 +213,11 @@ pub struct Import {
     pub content_rating: Option<String>,
     pub published_at: Option<DateTime<Utc>>,
     pub observed_at: DateTime<Utc>,
+    /// Date a new post by its original `published_at` instead of the import
+    /// time, so archive backfills take their place in history rather than
+    /// filling the top of the timeline. Ignored for future dates.
+    #[serde(default)]
+    pub backdate: bool,
     pub source_views: Option<i64>,
     pub source_likes: Option<i64>,
     pub source_reposts: Option<i64>,
@@ -471,9 +476,13 @@ pub async fn ingest(
     let id = if let Some(id) = existing {
         id
     } else {
+        let created_at = input
+            .published_at
+            .filter(|published| input.backdate && *published <= Utc::now())
+            .map(|published| published.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
         sqlx::query_scalar(
-            "INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status)
-             VALUES(?1,?2,?3,?4,?5,?6,?7) RETURNING id",
+            "INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status,created_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,COALESCE(?8,strftime('%Y-%m-%dT%H:%M:%fZ','now'))) RETURNING id",
         )
         .bind(community)
         .bind(actor)
@@ -482,6 +491,7 @@ pub async fn ingest(
         .bind(&content_rating_value)
         .bind(content_rating_source)
         .bind(publication_status)
+        .bind(created_at)
         .fetch_one(&mut *tx)
         .await?
     };
@@ -946,5 +956,77 @@ mod tests {
         value["community"] = serde_json::json!("  ");
         let blank: Import = serde_json::from_value(value).unwrap();
         assert_eq!(normalize_community_slug(&blank.community), "general");
+    }
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn backdated_imports_take_their_original_date(db: SqlitePool) {
+        let admin: i64 = sqlx::query_scalar(
+            "INSERT INTO authors(handle,is_admin) VALUES ('archivist',1) RETURNING id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        let token = "e".repeat(64);
+        sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES (?1,?2,strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 hour'))")
+            .bind(Sha256::digest(token.as_bytes()).to_vec())
+            .bind(admin)
+            .execute(&db)
+            .await
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        let import = |id: &str, published: &str, backdate: bool| -> Import {
+            serde_json::from_value(serde_json::json!({
+                "community": "general", "provider": "youtube",
+                "source_url": format!("https://www.youtube.com/watch?v={id}"),
+                "source_author": "Official channel", "title": format!("Video {id}"), "body": "",
+                "published_at": published, "observed_at": "2026-11-11T00:00:00Z",
+                "backdate": backdate
+            }))
+            .unwrap()
+        };
+        let created_at = |id: &'static str| {
+            let db = db.clone();
+            async move {
+                sqlx::query_scalar::<_, String>("SELECT p.created_at FROM posts p JOIN external_posts e ON e.post_id=p.id WHERE e.source_url = ?1")
+                    .bind(format!("https://www.youtube.com/watch?v={id}"))
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+            }
+        };
+        let _ = ingest(
+            State(db.clone()),
+            headers.clone(),
+            Json(import("AAAAAAAAAAA", "2019-06-01T12:00:00Z", true)),
+        )
+        .await
+        .unwrap();
+        let _ = ingest(
+            State(db.clone()),
+            headers.clone(),
+            Json(import("BBBBBBBBBBB", "2019-06-01T12:00:00Z", false)),
+        )
+        .await
+        .unwrap();
+        let _ = ingest(
+            State(db.clone()),
+            headers.clone(),
+            Json(import("CCCCCCCCCCC", "2999-01-01T00:00:00Z", true)),
+        )
+        .await
+        .unwrap();
+        assert!(
+            created_at("AAAAAAAAAAA")
+                .await
+                .starts_with("2019-06-01T12:00:00")
+        );
+        assert!(
+            !created_at("BBBBBBBBBBB").await.starts_with("2019"),
+            "without backdate the import time is used"
+        );
+        assert!(
+            !created_at("CCCCCCCCCCC").await.starts_with("2999"),
+            "future dates are ignored"
+        );
     }
 }

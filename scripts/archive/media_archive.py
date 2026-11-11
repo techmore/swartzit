@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -124,7 +125,108 @@ CREATE TABLE IF NOT EXISTS items (
   PRIMARY KEY (source, item)
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS posted (source TEXT NOT NULL, item TEXT NOT NULL, post_id TEXT, posted_at TEXT NOT NULL,
+  PRIMARY KEY (source, item));
 """
+
+
+class Publisher:
+    """Posts archived items to a Swartzit community through the admin import
+    API, dated by their original publish date (`backdate`), so a backfill
+    fills in history instead of the top of the timeline."""
+
+    def __init__(self, config: dict, log):
+        self.origin = config['origin'].rstrip('/')
+        self.community = config['community']
+        self.community_info = config.get('community_info', {})
+        self.sources = set(config.get('sources') or [])
+        self.env_file = Path(os.path.expanduser(config.get('env_file', '~/.config/swartzit-archive/swartzit.env')))
+        self.log = log
+        self.token = None
+        self.ready = False
+
+    def _credentials(self):
+        values = {}
+        for line in self.env_file.read_text().splitlines():
+            match = re.match(r'\s*(SCHEDULER_HANDLE|SCHEDULER_PASSWORD)\s*=\s*(.+?)\s*$', line)
+            if match:
+                values[match.group(1)] = match.group(2).strip('\'"')
+        return {'handle': values.get('SCHEDULER_HANDLE', ''), 'password': values.get('SCHEDULER_PASSWORD', '')}
+
+    def _call(self, method: str, path: str, body=None, auth=True):
+        headers = {'Content-Type': 'application/json', 'User-Agent': USER_AGENT}
+        if auth and self.token:
+            headers['Authorization'] = f'Bearer {self.token}'
+        request = urllib.request.Request(self.origin + path, method=method, headers=headers,
+                                         data=json.dumps(body).encode() if body is not None else None)
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                text = response.read().decode()
+                return response.status, (json.loads(text) if text else None)
+        except urllib.error.HTTPError as error:
+            text = error.read().decode(errors='replace')
+            try:
+                return error.code, json.loads(text)
+            except ValueError:
+                return error.code, {'error': text[:200]}
+
+    def _login(self):
+        status, data = self._call('POST', '/api/sessions', self._credentials(), auth=False)
+        if status != 200 or not data or not data.get('token'):
+            raise RuntimeError(f'Swartzit sign-in failed ({status})')
+        self.token = data['token']
+
+    def _prepare(self):
+        if self.ready:
+            return
+        self._login()
+        status, _ = self._call('GET', f'/api/communities/{self.community}', auth=False)
+        if status == 404:
+            info = {'slug': self.community, 'name': self.community_info.get('name', self.community),
+                    'description': self.community_info.get('description', '')}
+            status, data = self._call('POST', '/api/communities', info)
+            if status not in (200, 201):
+                raise RuntimeError(f'could not create c/{self.community}: {status} {data}')
+            self.log(f'created c/{self.community}')
+        self.ready = True
+
+    def publish(self, record: dict) -> str | None:
+        if self.sources and record['source'] not in self.sources:
+            return None
+        self._prepare()
+        body = self._youtube(record) if record['kind'] == 'youtube' else self._podcast(record)
+        status, data = self._call('POST', '/api/admin/imports', body)
+        if status == 401:
+            self._login()
+            status, data = self._call('POST', '/api/admin/imports', body)
+        if status not in (200, 201):
+            raise RuntimeError(f'import failed ({status}): {data}')
+        return str((data or {}).get('post_id') or (data or {}).get('id') or '')
+
+    def _common(self, record: dict, published: str | None) -> dict:
+        when = f'{published}T12:00:00Z' if published and re.match(r'^\d{4}-\d{2}-\d{2}$', published) else None
+        return {'community': self.community, 'published_at': when, 'observed_at': now(), 'backdate': True,
+                'title': (record.get('title') or 'Untitled')[:300]}
+
+    def _youtube(self, record: dict) -> dict:
+        name = record.get('channel') or 'YouTube'
+        return {**self._common(record, record.get('upload_date')), 'provider': 'youtube',
+                'source_url': f"https://www.youtube.com/watch?v={record['id']}",
+                'source_author': name, 'profile_display_name': name,
+                'body': (record.get('description') or '')[:1800], 'media': [],
+                'attribution': f'From the official {name} YouTube channel.'}
+
+    def _podcast(self, record: dict) -> dict:
+        link = record.get('link') or ''
+        parsed = urllib.parse.urlparse(link)
+        source_url = link if parsed.scheme == 'https' and not parsed.query and not parsed.fragment else record['url']
+        name = record.get('feed_name') or 'Podcast'
+        description = re.sub(r'<[^>]+>', ' ', html.unescape(record.get('description') or ''))
+        return {**self._common(record, record.get('published')), 'provider': 'rss',
+                'source_url': source_url, 'source_author': name, 'profile_display_name': name,
+                'body': re.sub(r'\s+\n', '\n', description).strip()[:1800],
+                'media': [{'kind': 'audio', 'src': record['url'], 'alt': (record.get('title') or '')[:300]}],
+                'attribution': f'From {name}. Audio streams from the publisher.'}
 
 
 class Archive:
@@ -149,6 +251,7 @@ class Archive:
         self.current = ''
         self.sources = {s['id']: s for s in config['sources']}
         self._ydl_module = None
+        self.publisher = Publisher(config['publish'], self.log) if config.get('publish') else None
 
     # -- logging and status
     def log(self, message: str):
@@ -326,6 +429,7 @@ class Archive:
                 result = self.save_podcast(source, item, title, published, url, json.loads(extra or '{}'))
             self.finish(source_id, item, status='done', error=None, **result)
             self.log(f"saved {title} -> {result['path']} ({human(result['bytes'])})")
+            self.post(source_id, item, getattr(self, 'last_record', None))
         except RateLimited:
             self.finish(source_id, item, status='pending', attempts=attempts)
             raise
@@ -334,6 +438,35 @@ class Archive:
             self.log(f'failed {title}: {error}')
         finally:
             self.current = ''
+
+    def post(self, source_id: str, item: str, record: dict | None):
+        """Post a saved item to Swartzit; failures are retried by catch_up()."""
+        if not self.publisher or not record:
+            return
+        source = self.sources.get(source_id, {})
+        record = {**record, 'feed_name': record.get('feed_name') or source.get('feed_name') or source.get('name')}
+        if self.db.execute('SELECT 1 FROM posted WHERE source=? AND item=?', (source_id, item)).fetchone():
+            return
+        try:
+            post_id = self.publisher.publish(record)
+            if post_id is not None:
+                self.db.execute('INSERT OR REPLACE INTO posted VALUES (?,?,?,?)', (source_id, item, post_id, now()))
+                self.db.commit()
+        except Exception as error:
+            self.log(f"posting {record.get('title')} to Swartzit failed (will retry): {str(error)[:200]}")
+
+    def catch_up(self, limit: int = 10):
+        """Post items that were saved but not yet posted (earlier failures, or
+        items archived before publishing was configured)."""
+        if not self.publisher:
+            return
+        rows = self.db.execute(
+            "SELECT i.source, i.item, i.path FROM items i LEFT JOIN posted p ON p.source=i.source AND p.item=i.item "
+            "WHERE i.status='done' AND p.item IS NULL ORDER BY i.updated_at DESC LIMIT ?", (limit,)).fetchall()
+        for source_id, item, path in rows:
+            sidecar = (self.root / path).with_suffix('.json') if path else None
+            if sidecar and sidecar.exists():
+                self.post(source_id, item, json.loads(sidecar.read_text()))
 
     def save_youtube(self, source: dict, item: str, url: str) -> dict:
         yt_dlp = self.ydl()
@@ -404,6 +537,7 @@ class Archive:
             self.fetch_captions(url, out, base)
             self.publish(out, folder)
             self.manifest(record)
+            self.last_record = record
             return {'path': str(final.relative_to(self.root)), 'bytes': final.stat().st_size,
                     'original_bytes': original_bytes, 'codec': 'av1' if converted else codec,
                     'height': stream.get('height'), 'converted': int(converted), 'published': day}
@@ -487,6 +621,7 @@ class Archive:
                 raise RuntimeError('download too small to be an episode')
             size = staged.stat().st_size
             record = {'archived_at': now(), 'source': source['id'], 'kind': 'podcast', 'feed': source['url'],
+                      'feed_name': source.get('feed_name') or source.get('name'),
                       'title': title, 'published': published, 'url': url, 'guid': extra.get('guid'),
                       'link': extra.get('link'), 'description': extra.get('description'),
                       'file': staged.name, 'sha256': sha256(staged), 'bytes': size}
@@ -494,6 +629,7 @@ class Archive:
             self.publish(work, folder)
             self.manifest(record)
             final = folder / staged.name
+            self.last_record = record
             return {'path': str(final.relative_to(self.root)), 'bytes': size,
                     'original_bytes': size, 'codec': ext.lstrip('.'), 'height': None, 'converted': 0}
         finally:
@@ -525,6 +661,7 @@ class Archive:
                         time.sleep(1)
                     continue
                 self.process(row)
+                self.catch_up()
                 self.write_status()
                 if once and self.db.execute("SELECT COUNT(*) FROM items WHERE status='pending'").fetchone()[0] == 0:
                     return
