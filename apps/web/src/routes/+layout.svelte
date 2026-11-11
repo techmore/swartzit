@@ -5,6 +5,7 @@
   import SiteHeader from '#lib/SiteHeader.svelte';
   import MobileNav from '#lib/MobileNav.svelte';
   import PostComposer from '#lib/PostComposer.svelte';
+  import AudioPlayer from '#lib/AudioPlayer.svelte';
   import { afterNavigate } from '$app/navigation';
 afterNavigate(({ to }) => {
   if (to && !to.url.pathname.startsWith('/admin')) {
@@ -30,3 +31,4 @@ function skipToContent(event) {
 <slot />
 <PostComposer />
 <MobileNav />
+<AudioPlayer />

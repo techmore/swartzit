@@ -43,6 +43,9 @@ pub(crate) fn validate_media(media: &Media, provider: &str) -> Result<(), ApiErr
         } => (kind.as_str(), src, poster.as_ref(), alt.as_ref()),
     };
     let u = https(src)?;
+    if provider == "rss" && kind == "audio" {
+        return validate_rss_audio(&u, poster, alt);
+    }
     let valid = matches!(
         (provider, kind, u.host_str()),
         ("x", "image", Some("pbs.twimg.com"))
@@ -66,6 +69,36 @@ pub(crate) fn validate_media(media: &Media, provider: &str) -> Result<(), ApiErr
                     && matches!(poster_host, "i.redd.it" | "preview.redd.it")));
         if !valid_poster {
             return Err(ApiError::Invalid("Invalid video poster"));
+        }
+    }
+    Ok(())
+}
+
+const AUDIO_EXTENSIONS: [&str; 8] = [
+    ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wav", ".flac",
+];
+const IMAGE_EXTENSIONS: [&str; 5] = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+
+fn path_has_extension(url: &Url, extensions: &[&str]) -> bool {
+    let path = url.path().to_ascii_lowercase();
+    extensions.iter().any(|extension| path.ends_with(extension))
+}
+
+/// Podcast and sermon enclosures are hosted on many CDNs, so RSS audio is
+/// accepted from any HTTPS host as long as the URL names an audio file. The
+/// browser streams it directly; Swartzit never downloads or rehosts it.
+fn validate_rss_audio(
+    url: &Url,
+    poster: Option<&String>,
+    alt: Option<&String>,
+) -> Result<(), ApiError> {
+    if !path_has_extension(url, &AUDIO_EXTENSIONS) || alt.is_some_and(|s| s.len() > 1000) {
+        return Err(ApiError::Invalid("Invalid source audio"));
+    }
+    if let Some(poster) = poster {
+        let poster_url = https(poster)?;
+        if !path_has_extension(&poster_url, &IMAGE_EXTENSIONS) {
+            return Err(ApiError::Invalid("Invalid audio artwork"));
         }
     }
     Ok(())
@@ -725,6 +758,56 @@ pub fn order(sort: Option<&str>) -> Result<&'static str, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn audio(src: &str, poster: Option<&str>) -> Media {
+        Media::Attachment {
+            kind: "audio".to_owned(),
+            src: src.to_owned(),
+            poster: poster.map(str::to_owned),
+            alt: Some("Titus 1".to_owned()),
+        }
+    }
+
+    #[test]
+    fn rss_audio_accepts_https_audio_files_only() {
+        for ok in [
+            "https://archive.org/download/titus_kjv/titus_01.mp3",
+            "https://traffic.libsyn.com/church/sermon.MP3?dest-id=1",
+            "https://cdn.example.org/lectures/week-1.m4a",
+        ] {
+            assert!(validate_media(&audio(ok, None), "rss").is_ok(), "{ok}");
+        }
+        for bad in [
+            "http://archive.org/download/titus_kjv/titus_01.mp3",
+            "https://archive.org/download/titus_kjv/titus_01.html",
+            "https://example.org:8443/sermon.mp3",
+            "https://user:pass@example.org/sermon.mp3",
+        ] {
+            assert!(validate_media(&audio(bad, None), "rss").is_err(), "{bad}");
+        }
+        assert!(
+            validate_media(
+                &audio(
+                    "https://cdn.example.org/a.mp3",
+                    Some("https://cdn.example.org/art.jpg")
+                ),
+                "rss"
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_media(
+                &audio(
+                    "https://cdn.example.org/a.mp3",
+                    Some("https://cdn.example.org/art.svg")
+                ),
+                "rss"
+            )
+            .is_err()
+        );
+        // Audio stays limited to RSS sources; X and Reddit keep their host allowlists.
+        assert!(validate_media(&audio("https://cdn.example.org/a.mp3", None), "x").is_err());
+    }
     #[tokio::test]
     async fn refreshes_preserve_stricter_and_moderator_ratings() {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()

@@ -186,6 +186,8 @@ struct FeedQuery {
     /// specifically rather than by exclusion. This legacy option includes
     /// both ratings regardless of the default X-hidden setting.
     mature_only: Option<bool>,
+    /// `bible` limits the public timeline to Biblical-mode communities.
+    scope: Option<String>,
 }
 const FEED_PAGE_SIZE: i64 = 12;
 #[derive(Deserialize, Default)]
@@ -2628,20 +2630,33 @@ async fn posts(
     // preference or an exclusion from the mixed timeline.
     let hide_r = ratings.is_none() && !mature_only && query.hide_r();
     let hide_x = ratings.is_none() && !mature_only && query.hide_x();
+    let bible_scope = match query.scope.as_deref() {
+        None | Some("") | Some("all") => false,
+        Some("bible") => true,
+        Some(_) => return Err(ApiError::Invalid("Feed scope must be all or bible")),
+    };
+    let bible_slugs = serde_json::json!(
+        admin::BIBLE_COMMUNITIES
+            .iter()
+            .map(|(slug, _, _)| *slug)
+            .collect::<Vec<_>>()
+    )
+    .to_string();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (NOT ?8 OR c.slug IN (SELECT value FROM json_each(?9))) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
         FEED_PAGE_SIZE + 1
     );
     // The cache is shared by every reader, so the key includes the exact rated
     // selection as well as the mixed-feed exclusions.
     let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
         Some(format!(
-            "posts:{}:{}:{}:{}:{}",
+            "posts:{}:{}:{}:{}:{}:{}",
             query.sort.as_deref().unwrap_or("newest"),
             hide_r,
             hide_x,
             mature_only,
             ratings.unwrap_or("all"),
+            if bible_scope { "bible" } else { "all" },
         ))
     } else {
         None
@@ -2664,6 +2679,8 @@ async fn posts(
             .bind(hide_x)
             .bind(mature_only)
             .bind(ratings)
+            .bind(bible_scope)
+            .bind(&bible_slugs)
             .fetch_all(&db),
     )
     .await?;
@@ -3013,6 +3030,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(admin::settings).post(admin::update_settings),
         )
         .route("/api/adsense/config", get(admin::adsense_config))
+        .route("/api/bible/config", get(admin::bible_config))
         .route("/api/admin/storage", get(admin::storage))
         .route("/api/admin/moderation", get(admin::moderation))
         .route(

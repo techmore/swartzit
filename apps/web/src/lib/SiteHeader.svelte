@@ -54,6 +54,7 @@
 
     <nav class="primary" aria-label="Primary">
       <a href="/" class:active={isHome} aria-current={isHome ? 'page' : undefined}>Timeline</a>
+      {#if page.data?.bible?.enabled}<a href="/bible" class:active={path.startsWith('/bible')} aria-current={path.startsWith('/bible') ? 'page' : undefined}>Bible</a>{/if}
       <a href="/communities" class:active={path.startsWith('/communities')} aria-current={path.startsWith('/communities') ? 'page' : undefined}>Communities</a>
       {#if user}<a href="/bookmarks" class:active={path.startsWith('/bookmarks')} aria-current={path.startsWith('/bookmarks') ? 'page' : undefined}>Bookmarks</a>{/if}
     </nav>

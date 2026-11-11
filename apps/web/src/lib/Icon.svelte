@@ -47,6 +47,10 @@
     <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" />
   {:else if name === 'sun'}
     <circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" />
+  {:else if name === 'book'}
+    <path d="M12 6.5C10.3 5 7.9 4.5 4 4.5v14c3.9 0 6.3.5 8 2 1.7-1.5 4.1-2 8-2v-14c-3.9 0-6.3.5-8 2Zm0 0v14" />
+  {:else if name === 'headphones'}
+    <path d="M4 15v-3a8 8 0 0 1 16 0v3" /><rect x="3.5" y="14" width="4" height="6.5" rx="1.5" /><rect x="16.5" y="14" width="4" height="6.5" rx="1.5" />
   {:else if name === 'play'}
     <path d="M8 5.5v13l11-6.5Z" />
   {:else if name === 'pause'}

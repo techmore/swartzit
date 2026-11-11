@@ -353,6 +353,18 @@ Swartzit is a self-hosted discussion prototype with public reading, pseudonymous
 accounts, communities, posts, threaded comments, voting, subscriptions, search,
 public exports, and an admin dashboard.
 
+### Biblical mode
+
+**Admin → Settings → Biblical mode** (off by default) turns the instance into a
+place for Scripture, sermons, and study: a Reformed / Presbyterian presentation,
+a KJV Bible reader at `/bible` with public-domain LibriVox audio for every
+chapter, a persistent listening player (play a whole book such as Titus, a
+daily reading, or a sermon), the Westminster Shorter Catechism, and a timeline
+focused on `c/scripture`, `c/daily_reading`, `c/sermons`, and `c/deeper_dives`.
+`scripts/bible-feed.mjs` fills those communities from the built-in reading
+plan and from curated Reformed and Presbyterian sermon and teaching podcasts.
+See [`docs/biblical-mode.md`](docs/biblical-mode.md).
+
 ## Development
 
 ### Post views and engagement

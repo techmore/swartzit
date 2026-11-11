@@ -17,7 +17,11 @@
 </script>
 <nav class="bottom-nav" aria-label="Mobile navigation">
   <a href="/" class:active={homeActive} aria-current={homeActive ? 'page' : undefined}><Icon name="home" size={22} /><small>Home</small></a>
-  <a href="/communities" class:active={pathname.startsWith('/communities')} aria-current={pathname.startsWith('/communities') ? 'page' : undefined}><Icon name="grid" size={22} /><small>Communities</small></a>
+  {#if page.data?.bible?.enabled}
+    <a href="/bible" class:active={pathname.startsWith('/bible')} aria-current={pathname.startsWith('/bible') ? 'page' : undefined}><Icon name="book" size={22} /><small>Bible</small></a>
+  {:else}
+    <a href="/communities" class:active={pathname.startsWith('/communities')} aria-current={pathname.startsWith('/communities') ? 'page' : undefined}><Icon name="grid" size={22} /><small>Communities</small></a>
+  {/if}
   <button type="button" class="compose" aria-label={user ? 'Create a post' : 'Sign in to post'} onclick={compose}><Icon name="plus" size={26} /></button>
   <a href={savedHref} class:active={pathname.startsWith('/bookmarks')} aria-current={pathname.startsWith('/bookmarks') ? 'page' : undefined}><Icon name="bookmark" size={22} /><small>Bookmarks</small></a>
   <a href={accountHref} class:active={accountActive} aria-current={accountActive ? 'page' : undefined}><Icon name="user" size={22} /><small>{user ? 'Profile' : 'Sign in'}</small></a>
