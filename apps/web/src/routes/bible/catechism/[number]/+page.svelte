@@ -26,12 +26,10 @@
 <style>
   .question { max-width: 720px; }
   .crumb { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .8rem; font-weight: 600; }
-  .kicker { margin: 16px 0 6px; color: var(--gilt, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
+  .kicker { margin: 16px 0 6px; color: var(--gilt-text, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
   h1 { margin: 0 0 16px; font: 600 clamp(1.6rem, 4.5vw, 2.3rem)/1.2 var(--font-serif); }
   .answer { margin: 0; font: 400 1.25rem/1.7 var(--font-scripture, var(--font-serif)); color: var(--text); }
   .proofs { margin-top: 22px; padding: 14px 16px; border-left: 3px solid var(--gilt, var(--accent)); background: var(--surface2); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
   .proofs h2 { margin: 0 0 4px; font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-family: var(--font-sans); }
   .proofs p { margin: 0; color: var(--text); }
-  .neighbours { display: flex; justify-content: space-between; margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); font: 600 .95rem/1.2 var(--font-serif); }
-  .neighbours a { color: var(--link); }
 </style>

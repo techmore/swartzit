@@ -3,7 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="referrer" content="no-referrer" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- viewport-fit=cover makes env(safe-area-inset-*) real on iPhone; app.css pads for it. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#faf8f3" />
     <meta name="description" content="Swartzit — public discussions for communities that belong to their members" />
     <link rel="icon" type="image/png" href="/swartzit-icon.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
@@ -15,6 +17,13 @@
         document.documentElement.dataset.theme = saved === 'dark' ? 'dark' : 'light';
       } catch {
         document.documentElement.dataset.theme = 'light';
+      }
+      // Tint the phone's status bar to the page colour (--page in app.css).
+      {
+        const root = document.documentElement;
+        const reformed = root.dataset.mode === 'reformed';
+        const page = root.dataset.theme === 'dark' ? (reformed ? '#0e131c' : '#12130e') : (reformed ? '#f6f2e9' : '#faf8f3');
+        document.querySelector('meta[name="theme-color"]').content = page;
       }
     </script>
     %sveltekit.head%

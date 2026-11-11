@@ -41,21 +41,21 @@
 </main>
 
 <style>
-  .chapter { max-width: 720px; }
+  /* About 68 characters a line at the reading size: long enough to flow, short enough to find the next line. */
+  .chapter { max-width: 680px; }
   .crumb { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .8rem; font-weight: 600; }
   header { margin: 14px 0 20px; padding-bottom: 18px; border-bottom: 1px solid color-mix(in srgb, var(--gilt, var(--border)) 45%, var(--border)); }
-  .kicker { margin: 0 0 4px; color: var(--gilt, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
+  .kicker { margin: 0 0 4px; color: var(--gilt-text, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
   h1 { margin: 0 0 14px; font: 600 clamp(1.9rem, 5vw, 2.6rem)/1.1 var(--font-serif); }
   .listen-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .watch-link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 6px; color: var(--link); font-weight: 600; font-size: .9rem; }
-  .listen-row button { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 0 16px; min-height: 40px; }
+  .listen-row button { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 0 18px; min-height: 44px; white-space: normal; text-align: left; line-height: 1.2; }
+  .watch-link { min-height: 44px; }
   .scripture { padding: 0; border: 0; background: transparent; box-shadow: none; font: 400 1.16rem/1.85 var(--font-scripture, var(--font-serif)); color: var(--text); }
-  .scripture p { margin: 0 0 .55em; }
-  .scripture sup { margin-right: .35em; color: var(--gilt, var(--accent)); font: 700 .62em/1 var(--font-sans); vertical-align: .55em; }
-  .scripture p:target { background: var(--accent-soft); border-radius: 4px; }
+  .scripture p { margin: 0 0 .55em; text-wrap: pretty; }
+  .scripture sup { margin-right: .35em; color: var(--gilt-text, var(--accent)); font: 700 .62em/1 var(--font-sans); vertical-align: .55em; }
+  .scripture p:target { background: var(--accent-soft); border-radius: 4px; box-shadow: 0 0 0 6px var(--accent-soft); }
   .unavailable { padding: 18px; border: 1px dashed var(--border-strong); border-radius: var(--radius); color: var(--muted); }
   .unavailable a { color: var(--link); font-weight: 600; }
-  .neighbours { display: flex; justify-content: space-between; gap: 12px; margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); font: 600 .95rem/1.2 var(--font-serif); }
-  .neighbours a { color: var(--link); }
   @media (max-width: 700px) { .scripture { font-size: 1.08rem; line-height: 1.75; } }
 </style>

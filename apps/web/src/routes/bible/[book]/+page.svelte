@@ -51,7 +51,7 @@
   .book { max-width: 760px; }
   .crumb { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .8rem; font-weight: 600; }
   header { margin: 14px 0 22px; padding-bottom: 20px; border-bottom: 1px solid color-mix(in srgb, var(--gilt, var(--border)) 45%, var(--border)); }
-  .kicker { margin: 0 0 4px; color: var(--gilt, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
+  .kicker { margin: 0 0 4px; color: var(--gilt-text, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
   h1 { margin: 0; font: 600 clamp(2rem, 5vw, 3rem)/1.05 var(--font-serif); }
   .meta { margin: 6px 0 14px; color: var(--muted); }
   .listen { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px; }
@@ -61,12 +61,15 @@
   .chapters a { flex: 1; padding: 10px 0 10px 12px; font: 600 1.05rem/1 var(--font-serif); color: var(--heading); }
   .chapters a:hover { color: var(--accent); }
   .chapters button { width: 32px; min-height: 38px; padding: 0; border-radius: 0; color: var(--muted); }
+  @media (pointer: coarse) {
+    .chapters { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+    .chapters a { padding: 15px 0 15px 14px; }
+    .chapters button { width: 44px; min-height: 48px; }
+  }
   .hint { margin: 12px 0 0; color: var(--text-light); font-size: .78rem; }
   .watch { margin-top: 30px; padding-top: 20px; border-top: 1px solid color-mix(in srgb, var(--gilt, var(--border)) 45%, var(--border)); }
   .watch h2 { margin: 0; font: 600 1.35rem/1.2 var(--font-serif); }
   .watch .meta { margin: 6px 0 12px; font-size: .85rem; }
   .frame { aspect-ratio: 16 / 9; border-radius: var(--radius-sm); overflow: hidden; background: #111; }
   .frame iframe { display: block; width: 100%; height: 100%; border: 0; }
-  .neighbours { display: flex; justify-content: space-between; margin-top: 30px; font: 600 .95rem/1 var(--font-serif); }
-  .neighbours a { color: var(--link); }
 </style>

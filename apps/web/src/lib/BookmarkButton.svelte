@@ -61,4 +61,5 @@
   .folder-menu .menu-panel a { font-size: .8rem; color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
   .err { color: var(--error); font-size: .8rem; }
   @media (max-width: 460px) { .label { display: none; } .pill { padding: 0 12px; } }
+  @media (pointer: coarse) { .pill { min-height: 42px; min-width: 44px; justify-content: center; } }
 </style>

@@ -7,6 +7,13 @@
   const state = $derived($queue);
   const playingIndex = $derived(tracks.findIndex(track => isCurrent(state, track.src)));
   const heading = $derived(label || (tracks.length > 1 ? `${tracks.length} recordings` : 'Listen'));
+  const queued = $derived(tracks.length > 0 && tracks.every(track => state.tracks.some(item => item.src === track.src)));
+  let justAdded = $state(false);
+  function addToQueue() {
+    enqueueTracks(tracks);
+    justAdded = true;
+    setTimeout(() => { justAdded = false; }, 2500);
+  }
 </script>
 
 {#if tracks.length}
@@ -26,7 +33,8 @@
         <small>{tracks[0].subtitle || 'Audio'}</small>
       {/if}
     </div>
-    <button type="button" class="queue-btn ghost" onclick={() => enqueueTracks(tracks)} title="Add to listening queue" aria-label="Add to listening queue">＋</button>
+    <button type="button" class="queue-btn ghost" class:queued onclick={addToQueue} disabled={queued} title={queued ? 'In your listening queue' : 'Add to listening queue'} aria-label={queued ? 'In your listening queue' : 'Add to listening queue'}><Icon name={queued ? 'check' : 'plus'} size={18} /></button>
+    <span class="visually-hidden" role="status">{justAdded ? 'Added to your listening queue' : ''}</span>
   </div>
 {/if}
 
@@ -41,5 +49,7 @@
   .tracks button{min-height:26px;padding:2px 9px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface);color:var(--text);font-size:.74rem;font-weight:600}
   .tracks button:hover{background:var(--hover)}
   .tracks button.current{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
-  .queue-btn{width:34px;height:34px;min-height:34px;padding:0;border-radius:50%;font-size:1.1rem}
+  .queue-btn{width:38px;height:38px;min-height:38px;padding:0;border-radius:50%}
+  .queue-btn.queued{opacity:1;color:var(--success);cursor:default}
+  @media (pointer:coarse){.queue-btn{width:44px;height:44px;min-height:44px}.tracks button{min-height:40px;padding:2px 12px}}
 </style>
