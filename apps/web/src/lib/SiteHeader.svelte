@@ -118,6 +118,8 @@
             <AutoplayToggle />
             <a class="menu-item" role="menuitem" href="/api/export" download="swartzit-export.json"><Icon name="download" size={18} />Export public data</a>
             <a class="menu-item" role="menuitem" href="/about"><Icon name="info" size={18} />About Swartzit</a>
+            <a class="menu-item" role="menuitem" href="/privacy"><Icon name="info" size={18} />Privacy</a>
+            <a class="menu-item" role="menuitem" href="/terms"><Icon name="info" size={18} />Terms of use</a>
             <a class="menu-item" role="menuitem" href="https://github.com/techmore/swartzit" target="_blank" rel="noopener noreferrer"><Icon name="external" size={18} />Source on GitHub</a>
             <hr class="menu-divider" />
             {#if user}
