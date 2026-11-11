@@ -28,7 +28,7 @@
 <style>
   .reading { max-width: 720px; }
   .crumb { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .8rem; font-weight: 600; }
-  .kicker { margin: 16px 0 4px; color: var(--gilt, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
+  .kicker { margin: 16px 0 4px; color: var(--gilt-text, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
   h1 { margin: 0 0 18px; font: 600 clamp(1.7rem, 4.5vw, 2.4rem)/1.1 var(--font-serif); }
   dl { display: grid; gap: 10px; margin: 0 0 20px; }
   dl div { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: baseline; }
@@ -36,7 +36,5 @@
   dd { margin: 0; font: 600 1.15rem/1.4 var(--font-serif); }
   dd a { color: var(--link); }
   .listen { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 999px; }
-  .neighbours { display: flex; justify-content: space-between; margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); font: 600 .95rem/1.2 var(--font-serif); }
-  .neighbours a { color: var(--link); }
   @media (max-width: 700px) { dl div { grid-template-columns: 1fr; gap: 2px; } }
 </style>

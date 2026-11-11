@@ -57,14 +57,14 @@
 <style>
   .bible-home { max-width: 860px; }
   .hero { padding: 8px 0 22px; border-bottom: 1px solid color-mix(in srgb, var(--gilt, var(--border)) 45%, var(--border)); margin-bottom: 22px; }
-  .kicker { margin: 0 0 6px; color: var(--gilt, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
+  .kicker { margin: 0 0 6px; color: var(--gilt-text, var(--accent)); font: 700 .72rem/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; }
   .hero h1 { margin: 0 0 10px; font: 600 clamp(1.8rem, 4vw, 2.6rem)/1.1 var(--font-serif); }
   .lede { margin: 0; color: var(--muted); font: italic 1.05rem/1.5 var(--font-serif); }
   .lede cite { font-style: normal; font-size: .85rem; color: var(--text-light); margin-left: 6px; white-space: nowrap; }
   .today { padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); margin-bottom: 30px; }
   .today-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   .today h2 { margin: 0; font-size: 1.4rem; }
-  .listen-all { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 0 18px; min-height: 42px; }
+  .listen-all { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 0 18px; min-height: 44px; }
   dl { display: grid; gap: 8px; margin: 0; }
   dl div { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: baseline; }
   dt { color: var(--text-light); font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }

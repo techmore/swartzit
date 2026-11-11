@@ -192,18 +192,24 @@
           {/each}
           <a class="everything" class:active={data.scope === 'all'} href={everythingHref()}>Everything</a>
         </nav>
-        {#if data.reading && !data.community && data.page === 1}
-          <section class="reading-strip" aria-label="Today’s reading">
-            <div><small>Today’s reading</small><a href="/bible">{data.reading.summary}</a></div>
-            {#if data.reading.tracks.length}<button type="button" class="btn-sm" onclick={() => playTracks(data.reading.tracks, 0)}><Icon name="play" size={14} filled /> Listen</button>{/if}
-          </section>
-        {/if}
       {/if}
 
-      {#if showWelcome && !data.bible?.enabled}
+      {#if showWelcome}
         <section class="welcome" aria-label="About Swartzit">
-          <p><strong>Read freely.</strong> Participate under a pseudonym. Take your community with you.</p>
-          <div class="welcome-actions"><a class="btn btn-sm" href="/signup">Join</a><a class="about-link" href="/about">About</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
+          {#if data.bible?.enabled}
+            <p><strong>Scripture, sermons and study.</strong> Read and listen freely, no account needed.</p>
+            <div class="welcome-actions"><a class="btn btn-sm" href="/bible">Open the Bible</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
+          {:else}
+            <p><strong>Read freely.</strong> Participate under a pseudonym. Take your community with you.</p>
+            <div class="welcome-actions"><a class="btn btn-sm" href="/signup">Join</a><a class="about-link" href="/about">About</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
+          {/if}
+        </section>
+      {/if}
+
+      {#if data.bible?.enabled && data.feed === 'timeline' && !data.q && data.reading && !data.community && data.page === 1}
+        <section class="reading-strip" aria-label="Today’s reading">
+          <div><small>Today’s reading</small><a href="/bible">{data.reading.summary}</a></div>
+          {#if data.reading.tracks.length}<button type="button" class="btn-sm" onclick={() => playTracks(data.reading.tracks, 0)}><Icon name="play" size={14} filled /> Listen</button>{/if}
         </section>
       {/if}
 
@@ -271,7 +277,7 @@
   .bible-tabs a.active { color: var(--accent-fg); background: var(--accent); }
   .bible-tabs .everything { margin-left: auto; font: 600 .78rem/1.6 var(--font-sans); }
   .reading-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gilt, var(--border)) 40%, var(--border)); border-radius: var(--radius); background: var(--surface); }
-  .reading-strip small { display: block; color: var(--gilt, var(--muted)); font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .reading-strip small { display: block; color: var(--gilt-text, var(--muted)); font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
   .reading-strip a { font: 600 1rem/1.35 var(--font-serif); color: var(--heading); }
   .reading-strip a:hover { color: var(--accent); }
   .reading-strip button { display: inline-flex; align-items: center; gap: 6px; flex: none; border-radius: 999px; }
@@ -308,6 +314,18 @@
   .pagination p { margin: 0; color: var(--muted); font-size: .85rem; }
   .sentinel { width: 100%; height: 1px; pointer-events: none; }
 
+  @media (pointer: coarse) {
+    .welcome .dismiss { width: 44px; min-height: 44px; margin-right: -8px; }
+    .about-link { display: inline-flex; align-items: center; min-height: 44px; }
+    /* Tabs keep their compact look; the tap area grows to 44px. */
+    .feed-tabs a, .bible-tabs a { position: relative; }
+    .feed-tabs a::after, .bible-tabs a::after { content: ""; position: absolute; inset: -6px 0; }
+    .ctl select, .ctl-button { min-height: 44px; }
+    .ctl select { padding-left: 12px; }
+    .ctl-button { padding: 0 14px; }
+    .rail-link { min-height: 44px; }
+    .back-all, .clear-search { min-height: 44px; }
+  }
   @media (max-width: 960px) {
     .layout { display: block; }
     .rail { display: none; }
@@ -319,8 +337,12 @@
   @media (max-width: 700px) {
     .home { padding: 12px 0 120px; }
     .feed-bar, .chip-row, .welcome, .feed-head, .state, .bible-tabs, .reading-strip { margin-left: 12px; margin-right: 12px; }
-    .bible-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+    /* One swipeable row. The fading right edge shows there is more to scroll to. */
+    .bible-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: 0; padding-right: 28px; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
+    .bible-tabs::-webkit-scrollbar { display: none; }
     .bible-tabs a { flex: none; }
+    .bible-tabs .everything { margin-left: 4px; }
+    .chip-row { margin-right: 0; padding-right: 28px; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
     .feed-tabs { width: 100%; }
     .feed-tabs a { flex: 1; text-align: center; padding: 7px 4px; }
     .controls { width: 100%; justify-content: space-between; }
