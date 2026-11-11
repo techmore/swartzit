@@ -242,6 +242,7 @@
   .related-post strong { font-size: 1rem; line-height: 1.3; color: var(--heading); }
   .related-post span { font-size: .8rem; color: var(--muted); }
   .browse-link { color: var(--accent); font-weight: 700; }
+  @media (pointer: coarse) { .back, .community-export { display: inline-flex; align-items: center; min-height: 44px; } .comments-heading select { min-height: 44px; } .comment-actions > a { display: inline-flex; align-items: center; min-height: 44px; } }
   @media (max-width: 960px) { .article-page { display: block; } .article-rail { position: static; margin: 0 0 24px; } }
   @media (max-width: 700px) {
     .related-posts { grid-template-columns: 1fr; }

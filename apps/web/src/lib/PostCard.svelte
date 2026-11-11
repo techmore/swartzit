@@ -79,6 +79,8 @@
   .community { font-weight: 700; color: var(--heading); }
   .feed-source { font-weight: 600; color: var(--text); }
   .community:hover, .meta-text a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  /* A taller tap area for the small links in the byline, without moving the text. */
+  @media (pointer: coarse) { .meta-text a { padding: 9px 0; margin: -9px 0; } .read-link { display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0; } }
   .title { margin: 0 0 6px; font: 650 1.15rem/1.3 var(--font-sans); letter-spacing: -.015em; overflow-wrap: anywhere; }
   .title a:hover { color: var(--accent); }
   .buddy-context { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; padding: 7px 10px; border-radius: var(--radius-sm); background: var(--wash); color: var(--muted); font-size: .78rem; }

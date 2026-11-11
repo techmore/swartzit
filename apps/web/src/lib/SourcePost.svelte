@@ -169,6 +169,8 @@
   .source-post>div:first-child{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap}
   .source-heading{align-items:center}.source-avatar{width:32px;height:32px;border-radius:50%;object-fit:cover;background:var(--subtle,#dde3da)}.source-avatar-fallback{display:grid;place-items:center;font-weight:700;color:var(--link,#215e47)}
   .source-identity{display:flex;align-items:center;gap:7px;flex-wrap:wrap;flex:1}.source-identity strong{font-size:.92rem}.source-handle,.source-identity time{font-size:.78rem;color:var(--muted,#66766c)}.source-right{display:flex;align-items:center;gap:8px}.provider-badge{font-size:.8rem;color:var(--muted,#66766c);font-weight:700}.source-link{font-size:1.1rem;text-decoration:none}
+  /* The "view original" arrow is a 13px glyph; give it a thumb-sized target. */
+  @media (pointer:coarse){.source-link{display:inline-grid;place-items:center;min-width:44px;min-height:44px;margin:-10px -12px -10px -8px}}
   .profile-hover{position:relative;display:flex;align-items:center;outline:none}.profile-hover:focus-visible .source-avatar{box-shadow:0 0 0 3px var(--link,#215e47)}
   .profile-card{position:absolute;z-index:5;top:42px;left:0;width:280px;padding:14px;border:1px solid var(--border,#89a28c);border-radius:10px;background:var(--surface,#fff);box-shadow:0 8px 24px #0003;visibility:hidden;opacity:0;transform:translateY(-4px);transition:opacity .12s,transform .12s,visibility .12s;pointer-events:none}
   .profile-hover:hover .profile-card,.profile-hover:focus-within .profile-card,.profile-hover:focus .profile-card{visibility:visible;opacity:1;transform:translateY(0);pointer-events:auto}

@@ -24,7 +24,7 @@
   --text: #1f1e19;
   --heading: #14130f;
   --muted: #615e51;
-  --text-light: #7a7767;
+  --text-light: #6c6959; /* 4.85:1 on --surface2, the dimmest light surface */
   --link: #3f4d22;
 
   /* Brand + actions */
@@ -62,6 +62,8 @@
   --header-h: 60px;
   --content: 1180px;
   --feed: 680px;
+  /* Space the listening player needs below the page; set by AudioPlayer. */
+  --player-space: 0px;
   --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
@@ -112,6 +114,10 @@ body {
   background: var(--page);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  /* viewport-fit=cover lets the page reach the screen edges on iPhone, so
+     keep content clear of the notch in landscape, and let the last lines of
+     a page scroll clear of the listening player. */
+  padding: 0 env(safe-area-inset-right) var(--player-space) env(safe-area-inset-left);
 }
 a { color: inherit; text-decoration: none; }
 img, video { max-width: 100%; }
@@ -291,15 +297,34 @@ article, .card {
 
 /* ---------- Mobile ---------- */
 @media (max-width: 700px) {
+  /* The player floats above the bottom nav on phones; reserve its height. */
+  :root[data-player="open"] { --player-space: 132px; }
+  :root[data-player="mini"] { --player-space: 44px; }
   main { padding: 20px 16px 120px; }
   .auth { padding-top: 28px; }
   article, .card { padding: 16px; }
 }
+/* Touch screens: every control is at least 44px in the direction a thumb can
+   miss it. Visual size stays compact where the row is dense; the hit area grows. */
 @media (pointer: coarse) {
-  button, .btn, .icon-btn, .chip, .menu-item { min-height: 44px; }
-  .btn-sm { min-height: 38px; }
-  .vote-button.icon-button { width: 40px; height: 40px; min-height: 40px; }
+  button, .btn, .btn-sm, .icon-btn, .chip, .menu-item { min-height: 44px; }
+  .icon-btn { width: 44px; }
+  /* 44px tap area inside a 42px pill, level with the other action pills. */
+  .vote-button.icon-button { width: 42px; height: 36px; min-height: 36px; position: relative; }
+  .vote-button.icon-button::after { content: ""; position: absolute; inset: -4px -1px; }
+  .link-button, .text-button { min-height: 44px; padding: 0 6px; margin: 0 -6px; }
+  .crumb, .neighbours a { min-height: 44px; }
+  select, input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="range"]) { min-height: 44px; }
 }
+
+/* Previous / next at the foot of the Bible pages: real buttons, not bare text. */
+.neighbours { display: flex; justify-content: space-between; gap: 12px; margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); }
+.neighbours a {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px;
+  border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface);
+  color: var(--link); font: 600 .95rem/1.2 var(--font-serif);
+}
+.neighbours a:hover { background: var(--hover); border-color: var(--accent); }
 
 /* ==========================================================================
    Biblical mode — Reformed / Presbyterian presentation.
@@ -321,7 +346,7 @@ article, .card {
   --text: #1d1b17;
   --heading: #13213a;
   --muted: #5b5648;
-  --text-light: #7a7362;
+  --text-light: #6b6555;
   --link: #1f3a68;
   --accent: #1f3a68;
   --accent-fg: #ffffff;
@@ -332,6 +357,9 @@ article, .card {
   --downvote: #3f5f8f;
   --chart: #1f3a68;
   --gilt: #a8812f;
+  /* Gilt is for rules and ornaments. Text set in gold uses the deeper tone,
+     which clears 4.5:1 on parchment where --gilt only reaches 3.2:1. */
+  --gilt-text: #86651b;
   --crimson: #8c2332;
   --font-scripture: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
 }
@@ -360,6 +388,7 @@ article, .card {
   --downvote: #8fb0e6;
   --chart: #d4b062;
   --gilt: #d4b062;
+  --gilt-text: #d4b062;
   --crimson: #e07a85;
 }
 
