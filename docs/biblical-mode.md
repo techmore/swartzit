@@ -1,16 +1,25 @@
 # Biblical mode
 
-Biblical mode turns an instance into a place to read Scripture, listen to it,
+Biblical mode turns Swartzit into a place to read Scripture, listen to it,
 and follow sermons and teaching, still in the familiar timeline layout. It is
-an instance-wide admin toggle and is **off by default**.
+**per visitor**: each person switches between **Standard** (everything on the
+instance) and **Bible** with the switch in the header (or the menu on a
+phone), and their browser remembers the choice. The admin decides whether the
+mode is offered at all and which mode new visitors start in. It is **off by
+default**.
 
 ## Turning it on
 
-**Admin → Settings → Biblical mode → Present this instance for Scripture,
-sermons, and study.** (API: `POST /api/admin/settings` with
-`{"bible_enabled": true}`.)
+**Admin → Settings → Biblical mode → Offer Bible mode on this instance**, then
+choose whether new visitors start in **Bible mode** or **Standard mode**.
+(API: `POST /api/admin/settings` with `{"bible_enabled": true}` and
+`{"bible_default": true|false}`; `GET /api/bible/config` reports
+`enabled`, `default_mode`, and `communities`.)
 
-Within about 15 seconds every page:
+The choice is kept in the `swartzit_mode` cookie (`standard` or `bible`).
+Turning the mode off returns everyone to Standard whatever they chose.
+
+For a visitor in Bible mode, within about 15 seconds of an admin change every page:Within about 15 seconds every page:
 
 - uses the Reformed / Presbyterian presentation: parchment and Westminster navy
   by day, navy and gilt in dark mode, serif headings, and the burning-bush
@@ -29,8 +38,8 @@ Within about 15 seconds every page:
   Readers can pick **Everything** to see the rest of the instance. Picking a
   community works as before.
 
-Turning the mode off restores the normal presentation and timeline. The four
-communities and their posts stay.
+Switching to Standard restores the normal presentation and timeline. The four
+communities and their posts stay either way.
 
 ## Reading and listening
 
@@ -42,6 +51,10 @@ communities and their posts stay.
   the end of Titus**.
 - `/bible/reading/2026-11-10` — the plan for a given day.
 - `/bible/catechism` and `/bible/catechism/1` — the Shorter Catechism.
+- `/bible/john` also embeds Westminster Abbey's filmed reading of the whole
+  Gospel by Sir David Suchet (NIV). Official filmed readings are listed in
+  `apps/web/src/lib/bible/readings-video.mjs`; only add uploads by the
+  publisher or rights holder.
 
 The player stays at the bottom of the screen while you move around the site,
 advances through the queue, supports 0.75–2× speed, ±15/30-second skips, and

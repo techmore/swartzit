@@ -33,6 +33,14 @@
   </ol>
   {#if multiChapter && data.tracks.length}<p class="hint">Some recordings cover several chapters; ▶ starts the recording that contains that chapter.</p>{/if}
 
+  {#each data.videos as video (video.youtube)}
+    <section class="watch" id="watch" aria-label={`Watch ${video.reader} read ${book.name}`}>
+      <h2>Watch {video.reader} read {book.name}</h2>
+      <p class="meta">{video.translation} · {Math.floor(video.minutes / 60)} h {video.minutes % 60} min · {video.publisher}. {video.note}</p>
+      <div class="frame"><iframe src={video.embed} title={`${video.title}, read by ${video.reader}`} loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
+    </section>
+  {/each}
+
   <nav class="neighbours" aria-label="Neighbouring books">
     {#if data.previous}<a href={`/bible/${data.previous.slug}`}>← {data.previous.name}</a>{:else}<span></span>{/if}
     {#if data.next}<a href={`/bible/${data.next.slug}`}>{data.next.name} →</a>{/if}
@@ -54,6 +62,11 @@
   .chapters a:hover { color: var(--accent); }
   .chapters button { width: 32px; min-height: 38px; padding: 0; border-radius: 0; color: var(--muted); }
   .hint { margin: 12px 0 0; color: var(--text-light); font-size: .78rem; }
+  .watch { margin-top: 30px; padding-top: 20px; border-top: 1px solid color-mix(in srgb, var(--gilt, var(--border)) 45%, var(--border)); }
+  .watch h2 { margin: 0; font: 600 1.35rem/1.2 var(--font-serif); }
+  .watch .meta { margin: 6px 0 12px; font-size: .85rem; }
+  .frame { aspect-ratio: 16 / 9; border-radius: var(--radius-sm); overflow: hidden; background: #111; }
+  .frame iframe { display: block; width: 100%; height: 100%; border: 0; }
   .neighbours { display: flex; justify-content: space-between; margin-top: 30px; font: 600 .95rem/1 var(--font-serif); }
   .neighbours a { color: var(--link); }
 </style>
