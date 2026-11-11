@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish Swartzit Biblical-mode content each morning
+
+[Timer]
+OnCalendar=*-*-* 05:15:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

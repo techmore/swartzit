@@ -25,3 +25,24 @@ test('timeline defaults to General and preserves explicit rating opt-ins', async
     }
   }
 });
+
+test('Biblical mode scopes the default timeline but not communities or Everything', async () => {
+  for (const [query, enabled, expected] of [
+    ['', true, 'bible'],
+    ['?scope=all', true, null],
+    ['?community=sermons', true, null],
+    ['?feed=rated', true, null],
+    ['', false, null]
+  ]) {
+    let params;
+    const data = await load({url: new URL(`https://example.test/${query}`), parent: async () => ({bible: {enabled, communities: []}}), fetch: async path => {
+      if (path.startsWith('/api/posts?')) {
+        params = new URL(path, 'https://example.test').searchParams;
+        return Response.json({posts: [], has_more: false});
+      }
+      return Response.json([]);
+    }});
+    assert.equal(params.get('scope'), expected, `${query} enabled=${enabled}`);
+    assert.equal(Boolean(data.reading), enabled, query);
+  }
+});

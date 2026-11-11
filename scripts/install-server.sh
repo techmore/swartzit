@@ -80,6 +80,8 @@ install -m 0644 "$APP_DIR/deploy/systemd/swartzit-update.service" /etc/systemd/s
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-update.timer" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.service" /etc/systemd/system/
 install -m 0644 "$APP_DIR/deploy/systemd/swartzit-github-backup.timer" /etc/systemd/system/
+install -m 0644 "$APP_DIR/deploy/systemd/swartzit-bible-feed.service" /etc/systemd/system/
+install -m 0644 "$APP_DIR/deploy/systemd/swartzit-bible-feed.timer" /etc/systemd/system/
 install -d -o root -g root -m 0755 /usr/local/libexec/swartzit/scripts /usr/local/libexec/swartzit/crates/server/sqlite-migrations
 cp -a "$APP_DIR/scripts/." /usr/local/libexec/swartzit/scripts/
 cp -a "$APP_DIR/crates/server/sqlite-migrations/." /usr/local/libexec/swartzit/crates/server/sqlite-migrations/

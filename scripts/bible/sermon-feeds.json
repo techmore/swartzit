@@ -1,0 +1,29 @@
+{
+  "notes": "Public podcast feeds verified 2026-11-10. community is sermons or deeper_dives. Set enabled:false to skip a feed. SermonAudio patterns: https://feed.sermonaudio.com/broadcasters/{sourceid} (church) and https://feed.sermonaudio.com/speaker/{speakerId}.",
+  "feeds": [
+    { "name": "Tenth Presbyterian Church", "church": "PCA · Philadelphia", "community": "sermons", "url": "https://feed.sermonaudio.com/broadcasters/tenth" },
+    { "name": "First Presbyterian Church Jackson", "church": "PCA · Jackson, Mississippi", "community": "sermons", "url": "https://feed.sermonaudio.com/broadcasters/fpcj" },
+    { "name": "Second Presbyterian Church Greenville", "church": "PCA · Greenville, South Carolina", "community": "sermons", "url": "https://feed.sermonaudio.com/broadcasters/secondpca" },
+    { "name": "Independent Presbyterian Church Savannah", "church": "PCA · Savannah, Georgia", "community": "sermons", "url": "https://feed.sermonaudio.com/broadcasters/ipcsav" },
+    { "name": "Independent Presbyterian Church Memphis", "church": "PCA · Memphis, Tennessee", "community": "sermons", "url": "https://api.pocketplatform.ipcmemphis.apps.blackpulp.com/v1/podcasts/feed.xml" },
+    { "name": "Coral Ridge Presbyterian Church", "church": "PCA · Fort Lauderdale, Florida", "community": "sermons", "url": "https://rss.buzzsprout.com/1555697.rss" },
+    { "name": "Christ Presbyterian Church", "church": "PCA · Nashville, Tennessee", "community": "sermons", "url": "https://feeds.soundcloud.com/users/soundcloud:users:235665961/sounds.rss" },
+    { "name": "Park Cities Presbyterian Church", "church": "PCA · Dallas, Texas", "community": "sermons", "url": "https://anchor.fm/s/63eaaaac/podcast/rss" },
+    { "name": "Gospel in Life", "church": "Tim Keller · Redeemer Presbyterian (PCA)", "community": "sermons", "url": "https://podcast.gospelinlife.com/feed.xml" },
+    { "name": "Harvest Orthodox Presbyterian Church", "church": "OPC · Wyoming, Michigan", "community": "sermons", "url": "https://www.harvestopc.org/feeds/sermons" },
+    { "name": "Second Presbyterian Church Memphis", "church": "EPC · Memphis, Tennessee", "community": "sermons", "url": "https://www.2pc.org/mediafiles/sermons.xml" },
+
+    { "name": "Renewing Your Mind", "church": "Ligonier Ministries · R.C. Sproul", "community": "deeper_dives", "url": "https://rss.libsyn.com/shows/116811/destinations/668712.xml" },
+    { "name": "Things Unseen with Sinclair Ferguson", "church": "Ligonier Ministries", "community": "deeper_dives", "url": "https://rss.libsyn.com/shows/449418/destinations/3771729.xml" },
+    { "name": "Westminster Shorter Catechism with Sinclair Ferguson", "church": "Ligonier Ministries", "community": "deeper_dives", "url": "https://rss.libsyn.com/shows/260072/destinations/1973036.xml" },
+    { "name": "The Westminster Podcast", "church": "Westminster Theological Seminary", "community": "deeper_dives", "url": "https://feeds.megaphone.fm/WTS9130093686" },
+    { "name": "RTS Washington Faculty Podcast", "church": "Reformed Theological Seminary", "community": "deeper_dives", "url": "https://anchor.fm/s/10fc9ca74/podcast/rss" },
+    { "name": "Greenville Presbyterian Theological Seminary", "church": "GPTS", "community": "deeper_dives", "url": "https://feed.sermonaudio.com/broadcasters/gpts" },
+    { "name": "Christ the Center", "church": "Reformed Forum", "community": "deeper_dives", "url": "https://feeds.captivate.fm/christthecenter/" },
+    { "name": "Mortification of Spin", "church": "Alliance of Confessing Evangelicals", "community": "deeper_dives", "url": "https://feed.podbean.com/mortificationofspin/feed.xml" },
+    { "name": "Theology on the Go", "church": "Alliance of Confessing Evangelicals", "community": "deeper_dives", "url": "https://feed.podbean.com/theologyonthego/feed.xml" },
+    { "name": "White Horse Inn", "church": "Michael Horton", "community": "deeper_dives", "url": "https://rss.libsyn.com/shows/18223/destinations/11642.xml" },
+    { "name": "Heidelcast", "church": "R. Scott Clark", "community": "deeper_dives", "url": "https://rss.libsyn.com/shows/453918/destinations/3816885.xml" },
+    { "name": "Truth For Life", "church": "Alistair Begg · Reformed-adjacent", "community": "deeper_dives", "url": "https://feeds.feedburner.com/TruthForLife", "enabled": false }
+  ]
+}

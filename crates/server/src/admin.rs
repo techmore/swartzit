@@ -565,6 +565,7 @@ pub struct UpdateSettings {
     orchard_enabled: Option<bool>,
     content_runners_enabled: Option<bool>,
     moderation_enabled: Option<bool>,
+    bible_enabled: Option<bool>,
     adsense_enabled: Option<bool>,
     adsense_publisher_id: Option<String>,
     media_primary: Option<String>,
@@ -602,6 +603,7 @@ pub async fn settings(
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let bible_enabled = bible_module_enabled(&db).await?;
     let adsense_enabled: bool =
         sqlx::query_scalar("SELECT enabled FROM instance_modules WHERE module_key = 'adsense'")
             .fetch_optional(&db)
@@ -626,6 +628,9 @@ pub async fn settings(
             "moderation": {
                 "enabled": moderation_enabled
             },
+            "bible": {
+                "enabled": bible_enabled
+            },
             "adsense": {
                 "enabled": adsense_enabled
             }
@@ -635,6 +640,94 @@ pub async fn settings(
             "publisher_id": adsense_publisher_id
         },
         "media": media
+    })))
+}
+
+/// Communities that hold Biblical-mode content. They are created when the
+/// module is first enabled and are left in place when it is disabled, so
+/// turning the mode off never deletes posts or discussion.
+pub(crate) const BIBLE_COMMUNITIES: [(&str, &str, &str); 4] = [
+    (
+        "scripture",
+        "Scripture",
+        "Chapters of the Bible to read and hear, one post at a time.",
+    ),
+    (
+        "daily_reading",
+        "Daily Reading",
+        "A daily portion through the whole Bible: Old Testament, Psalms, and New Testament.",
+    ),
+    (
+        "sermons",
+        "Sermons",
+        "Preaching from Reformed and Presbyterian pulpits.",
+    ),
+    (
+        "deeper_dives",
+        "Deeper Dives",
+        "Teaching, lectures, catechism, and confession for further study.",
+    ),
+];
+
+/// Biblical mode is opt-in: a missing row means disabled.
+pub(crate) async fn bible_module_enabled(db: &SqlitePool) -> Result<bool, ApiError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT enabled FROM instance_modules WHERE module_key = 'bible'",
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
+}
+
+async fn set_bible_module(db: &SqlitePool, actor: i64, enabled: bool) -> Result<(), ApiError> {
+    let mut tx = db.begin().await?;
+    sqlx::query(
+        "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
+         VALUES ('bible', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+         ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+    )
+    .bind(enabled)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    if enabled {
+        for (slug, name, description) in BIBLE_COMMUNITIES {
+            sqlx::query(
+                "INSERT INTO communities(slug, name, description) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (slug) DO NOTHING",
+            )
+            .bind(slug)
+            .bind(name)
+            .bind(description)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    tx.commit().await?;
+    log_event(
+        db,
+        "info",
+        "admin.module_toggled",
+        serde_json::json!({"actor_id": actor, "module": "bible", "enabled": enabled}),
+    )
+    .await;
+    Ok(())
+}
+
+/// Public, unauthenticated: the web client uses this to choose the Reformed
+/// presentation and to show the Bible reader.
+pub async fn bible_config(
+    State(db): State<SqlitePool>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let enabled = bible_module_enabled(&db).await?;
+    let communities: Vec<&str> = if enabled {
+        BIBLE_COMMUNITIES.iter().map(|(slug, _, _)| *slug).collect()
+    } else {
+        Vec::new()
+    };
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "communities": communities
     })))
 }
 
@@ -747,6 +840,7 @@ pub async fn update_settings(
     if input.orchard_enabled.is_none()
         && input.content_runners_enabled.is_none()
         && input.moderation_enabled.is_none()
+        && input.bible_enabled.is_none()
         && input.adsense_enabled.is_none()
         && input.adsense_publisher_id.is_none()
         && input.media_primary.is_none()
@@ -808,6 +902,9 @@ pub async fn update_settings(
             serde_json::json!({"actor_id": actor, "module": "moderation", "enabled": enabled}),
         )
         .await;
+    }
+    if let Some(enabled) = input.bible_enabled {
+        set_bible_module(&db, actor, enabled).await?;
     }
     if let Some(publisher_id) = normalized_adsense_publisher_id.as_ref() {
         sqlx::query(
@@ -981,6 +1078,7 @@ pub async fn update_settings(
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let bible_enabled = bible_module_enabled(&db).await?;
     let media = media_store::settings_view(&db)
         .await
         .map_err(ApiError::Storage)?;
@@ -994,6 +1092,9 @@ pub async fn update_settings(
             },
             "moderation": {
                 "enabled": moderation_enabled
+            },
+            "bible": {
+                "enabled": bible_enabled
             }
         },
         "media": media
@@ -3891,6 +3992,58 @@ pub async fn publish_content_runner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn bible_mode_is_opt_in_and_seeds_its_communities(db: SqlitePool) {
+        let admin: i64 = sqlx::query_scalar(
+            "INSERT INTO authors(handle, is_admin) VALUES ('elder', 1) RETURNING id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert!(!bible_module_enabled(&db).await.unwrap());
+        let Json(config) = bible_config(State(db.clone())).await.unwrap();
+        assert_eq!(config["enabled"], false);
+        assert_eq!(config["communities"], serde_json::json!([]));
+
+        // A pre-existing community keeps its name; enabling twice is harmless.
+        sqlx::query("INSERT INTO communities(slug,name) VALUES ('sermons','Our Sermons')")
+            .execute(&db)
+            .await
+            .unwrap();
+        set_bible_module(&db, admin, true).await.unwrap();
+        set_bible_module(&db, admin, true).await.unwrap();
+        assert!(bible_module_enabled(&db).await.unwrap());
+        let slugs: Vec<String> = sqlx::query_scalar(
+            "SELECT slug FROM communities WHERE slug IN ('scripture','daily_reading','sermons','deeper_dives') ORDER BY slug",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(
+            slugs,
+            ["daily_reading", "deeper_dives", "scripture", "sermons"]
+        );
+        let kept: String = sqlx::query_scalar("SELECT name FROM communities WHERE slug='sermons'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(kept, "Our Sermons");
+        let Json(config) = bible_config(State(db.clone())).await.unwrap();
+        assert_eq!(config["enabled"], true);
+        assert_eq!(config["communities"][0], "scripture");
+
+        // Disabling hides the mode but keeps communities and their posts.
+        set_bible_module(&db, admin, false).await.unwrap();
+        assert!(!bible_module_enabled(&db).await.unwrap());
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM communities WHERE slug IN ('scripture','daily_reading','sermons','deeper_dives')",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(remaining, 4);
+    }
 
     #[test]
     fn runner_policy_bounds_are_enforced() {

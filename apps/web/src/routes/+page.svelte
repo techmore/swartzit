@@ -8,6 +8,10 @@
   import MediaDock from '#lib/MediaDock.svelte';
   import PostCard from '#lib/PostCard.svelte';
   import { loginHref } from '#lib/auth-session.mjs';
+  import { playTracks } from '#lib/audio-queue.mjs';
+  const BIBLE_TABS = [['', 'All'], ['scripture', 'Scripture'], ['daily_reading', 'Daily Reading'], ['sermons', 'Sermons'], ['deeper_dives', 'Deeper Dives']];
+  function bibleTabHref(slug) { const params = new URLSearchParams({feed:'timeline',sort:data.sort}); if (slug) params.set('community', slug); return '/?' + applyContentFilters(params, 'timeline'); }
+  function everythingHref() { const params = new URLSearchParams({feed:'timeline',sort:data.sort,scope:'all'}); return '/?' + applyContentFilters(params, 'timeline'); }
   let mounted = false, welcomeDismissed = false;
   let railFilter = '';
   function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (['following', 'buddies'].includes(targetFeed) && ['following', 'buddies'].includes(data.feed) && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; params.set('hide_r', String(data.hideR)); if (!data.hideX) params.set('show_x', 'true'); return params; }
@@ -19,7 +23,7 @@
   let token = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedPage = data.page, feedLoading = false, feedError = '';
   let feedKey = '', activeFeedKey = '', feedRequestController, followingInitialKey = '', initialPosts = data.posts;
-  $: feedKey = JSON.stringify([data.feed, data.community, data.q, data.sort, data.hideR, data.hideX, data.ratings, data.page]);
+  $: feedKey = JSON.stringify([data.feed, data.community, data.q, data.sort, data.hideR, data.hideX, data.ratings, data.page, data.scope]);
   $: if (feedKey !== activeFeedKey) {
     activeFeedKey = feedKey;
     feedRequestController?.abort();
@@ -72,6 +76,7 @@
     const params = new URLSearchParams({sort:data.sort,page:String(page)});
     if (data.q) params.set('q',data.q);
     if (data.community) params.set('community',data.community);
+    if (data.scope === 'bible' && data.feed === 'timeline') params.set('scope', 'bible');
     if (data.ratings) params.set('ratings', data.ratings);
     else {
       params.set('hide_r', String(data.hideR));
@@ -121,12 +126,12 @@
     return {destroy: () => observer.disconnect()};
   }
 </script>
-<svelte:head><title>{data.community ? `c/${data.community} · Swartzit` : data.q ? `“${data.q}” · Swartzit` : 'Swartzit — the commons'}</title></svelte:head>
+<svelte:head><title>{data.community ? `c/${data.community} · Swartzit` : data.q ? `“${data.q}” · Swartzit` : data.bible?.enabled ? 'Swartzit — Scripture, sermons and study' : 'Swartzit — the commons'}</title></svelte:head>
 <main id="main-content" class="home">
   <div class="layout">
     <aside class="rail" aria-label="Communities">
       <div class="rail-head"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div>
-      <a class="rail-link" class:selected={!data.community} aria-current={!data.community ? 'page' : undefined} href={communityHref()}><span>All discussions</span></a>
+      <a class="rail-link" class:selected={!data.community} aria-current={!data.community ? 'page' : undefined} href={communityHref()}><span>{data.scope === 'bible' ? 'Scripture & study' : 'All discussions'}</span></a>
       {#each activeCommunities as community}
         <a class="rail-link" class:selected={data.community === community.slug} aria-current={data.community === community.slug ? 'page' : undefined} href={communityHref(community.slug)}><span>c/{community.slug}</span><small>{community.post_count}</small></a>
       {/each}
@@ -149,6 +154,7 @@
         <form class="controls" method="GET" action="/">
           {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
           <input type="hidden" name="feed" value={data.feed} />
+          {#if data.scope === 'all'}<input type="hidden" name="scope" value="all" />{/if}
           {#if data.q}<input type="hidden" name="q" value={data.q} />{/if}
           {#if data.ratings}
             <label class="ctl"><span>Show</span><select name="ratings" aria-label="Choose ratings to show" value={data.ratings} onchange={submitForm}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select></label>
@@ -168,13 +174,28 @@
         </form>
       </div>
 
-      <div class="chip-row" aria-label="Communities">
+      <div class="chip-row" class:bible-hidden={data.bible?.enabled && data.feed === 'timeline' && !data.q} aria-label="Communities">
         <a class="chip" class:active={!data.community} href={communityHref()}>All</a>
         {#each activeCommunities.slice(0, 14) as community}<a class="chip" class:active={data.community === community.slug} href={communityHref(community.slug)}>c/{community.slug}</a>{/each}
         <a class="chip" href="/communities">More →</a>
       </div>
 
-      {#if showWelcome}
+      {#if data.bible?.enabled && data.feed === 'timeline' && !data.q}
+        <nav class="bible-tabs" aria-label="Biblical content">
+          {#each BIBLE_TABS as [slug, label]}
+            <a class:active={slug ? data.community === slug : data.scope === 'bible'} aria-current={(slug ? data.community === slug : data.scope === 'bible') ? 'page' : undefined} href={bibleTabHref(slug)}>{label}</a>
+          {/each}
+          <a class="everything" class:active={data.scope === 'all'} href={everythingHref()}>Everything</a>
+        </nav>
+        {#if data.reading && !data.community && data.page === 1}
+          <section class="reading-strip" aria-label="Today’s reading">
+            <div><small>Today’s reading</small><a href="/bible">{data.reading.summary}</a></div>
+            {#if data.reading.tracks.length}<button type="button" class="btn-sm" onclick={() => playTracks(data.reading.tracks, 0)}><Icon name="play" size={14} filled /> Listen</button>{/if}
+          </section>
+        {/if}
+      {/if}
+
+      {#if showWelcome && !data.bible?.enabled}
         <section class="welcome" aria-label="About Swartzit">
           <p><strong>Read freely.</strong> Participate under a pseudonym. Take your community with you.</p>
           <div class="welcome-actions"><a class="btn btn-sm" href="/signup">Join</a><a class="about-link" href="/about">About</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
@@ -238,6 +259,16 @@
   .feed-tabs a.active { background: var(--surface); color: var(--heading); box-shadow: var(--shadow-sm); }
   .chip-row { display: none; }
 
+  .bible-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .bible-tabs a { padding: 6px 12px; border-radius: 999px; color: var(--muted); font: 600 .9rem/1.2 var(--font-serif); }
+  .bible-tabs a:hover { color: var(--heading); background: var(--hover); }
+  .bible-tabs a.active { color: var(--accent-fg); background: var(--accent); }
+  .bible-tabs .everything { margin-left: auto; font: 600 .78rem/1.6 var(--font-sans); }
+  .reading-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gilt, var(--border)) 40%, var(--border)); border-radius: var(--radius); background: var(--surface); }
+  .reading-strip small { display: block; color: var(--gilt, var(--muted)); font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .reading-strip a { font: 600 1rem/1.35 var(--font-serif); color: var(--heading); }
+  .reading-strip a:hover { color: var(--accent); }
+  .reading-strip button { display: inline-flex; align-items: center; gap: 6px; flex: none; border-radius: 999px; }
   .welcome { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px 12px 10px 16px; border-radius: var(--radius); background: var(--wash); border: 1px solid var(--border); }
   .welcome { flex-wrap: nowrap; }
   .welcome p { flex: 1; min-width: 0; margin: 0; font-size: .85rem; color: var(--heading); }
@@ -276,11 +307,14 @@
     .rail { display: none; }
     .chip-row { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 14px; padding-bottom: 4px; scrollbar-width: none; }
     .chip-row::-webkit-scrollbar { display: none; }
+    .chip-row.bible-hidden { display: none; }
     .chip { flex: none; }
   }
   @media (max-width: 700px) {
     .home { padding: 12px 0 120px; }
-    .feed-bar, .chip-row, .welcome, .feed-head, .state { margin-left: 12px; margin-right: 12px; }
+    .feed-bar, .chip-row, .welcome, .feed-head, .state, .bible-tabs, .reading-strip { margin-left: 12px; margin-right: 12px; }
+    .bible-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+    .bible-tabs a { flex: none; }
     .feed-tabs { width: 100%; }
     .feed-tabs a { flex: 1; text-align: center; padding: 7px 4px; }
     .controls { width: 100%; justify-content: space-between; }

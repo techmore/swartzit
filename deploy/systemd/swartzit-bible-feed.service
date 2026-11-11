@@ -1,0 +1,18 @@
+[Unit]
+Description=Publish Swartzit Biblical-mode content (daily reading, sermons, catechism)
+After=swartzit.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=swartzit
+Group=swartzit
+WorkingDirectory=/var/lib/swartzit
+# SCHEDULER_HANDLE, SCHEDULER_PASSWORD, SWARTZIT_ORIGIN and API_URL; see docs/biblical-mode.md.
+EnvironmentFile=/etc/swartzit/bible-feed.env
+ExecStart=/usr/bin/node /var/lib/swartzit/scripts/bible-feed.mjs --job daily --state /var/lib/swartzit/state/bible-feed.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/swartzit/state

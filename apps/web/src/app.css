@@ -300,3 +300,82 @@ article, .card {
   .btn-sm { min-height: 38px; }
   .vote-button.icon-button { width: 40px; height: 40px; min-height: 40px; }
 }
+
+/* ==========================================================================
+   Biblical mode — Reformed / Presbyterian presentation.
+   Set server-side as <html data-mode="reformed"> when the instance enables
+   Biblical mode in Admin → Settings. Parchment and Westminster navy by day,
+   navy and gilt by night; serif headings throughout.
+   ========================================================================== */
+
+:root[data-mode="reformed"] {
+  --page: #f6f2e9;
+  --surface: #fffdf8;
+  --surface2: #f1ece0;
+  --background: #f1ece0;
+  --subtle: #ede7d9;
+  --hover: #e7e0cf;
+  --wash: #e8edf4;
+  --border: #e2dac8;
+  --border-strong: #cbbfa5;
+  --text: #1d1b17;
+  --heading: #13213a;
+  --muted: #5b5648;
+  --text-light: #7a7362;
+  --link: #1f3a68;
+  --accent: #1f3a68;
+  --accent-fg: #ffffff;
+  --accent-soft: #e3e9f3;
+  --button-bg: #1f3a68;
+  --button-text: #ffffff;
+  --upvote: #8c2332;
+  --downvote: #3f5f8f;
+  --chart: #1f3a68;
+  --gilt: #a8812f;
+  --crimson: #8c2332;
+  --font-scripture: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+}
+
+:root[data-mode="reformed"][data-theme="dark"] {
+  --page: #0e131c;
+  --surface: #151b26;
+  --surface2: #1b2230;
+  --background: #0e131c;
+  --subtle: #1c2331;
+  --hover: #242c3c;
+  --wash: #1d2638;
+  --border: #263043;
+  --border-strong: #38455e;
+  --text: #e9e5da;
+  --heading: #f5f1e6;
+  --muted: #a9a596;
+  --text-light: #8d8a7d;
+  --link: #d9b867;
+  --accent: #d4b062;
+  --accent-fg: #1b1606;
+  --accent-soft: #2b2a20;
+  --button-bg: #d4b062;
+  --button-text: #1b1606;
+  --upvote: #e07a85;
+  --downvote: #8fb0e6;
+  --chart: #d4b062;
+  --gilt: #d4b062;
+  --crimson: #e07a85;
+}
+
+:root[data-mode="reformed"] h1,
+:root[data-mode="reformed"] h2,
+:root[data-mode="reformed"] h3,
+:root[data-mode="reformed"] .title {
+  font-family: var(--font-serif);
+  letter-spacing: -.005em;
+}
+:root[data-mode="reformed"] .site-header {
+  border-bottom-color: color-mix(in srgb, var(--gilt) 40%, var(--border));
+}
+:root[data-mode="reformed"] .post-card {
+  border-color: var(--border);
+}
+:root[data-mode="reformed"] .post-card:hover {
+  border-color: color-mix(in srgb, var(--gilt) 45%, var(--border-strong));
+}

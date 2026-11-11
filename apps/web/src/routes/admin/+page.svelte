@@ -316,6 +316,7 @@
     finally { busy = false; }
   }
   async function toggleRunners(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { content_runners_enabled: enabled }); notice = enabled ? 'Content runners enabled.' : 'Content runners disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
+  async function toggleBible(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { bible_enabled: enabled }); notice = enabled ? 'Biblical mode enabled. Reload any open page to see the Reformed presentation (it can take up to 15 seconds).' : 'Biblical mode disabled. Biblical communities and their posts remain.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   async function toggleModeration(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { moderation_enabled: enabled }); notice = enabled ? 'Publication moderation enabled for posts and comments.' : 'Publication moderation disabled. Posts and comments publish immediately; profile changes always publish immediately.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   async function toggleAdsense(enabled) { busy = true; notice = ''; try { await api('settings', 'POST', { adsense_enabled: enabled }); notice = enabled ? 'Google AdSense enabled for public pages.' : 'Google AdSense disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
   async function saveAdsensePublisherId() { busy = true; notice = ''; try { await api('settings', 'POST', { adsense_publisher_id: adsensePublisherId }); notice = adsensePublisherId.trim() ? 'AdSense publisher ID saved.' : 'AdSense publisher ID cleared; ads are disabled.'; await refresh(); } catch (e) { notice = e.message; } finally { busy = false; } }
@@ -584,6 +585,11 @@
           <p><label><input type="checkbox" checked={settings?.modules?.adsense?.enabled === true} onchange={(event) => toggleAdsense(event.currentTarget.checked)} disabled={busy || !settings?.adsense?.configured} /> Load AdSense code on public pages</label></p>
           {#if !settings?.adsense?.configured}<p class="muted">Enter the publisher ID from AdSense before enabling ads. The ID is public; it is not an account password or API secret.</p>{/if}
           <p class="muted">Swartzit has user community posts, imported X posts, and X-rated posts. Google prohibits ads beside sexually explicit or infringing/scraped content; check rights and set page exclusions for ineligible sections before enabling Auto ads. Configure the consent message for regions that require it. Google must approve the site before it serves ads, and publishers remain responsible for every page with ad code.</p>
+        </section>
+        <section class="panel">
+          <h3>Biblical mode</h3>
+          <p><label><input type="checkbox" checked={settings?.modules?.bible?.enabled === true} onchange={(event) => toggleBible(event.currentTarget.checked)} disabled={busy} /> Present this instance for Scripture, sermons, and study</label></p>
+          <p class="muted">Switches the site to a Reformed / Presbyterian presentation, adds the Bible reader and listening player, and focuses the public timeline on c/scripture, c/daily_reading, c/sermons, and c/deeper_dives (created on first enable). Readers can still choose “Everything”. Turning it off keeps those communities and posts. Fill the feed with <code>node scripts/bible-feed.mjs</code>; see <code>docs/biblical-mode.md</code>.</p>
         </section>
         <section class="panel">
           <h3>Publication moderation</h3>

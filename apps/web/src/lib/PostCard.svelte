@@ -4,6 +4,8 @@
   import SourcePost from '#lib/SourcePost.svelte';
   import AuthorAvatar from '#lib/AuthorAvatar.svelte';
   import PostViews from '#lib/PostViews.svelte';
+  import AudioAttachment from '#lib/AudioAttachment.svelte';
+  import { hasAudio } from '#lib/audio-queue.mjs';
   import { timeAgo, fullDate } from '#lib/time-ago.mjs';
 
   export let post;
@@ -14,7 +16,8 @@
   const redundantSourceTitle = p => p?.source?.provider === 'x' && p.title?.trim() === p.body?.split(/\r?\n/, 1)[0]?.trim();
   const articleConfig = p => p?.source?.generation_config?.content_kind === 'article' ? p.source.generation_config : null;
   const previewMedia = p => { const item = p?.source?.media?.[0]; return typeof item === 'string' ? item : item?.kind === 'image' ? item.src : item?.poster || ''; };
-  const previewLabel = p => { const c = articleConfig(p); return c ? `Article · Day ${c.unit_order || 1}${c.unit_count ? ` of ${c.unit_count}` : ''}` : 'Long post'; };
+  const BIBLE_LABELS = { scripture: 'Scripture', daily_reading: 'Daily reading', sermons: 'Sermon', deeper_dives: 'Deeper dive' };
+  const previewLabel = p => { const c = articleConfig(p); return c ? `Article · Day ${c.unit_order || 1}${c.unit_count ? ` of ${c.unit_count}` : ''}` : BIBLE_LABELS[p?.community] || 'Long post'; };
   const excerpt = body => { const text = String(body || '').replace(/^#{1,6}\s+/gm, '').replace(/[*_>`]/g, '').replace(/\s+/g, ' ').trim(); return text.length > EXCERPT ? `${text.slice(0, EXCERPT).trimEnd()}…` : text; };
   const providerName = p => p === 'youtube' ? 'YouTube' : p === 'reddit' ? 'Reddit' : 'X';
 
@@ -34,11 +37,12 @@
 
   <div class="meta">
     {#if !isExternalCard}
-      <AuthorAvatar handle={provider === 'reddit' ? post.source.source_author : post.author} size="small" />
+      <AuthorAvatar handle={provider === 'reddit' || provider === 'rss' ? post.source.source_author : post.author} size="small" />
     {/if}
     <div class="meta-text">
       <a class="community" href={'/?community=' + encodeURIComponent(post.community)}>c/{post.community}</a>
       {#if provider === 'reddit'}<span class="sep" aria-hidden="true">·</span><span>From Reddit · {post.source.source_author}</span>
+      {:else if provider === 'rss'}<span class="sep" aria-hidden="true">·</span><span class="feed-source">{post.source.profile_display_name || post.source.source_author}</span>
       {:else if !isExternalCard}<span class="sep" aria-hidden="true">·</span><a href={'/u/' + post.author}>u/{post.author}</a>{/if}
       {#if !isExternalCard}<span class="sep" aria-hidden="true">·</span><time datetime={post.created_at} title={fullDate(post.created_at)}>{timeAgo(post.created_at)}</time>{/if}
       <span class="sep" aria-hidden="true">·</span><PostViews id={post.id} initial={post} />
@@ -54,9 +58,10 @@
       <div class="preview-copy">
         <span class="preview-label">{previewLabel(post)}</span>
         <p>{excerpt(post.body)}</p>
-        <a class="read-link" href={href}>{articleConfig(post) ? 'Read full article →' : 'Read full post →'}</a>
+        <a class="read-link" href={href}>{articleConfig(post) ? 'Read full article →' : BIBLE_LABELS[post.community] ? 'Read in full →' : 'Read full post →'}</a>
       </div>
     </div>
+    {#if hasAudio(post)}<AudioAttachment {post} />{/if}
     <PostActions {post} />
   {:else if isExternalCard}
     <SourcePost source={post.source} text={post.body} {post} embedded={true} />
@@ -72,6 +77,7 @@
   .meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: .78rem; color: var(--muted); }
   .meta-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; row-gap: 2px; }
   .community { font-weight: 700; color: var(--heading); }
+  .feed-source { font-weight: 600; color: var(--text); }
   .community:hover, .meta-text a:hover { text-decoration: underline; text-underline-offset: 3px; }
   .title { margin: 0 0 6px; font: 650 1.15rem/1.3 var(--font-sans); letter-spacing: -.015em; overflow-wrap: anywhere; }
   .title a:hover { color: var(--accent); }

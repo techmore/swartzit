@@ -1,0 +1,6243 @@
+{
+ "source": "LibriVox (public domain)",
+ "translation": "KJV",
+ "generated": "2026-11-10",
+ "notes": "Each segment is one public-domain LibriVox MP3 on archive.org covering chapters start..end. Regenerate with scripts/bible-audio-map.py.",
+ "books": [
+  {
+   "book": "Genesis",
+   "chapters": 50,
+   "item": "https://archive.org/details/bible_kjv_01_02_03_0908_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 6,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01a_kjv_64kb.mp3",
+     "seconds": 1551,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 12,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01b_kjv_64kb.mp3",
+     "seconds": 1436,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 18,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01c_kjv_64kb.mp3",
+     "seconds": 1341,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 23,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01d_kjv_64kb.mp3",
+     "seconds": 1349,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 27,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01e_kjv_64kb.mp3",
+     "seconds": 1724,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 31,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01f_kjv_64kb.mp3",
+     "seconds": 1446,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 32,
+     "end": 36,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01g_kjv_64kb.mp3",
+     "seconds": 1376,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 37,
+     "end": 41,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01h_kjv_64kb.mp3",
+     "seconds": 1575,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 42,
+     "end": 45,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01i_kjv_64kb.mp3",
+     "seconds": 1266,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 46,
+     "end": 50,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_01j_kjv_64kb.mp3",
+     "seconds": 1533,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Exodus",
+   "chapters": 40,
+   "item": "https://archive.org/details/bible_kjv_01_02_03_0908_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 6,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_02a_kjv_64kb.mp3",
+     "seconds": 1558,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 11,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_02b_kjv_64kb.mp3",
+     "seconds": 1389,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 16,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_02c_kjv_64kb.mp3",
+     "seconds": 1718,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 22,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_02d_kjv_64kb.mp3",
+     "seconds": 1474,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 27,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_02e_kjv_64kb.mp3",
+     "seconds": 1377,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 31,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_02f_kjv_64kb.mp3",
+     "seconds": 1449,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 32,
+     "end": 35,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_02g_kjv_64kb.mp3",
+     "seconds": 1333,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 36,
+     "end": 40,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_02h_kjv_64kb.mp3",
+     "seconds": 1545,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Leviticus",
+   "chapters": 27,
+   "item": "https://archive.org/details/bible_kjv_01_02_03_0908_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 6,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_03a_kjv_64kb.mp3",
+     "seconds": 1452,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 11,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_03b_kjv_64kb.mp3",
+     "seconds": 1566,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 14,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_03c_kjv_64kb.mp3",
+     "seconds": 1274,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 19,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_03d_kjv_64kb.mp3",
+     "seconds": 1530,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 23,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_03e_kjv_64kb.mp3",
+     "seconds": 1308,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 27,
+     "url": "https://archive.org/download/bible_kjv_01_02_03_0908_librivox/bible_03f_kjv_64kb.mp3",
+     "seconds": 1535,
+     "readers": [
+      "Darren L. Slider"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Numbers",
+   "chapters": 36,
+   "item": "https://archive.org/details/numbers_kjv_1108_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_01_kjv_64kb.mp3",
+     "seconds": 828,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_02_kjv_64kb.mp3",
+     "seconds": 1170,
+     "readers": [
+      "Ron Nieuwsma"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 6,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_03_kjv_64kb.mp3",
+     "seconds": 839,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_04_kjv_64kb.mp3",
+     "seconds": 1405,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 11,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_05_kjv_64kb.mp3",
+     "seconds": 862,
+     "readers": [
+      "Juan Federico"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 14,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_06_kjv_64kb.mp3",
+     "seconds": 842,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 17,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_07_kjv_64kb.mp3",
+     "seconds": 911,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 20,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_08_kjv_64kb.mp3",
+     "seconds": 910,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 22,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_09_kjv_64kb.mp3",
+     "seconds": 713,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 25,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_10_kjv_64kb.mp3",
+     "seconds": 690,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 26,
+     "end": 27,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_11_kjv_64kb.mp3",
+     "seconds": 812,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 30,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_12_kjv_64kb.mp3",
+     "seconds": 874,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 31,
+     "end": 32,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_13_kjv_64kb.mp3",
+     "seconds": 771,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 33,
+     "end": 36,
+     "url": "https://archive.org/download/numbers_kjv_1108_librivox/numbers_14_kjv_64kb.mp3",
+     "seconds": 1203,
+     "readers": [
+      "Michael Packard"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Deuteronomy",
+   "chapters": 34,
+   "item": "https://archive.org/details/deuteronomy_kjv_1110_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_01_kjv_64kb.mp3",
+     "seconds": 856,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_02_kjv_64kb.mp3",
+     "seconds": 965,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 7,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_03_kjv_64kb.mp3",
+     "seconds": 940,
+     "readers": [
+      "Bob Gonzalez"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 10,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_04_kjv_64kb.mp3",
+     "seconds": 928,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 13,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_05_kjv_64kb.mp3",
+     "seconds": 1067,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 16,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_06_kjv_64kb.mp3",
+     "seconds": 832,
+     "readers": [
+      "Rob Paire"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 19,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_07_kjv_64kb.mp3",
+     "seconds": 734,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 22,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_08_kjv_64kb.mp3",
+     "seconds": 803,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 25,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_09_kjv_64kb.mp3",
+     "seconds": 708,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 26,
+     "end": 27,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_10_kjv_64kb.mp3",
+     "seconds": 405,
+     "readers": [
+      "GabrielleC"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 28,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_11_kjv_64kb.mp3",
+     "seconds": 851,
+     "readers": [
+      "Janet Williams"
+     ]
+    },
+    {
+     "start": 29,
+     "end": 31,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_12_kjv_64kb.mp3",
+     "seconds": 735,
+     "readers": [
+      "GabrielleC"
+     ]
+    },
+    {
+     "start": 32,
+     "end": 34,
+     "url": "https://archive.org/download/deuteronomy_kjv_1110_librivox/deuteronomy_13_kjv_64kb.mp3",
+     "seconds": 1119,
+     "readers": [
+      "Michael Packard"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Joshua",
+   "chapters": 24,
+   "item": "https://archive.org/details/bible_kjv_joshua_jc_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_01_kjv_64kb.mp3",
+     "seconds": 209,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_02_kjv_64kb.mp3",
+     "seconds": 259,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_03_kjv_64kb.mp3",
+     "seconds": 199,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_04_kjv_64kb.mp3",
+     "seconds": 235,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_05_kjv_64kb.mp3",
+     "seconds": 198,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_06_kjv_64kb.mp3",
+     "seconds": 308,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_07_kjv_64kb.mp3",
+     "seconds": 318,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_08_kjv_64kb.mp3",
+     "seconds": 401,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_09_kjv_64kb.mp3",
+     "seconds": 270,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_10_kjv_64kb.mp3",
+     "seconds": 477,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_11_kjv_64kb.mp3",
+     "seconds": 267,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_12_kjv_64kb.mp3",
+     "seconds": 206,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_13_kjv_64kb.mp3",
+     "seconds": 316,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_14_kjv_64kb.mp3",
+     "seconds": 184,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_15_kjv_64kb.mp3",
+     "seconds": 427,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_16_kjv_64kb.mp3",
+     "seconds": 119,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_17_kjv_64kb.mp3",
+     "seconds": 252,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_18_kjv_64kb.mp3",
+     "seconds": 289,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_19_kjv_64kb.mp3",
+     "seconds": 399,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_20_kjv_64kb.mp3",
+     "seconds": 130,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_21_kjv_64kb.mp3",
+     "seconds": 373,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_22_kjv_64kb.mp3",
+     "seconds": 441,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_23_kjv_64kb.mp3",
+     "seconds": 203,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/bible_kjv_joshua_jc_librivox/joshua_24_kjv_64kb.mp3",
+     "seconds": 375,
+     "readers": [
+      "Joy Chan"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Judges",
+   "chapters": 21,
+   "item": "https://archive.org/details/bible_judges_kjv_jc_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_01_kjv_64kb.mp3",
+     "seconds": 372,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_02_kjv_64kb.mp3",
+     "seconds": 260,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_03_kjv_64kb.mp3",
+     "seconds": 322,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_04_kjv_64kb.mp3",
+     "seconds": 284,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_05_kjv_64kb.mp3",
+     "seconds": 300,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_06_kjv_64kb.mp3",
+     "seconds": 435,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_07_kjv_64kb.mp3",
+     "seconds": 339,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_08_kjv_64kb.mp3",
+     "seconds": 354,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_09_kjv_64kb.mp3",
+     "seconds": 565,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_10_kjv_64kb.mp3",
+     "seconds": 190,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_11_kjv_64kb.mp3",
+     "seconds": 431,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_12_kjv_64kb.mp3",
+     "seconds": 167,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_13_kjv_64kb.mp3",
+     "seconds": 243,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_14_kjv_64kb.mp3",
+     "seconds": 245,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_15_kjv_64kb.mp3",
+     "seconds": 243,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_16_kjv_64kb.mp3",
+     "seconds": 366,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_17_kjv_64kb.mp3",
+     "seconds": 148,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_18_kjv_64kb.mp3",
+     "seconds": 348,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_19_kjv_64kb.mp3",
+     "seconds": 367,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_20_kjv_64kb.mp3",
+     "seconds": 496,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/bible_judges_kjv_jc_librivox/judges_21_kjv_64kb.mp3",
+     "seconds": 261,
+     "readers": [
+      "Joy Chan"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Ruth",
+   "chapters": 4,
+   "item": "https://archive.org/details/bible_ruth_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/bible_ruth_tg_librivox/ruth_kjv_64kb.mp3",
+     "seconds": 951,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "1 Samuel",
+   "chapters": 31,
+   "item": "https://archive.org/details/bible_1samuel_kjv_0903_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_01_kjv_64kb.mp3",
+     "seconds": 305,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_02_kjv_64kb.mp3",
+     "seconds": 386,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_03_kjv_64kb.mp3",
+     "seconds": 222,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_04_kjv_64kb.mp3",
+     "seconds": 275,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_05_kjv_64kb.mp3",
+     "seconds": 167,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_06_kjv_64kb.mp3",
+     "seconds": 274,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_07_kjv_64kb.mp3",
+     "seconds": 213,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_08_kjv_64kb.mp3",
+     "seconds": 212,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_09_kjv_64kb.mp3",
+     "seconds": 353,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_10_kjv_64kb.mp3",
+     "seconds": 318,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_11_kjv_64kb.mp3",
+     "seconds": 205,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_12_kjv_64kb.mp3",
+     "seconds": 294,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_13_kjv_64kb.mp3",
+     "seconds": 272,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_14_kjv_64kb.mp3",
+     "seconds": 588,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_15_kjv_64kb.mp3",
+     "seconds": 377,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_16_kjv_64kb.mp3",
+     "seconds": 270,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_17_kjv_64kb.mp3",
+     "seconds": 607,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_18_kjv_64kb.mp3",
+     "seconds": 324,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_19_kjv_64kb.mp3",
+     "seconds": 277,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_20_kjv_64kb.mp3",
+     "seconds": 460,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_21_kjv_64kb.mp3",
+     "seconds": 191,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_22_kjv_64kb.mp3",
+     "seconds": 281,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_23_kjv_64kb.mp3",
+     "seconds": 321,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_24_kjv_64kb.mp3",
+     "seconds": 258,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 25,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_25_kjv_64kb.mp3",
+     "seconds": 515,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 26,
+     "end": 26,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_26_kjv_64kb.mp3",
+     "seconds": 330,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 27,
+     "end": 27,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_27_kjv_64kb.mp3",
+     "seconds": 159,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 28,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_28_kjv_64kb.mp3",
+     "seconds": 311,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 29,
+     "end": 29,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_29_kjv_64kb.mp3",
+     "seconds": 166,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 30,
+     "end": 30,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_30_kjv_64kb.mp3",
+     "seconds": 344,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 31,
+     "end": 31,
+     "url": "https://archive.org/download/bible_1samuel_kjv_0903_librivox/1samuel_31_kjv_64kb.mp3",
+     "seconds": 150,
+     "readers": [
+      "Joy Chan"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "2 Samuel",
+   "chapters": 24,
+   "item": "https://archive.org/details/bible_2samuel_kjv_jc_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_01_kjv_64kb.mp3",
+     "seconds": 288,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_02_kjv_64kb.mp3",
+     "seconds": 370,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_03_kjv_64kb.mp3",
+     "seconds": 440,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_04_kjv_64kb.mp3",
+     "seconds": 178,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_05_kjv_64kb.mp3",
+     "seconds": 260,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_06_kjv_64kb.mp3",
+     "seconds": 269,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_07_kjv_64kb.mp3",
+     "seconds": 318,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_08_kjv_64kb.mp3",
+     "seconds": 197,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_09_kjv_64kb.mp3",
+     "seconds": 174,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_10_kjv_64kb.mp3",
+     "seconds": 235,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_11_kjv_64kb.mp3",
+     "seconds": 303,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_12_kjv_64kb.mp3",
+     "seconds": 360,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_13_kjv_64kb.mp3",
+     "seconds": 428,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_14_kjv_64kb.mp3",
+     "seconds": 391,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_15_kjv_64kb.mp3",
+     "seconds": 417,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_16_kjv_64kb.mp3",
+     "seconds": 288,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_17_kjv_64kb.mp3",
+     "seconds": 354,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_18_kjv_64kb.mp3",
+     "seconds": 405,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_19_kjv_64kb.mp3",
+     "seconds": 507,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_20_kjv_64kb.mp3",
+     "seconds": 315,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_21_kjv_64kb.mp3",
+     "seconds": 280,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_22_kjv_64kb.mp3",
+     "seconds": 365,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_23_kjv_64kb.mp3",
+     "seconds": 350,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/bible_2samuel_kjv_jc_librivox/2samuel_24_kjv_64kb.mp3",
+     "seconds": 322,
+     "readers": [
+      "Joy Chan"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "1 Kings",
+   "chapters": 22,
+   "item": "https://archive.org/details/bible_kjv_11_1king_0909_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_01_kjv_64kb.mp3",
+     "seconds": 523,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_02_kjv_64kb.mp3",
+     "seconds": 504,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_03_kjv_64kb.mp3",
+     "seconds": 293,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_04_kjv_64kb.mp3",
+     "seconds": 271,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_05_kjv_64kb.mp3",
+     "seconds": 193,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_06_kjv_64kb.mp3",
+     "seconds": 334,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_07_kjv_64kb.mp3",
+     "seconds": 488,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_08_kjv_64kb.mp3",
+     "seconds": 668,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_09_kjv_64kb.mp3",
+     "seconds": 277,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_10_kjv_64kb.mp3",
+     "seconds": 287,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_11_kjv_64kb.mp3",
+     "seconds": 432,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_12_kjv_64kb.mp3",
+     "seconds": 353,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_13_kjv_64kb.mp3",
+     "seconds": 349,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_14_kjv_64kb.mp3",
+     "seconds": 324,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_15_kjv_64kb.mp3",
+     "seconds": 317,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_16_kjv_64kb.mp3",
+     "seconds": 336,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_17_kjv_64kb.mp3",
+     "seconds": 234,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_18_kjv_64kb.mp3",
+     "seconds": 474,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_19_kjv_64kb.mp3",
+     "seconds": 263,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_20_kjv_64kb.mp3",
+     "seconds": 517,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_21_kjv_64kb.mp3",
+     "seconds": 309,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/bible_kjv_11_1king_0909_librivox/1kings_22_kjv_64kb.mp3",
+     "seconds": 509,
+     "readers": [
+      "Joy Chan"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "2 Kings",
+   "chapters": 25,
+   "item": "https://archive.org/details/bible_kjv_2kings_jc_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_01_kjv_64kb.mp3",
+     "seconds": 240,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_02_kjv_64kb.mp3",
+     "seconds": 311,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_03_kjv_64kb.mp3",
+     "seconds": 309,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_04_kjv_64kb.mp3",
+     "seconds": 454,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_05_kjv_64kb.mp3",
+     "seconds": 334,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_06_kjv_64kb.mp3",
+     "seconds": 350,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_07_kjv_64kb.mp3",
+     "seconds": 268,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_08_kjv_64kb.mp3",
+     "seconds": 328,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_09_kjv_64kb.mp3",
+     "seconds": 426,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_10_kjv_64kb.mp3",
+     "seconds": 415,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_11_kjv_64kb.mp3",
+     "seconds": 244,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_12_kjv_64kb.mp3",
+     "seconds": 235,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_13_kjv_64kb.mp3",
+     "seconds": 289,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_14_kjv_64kb.mp3",
+     "seconds": 314,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_15_kjv_64kb.mp3",
+     "seconds": 383,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_16_kjv_64kb.mp3",
+     "seconds": 238,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_17_kjv_64kb.mp3",
+     "seconds": 425,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_18_kjv_64kb.mp3",
+     "seconds": 439,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_19_kjv_64kb.mp3",
+     "seconds": 413,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_20_kjv_64kb.mp3",
+     "seconds": 248,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_21_kjv_64kb.mp3",
+     "seconds": 266,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_22_kjv_64kb.mp3",
+     "seconds": 252,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_23_kjv_64kb.mp3",
+     "seconds": 491,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_24_kjv_64kb.mp3",
+     "seconds": 219,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 25,
+     "url": "https://archive.org/download/bible_kjv_2kings_jc_librivox/2kings_25_kjv_64kb.mp3",
+     "seconds": 342,
+     "readers": [
+      "Joy Chan"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "1 Chronicles",
+   "chapters": 29,
+   "item": "https://archive.org/details/1chronicles_jc_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_01_kjv_64kb.mp3",
+     "seconds": 362,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_02_kjv_64kb.mp3",
+     "seconds": 410,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_03_kjv_64kb.mp3",
+     "seconds": 203,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_04_kjv_64kb.mp3",
+     "seconds": 387,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_05_kjv_64kb.mp3",
+     "seconds": 276,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_06_kjv_64kb.mp3",
+     "seconds": 560,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_07_kjv_64kb.mp3",
+     "seconds": 375,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_08_kjv_64kb.mp3",
+     "seconds": 257,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_09_kjv_64kb.mp3",
+     "seconds": 392,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_10_kjv_64kb.mp3",
+     "seconds": 151,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_11_kjv_64kb.mp3",
+     "seconds": 379,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_12_kjv_64kb.mp3",
+     "seconds": 385,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_13_kjv_64kb.mp3",
+     "seconds": 154,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_14_kjv_64kb.mp3",
+     "seconds": 159,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_15_kjv_64kb.mp3",
+     "seconds": 289,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_16_kjv_64kb.mp3",
+     "seconds": 329,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_17_kjv_64kb.mp3",
+     "seconds": 279,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_18_kjv_64kb.mp3",
+     "seconds": 182,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_19_kjv_64kb.mp3",
+     "seconds": 237,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_20_kjv_64kb.mp3",
+     "seconds": 123,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_21_kjv_64kb.mp3",
+     "seconds": 328,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_22_kjv_64kb.mp3",
+     "seconds": 225,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_23_kjv_64kb.mp3",
+     "seconds": 272,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_24_kjv_64kb.mp3",
+     "seconds": 245,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 25,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_25_kjv_64kb.mp3",
+     "seconds": 253,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 26,
+     "end": 26,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_26_kjv_64kb.mp3",
+     "seconds": 315,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 27,
+     "end": 27,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_27_kjv_64kb.mp3",
+     "seconds": 336,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 28,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_28_kjv_64kb.mp3",
+     "seconds": 314,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 29,
+     "end": 29,
+     "url": "https://archive.org/download/1chronicles_jc_librivox/1chronicles_29_kjv_64kb.mp3",
+     "seconds": 373,
+     "readers": [
+      "Joy Chan"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "2 Chronicles",
+   "chapters": 36,
+   "item": "https://archive.org/details/2chronicleskjv_1403_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_01_kjv_64kb.mp3",
+     "seconds": 202,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_02_kjv_64kb.mp3",
+     "seconds": 252,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_03_kjv_64kb.mp3",
+     "seconds": 186,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_04_kjv_64kb.mp3",
+     "seconds": 223,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_05_kjv_64kb.mp3",
+     "seconds": 188,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_06_kjv_64kb.mp3",
+     "seconds": 509,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_07_kjv_64kb.mp3",
+     "seconds": 272,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_08_kjv_64kb.mp3",
+     "seconds": 214,
+     "readers": [
+      "Joy Chan"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_09_kjv_64kb.mp3",
+     "seconds": 365,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_10_kjv_64kb.mp3",
+     "seconds": 228,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_11_kjv_64kb.mp3",
+     "seconds": 219,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_12_kjv_64kb.mp3",
+     "seconds": 207,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_13_kjv_64kb.mp3",
+     "seconds": 275,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_14_kjv_64kb.mp3",
+     "seconds": 192,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_15_kjv_64kb.mp3",
+     "seconds": 204,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_16_kjv_64kb.mp3",
+     "seconds": 204,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_17_kjv_64kb.mp3",
+     "seconds": 226,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_18_kjv_64kb.mp3",
+     "seconds": 418,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_19_kjv_64kb.mp3",
+     "seconds": 154,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_20_kjv_64kb.mp3",
+     "seconds": 445,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_21_kjv_64kb.mp3",
+     "seconds": 251,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_22_kjv_64kb.mp3",
+     "seconds": 189,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_23_kjv_64kb.mp3",
+     "seconds": 313,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_24_kjv_64kb.mp3",
+     "seconds": 382,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 25,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_25_kjv_64kb.mp3",
+     "seconds": 390,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 26,
+     "end": 26,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_26_kjv_64kb.mp3",
+     "seconds": 302,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 27,
+     "end": 27,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_27_kjv_64kb.mp3",
+     "seconds": 109,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 28,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_28_kjv_64kb.mp3",
+     "seconds": 356,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 29,
+     "end": 29,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_29_kjv_64kb.mp3",
+     "seconds": 462,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 30,
+     "end": 30,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_30_kjv_64kb.mp3",
+     "seconds": 350,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 31,
+     "end": 31,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_31_kjv_64kb.mp3",
+     "seconds": 312,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 32,
+     "end": 32,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_32_kjv_64kb.mp3",
+     "seconds": 425,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 33,
+     "end": 33,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_33_kjv_64kb.mp3",
+     "seconds": 284,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 34,
+     "end": 34,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_34_kjv_64kb.mp3",
+     "seconds": 429,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 35,
+     "end": 35,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_35_kjv_64kb.mp3",
+     "seconds": 356,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 36,
+     "end": 36,
+     "url": "https://archive.org/download/2chronicleskjv_1403_librivox/2chronicles_36_kjv_64kb.mp3",
+     "seconds": 293,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Ezra",
+   "chapters": 10,
+   "item": "https://archive.org/details/ezra_kjv_sw_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/ezra_kjv_sw_librivox/ezra_01_kjv_64kb.mp3",
+     "seconds": 770,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/ezra_kjv_sw_librivox/ezra_02_kjv_64kb.mp3",
+     "seconds": 641,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 6,
+     "url": "https://archive.org/download/ezra_kjv_sw_librivox/ezra_03_kjv_64kb.mp3",
+     "seconds": 663,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/ezra_kjv_sw_librivox/ezra_04_kjv_64kb.mp3",
+     "seconds": 897,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 10,
+     "url": "https://archive.org/download/ezra_kjv_sw_librivox/ezra_05_kjv_64kb.mp3",
+     "seconds": 858,
+     "readers": [
+      "Sundiata"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Nehemiah",
+   "chapters": 13,
+   "item": "https://archive.org/details/nehemiah_kjv_1110_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/nehemiah_kjv_1110_librivox/nehemiah_1_kjv_64kb.mp3",
+     "seconds": 953,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 6,
+     "url": "https://archive.org/download/nehemiah_kjv_1110_librivox/nehemiah_2_kjv_64kb.mp3",
+     "seconds": 820,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/nehemiah_kjv_1110_librivox/nehemiah_3_kjv_64kb.mp3",
+     "seconds": 659,
+     "readers": [
+      "A. E. Maroney"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 10,
+     "url": "https://archive.org/download/nehemiah_kjv_1110_librivox/nehemiah_4_kjv_64kb.mp3",
+     "seconds": 673,
+     "readers": [
+      "A. E. Maroney"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 13,
+     "url": "https://archive.org/download/nehemiah_kjv_1110_librivox/nehemiah_5_kjv_64kb.mp3",
+     "seconds": 1097,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Esther",
+   "chapters": 10,
+   "item": "https://archive.org/details/publicdomain",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/publicdomain/esther_01-03_kjv_64kb.mp3",
+     "seconds": 725,
+     "readers": [
+      "Esther"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 6,
+     "url": "https://archive.org/download/publicdomain/esther_04-06_kjv_64kb.mp3",
+     "seconds": 509,
+     "readers": [
+      "Esther"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 10,
+     "url": "https://archive.org/download/publicdomain/esther_07-10_kjv_64kb.mp3",
+     "seconds": 721,
+     "readers": [
+      "Esther"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Job",
+   "chapters": 42,
+   "item": "https://archive.org/details/bible_kjv_18_job_version_2_1507_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_01_kjv_64kb.mp3",
+     "seconds": 255,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_02_kjv_64kb.mp3",
+     "seconds": 154,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_03_kjv_64kb.mp3",
+     "seconds": 171,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_04_kjv_64kb.mp3",
+     "seconds": 148,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_05_kjv_64kb.mp3",
+     "seconds": 177,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_06_kjv_64kb.mp3",
+     "seconds": 193,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_07_kjv_64kb.mp3",
+     "seconds": 153,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_08_kjv_64kb.mp3",
+     "seconds": 136,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_09_kjv_64kb.mp3",
+     "seconds": 196,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_10_kjv_64kb.mp3",
+     "seconds": 156,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_11_kjv_64kb.mp3",
+     "seconds": 127,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_12_kjv_64kb.mp3",
+     "seconds": 156,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_13_kjv_64kb.mp3",
+     "seconds": 163,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_14_kjv_64kb.mp3",
+     "seconds": 159,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_15_kjv_64kb.mp3",
+     "seconds": 209,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_16_kjv_64kb.mp3",
+     "seconds": 144,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_17_kjv_64kb.mp3",
+     "seconds": 105,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_18_kjv_64kb.mp3",
+     "seconds": 122,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_19_kjv_64kb.mp3",
+     "seconds": 171,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_20_kjv_64kb.mp3",
+     "seconds": 178,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_21_kjv_64kb.mp3",
+     "seconds": 194,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_22_kjv_64kb.mp3",
+     "seconds": 184,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_23_kjv_64kb.mp3",
+     "seconds": 105,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_24_kjv_64kb.mp3",
+     "seconds": 178,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 25,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_25_kjv_64kb.mp3",
+     "seconds": 47,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 26,
+     "end": 26,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_26_kjv_64kb.mp3",
+     "seconds": 96,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 27,
+     "end": 27,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_27_kjv_64kb.mp3",
+     "seconds": 148,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 28,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_28_kjv_64kb.mp3",
+     "seconds": 174,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 29,
+     "end": 29,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_29_kjv_64kb.mp3",
+     "seconds": 144,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 30,
+     "end": 30,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_30_kjv_64kb.mp3",
+     "seconds": 190,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 31,
+     "end": 31,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_31_kjv_64kb.mp3",
+     "seconds": 240,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 32,
+     "end": 32,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_32_kjv_64kb.mp3",
+     "seconds": 147,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 33,
+     "end": 33,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_33_kjv_64kb.mp3",
+     "seconds": 205,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 34,
+     "end": 34,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_34_kjv_64kb.mp3",
+     "seconds": 239,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 35,
+     "end": 35,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_35_kjv_64kb.mp3",
+     "seconds": 105,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 36,
+     "end": 36,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_36_kjv_64kb.mp3",
+     "seconds": 193,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 37,
+     "end": 37,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_37_kjv_64kb.mp3",
+     "seconds": 157,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 38,
+     "end": 38,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_38_kjv_64kb.mp3",
+     "seconds": 246,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 39,
+     "end": 39,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_39_kjv_64kb.mp3",
+     "seconds": 179,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 40,
+     "end": 40,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_40_kjv_64kb.mp3",
+     "seconds": 156,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 41,
+     "end": 41,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_41_kjv_64kb.mp3",
+     "seconds": 200,
+     "readers": [
+      "Peter Tucker"
+     ]
+    },
+    {
+     "start": 42,
+     "end": 42,
+     "url": "https://archive.org/download/bible_kjv_18_job_version_2_1507_librivox/bookofjob_42_kjv_64kb.mp3",
+     "seconds": 178,
+     "readers": [
+      "Peter Tucker"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Psalms",
+   "chapters": 150,
+   "item": "https://archive.org/details/bible_kjv_19_psalms_1207_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 5,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_01_kjv_64kb.mp3",
+     "seconds": 494,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 7,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_02_kjv_64kb.mp3",
+     "seconds": 279,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 10,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_03_kjv_64kb.mp3",
+     "seconds": 486,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 13,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_04_kjv_64kb.mp3",
+     "seconds": 223,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 16,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_05_kjv_64kb.mp3",
+     "seconds": 260,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 20,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_06_kjv_64kb.mp3",
+     "seconds": 835,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 23,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_07_kjv_64kb.mp3",
+     "seconds": 532,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 26,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_08_kjv_64kb.mp3",
+     "seconds": 379,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 27,
+     "end": 30,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_09_kjv_64kb.mp3",
+     "seconds": 530,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 31,
+     "end": 33,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_10_kjv_64kb.mp3",
+     "seconds": 572,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 34,
+     "end": 36,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_11_kjv_64kb.mp3",
+     "seconds": 575,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 37,
+     "end": 38,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_12_kjv_64kb.mp3",
+     "seconds": 528,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 39,
+     "end": 40,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_13_kjv_64kb.mp3",
+     "seconds": 373,
+     "readers": [
+      "peaceuntoyou"
+     ]
+    },
+    {
+     "start": 40,
+     "end": 41,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_14_kjv_64kb.mp3",
+     "seconds": 340,
+     "readers": [
+      "Chris Caron"
+     ]
+    },
+    {
+     "start": 42,
+     "end": 43,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_15_kjv_64kb.mp3",
+     "seconds": 206,
+     "readers": [
+      "Andrew White"
+     ]
+    },
+    {
+     "start": 44,
+     "end": 46,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_16_kjv_64kb.mp3",
+     "seconds": 466,
+     "readers": [
+      "Chris Caron"
+     ]
+    },
+    {
+     "start": 47,
+     "end": 49,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_17_kjv_64kb.mp3",
+     "seconds": 311,
+     "readers": [
+      "DVoice"
+     ]
+    },
+    {
+     "start": 50,
+     "end": 52,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_18_kjv_64kb.mp3",
+     "seconds": 428,
+     "readers": [
+      "DVoice"
+     ]
+    },
+    {
+     "start": 53,
+     "end": 56,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_19_kjv_64kb.mp3",
+     "seconds": 419,
+     "readers": [
+      "DVoice"
+     ]
+    },
+    {
+     "start": 57,
+     "end": 60,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_20_kjv_64kb.mp3",
+     "seconds": 444,
+     "readers": [
+      "Chris Caron"
+     ]
+    },
+    {
+     "start": 61,
+     "end": 65,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_21_kjv_64kb.mp3",
+     "seconds": 417,
+     "readers": [
+      "Nicole Lee"
+     ]
+    },
+    {
+     "start": 66,
+     "end": 68,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_22_kjv_64kb.mp3",
+     "seconds": 560,
+     "readers": [
+      "Robert Hoffman"
+     ]
+    },
+    {
+     "start": 69,
+     "end": 71,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_23_kjv_64kb.mp3",
+     "seconds": 492,
+     "readers": [
+      "fshort"
+     ]
+    },
+    {
+     "start": 72,
+     "end": 73,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_24_kjv_64kb.mp3",
+     "seconds": 340,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 74,
+     "end": 77,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_25_kjv_64kb.mp3",
+     "seconds": 521,
+     "readers": [
+      "April Gonzales"
+     ]
+    },
+    {
+     "start": 78,
+     "end": 78,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_26_kjv_64kb.mp3",
+     "seconds": 532,
+     "readers": [
+      "April Gonzales"
+     ]
+    },
+    {
+     "start": 79,
+     "end": 81,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_27_kjv_64kb.mp3",
+     "seconds": 446,
+     "readers": [
+      "Ernst Pattynama"
+     ]
+    },
+    {
+     "start": 82,
+     "end": 85,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_28_kjv_64kb.mp3",
+     "seconds": 386,
+     "readers": [
+      "Kristin G."
+     ]
+    },
+    {
+     "start": 86,
+     "end": 88,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_29_kjv_64kb.mp3",
+     "seconds": 339,
+     "readers": [
+      "Kristin G."
+     ]
+    },
+    {
+     "start": 89,
+     "end": 89,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_30_kjv_64kb.mp3",
+     "seconds": 379,
+     "readers": [
+      "Robert Hoffman"
+     ]
+    },
+    {
+     "start": 90,
+     "end": 93,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_31_kjv_64kb.mp3",
+     "seconds": 440,
+     "readers": [
+      "Robert Hoffman"
+     ]
+    },
+    {
+     "start": 94,
+     "end": 97,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_32_kjv_64kb.mp3",
+     "seconds": 393,
+     "readers": [
+      "Jenny Bradshaw"
+     ]
+    },
+    {
+     "start": 98,
+     "end": 102,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_33_kjv_64kb.mp3",
+     "seconds": 419,
+     "readers": [
+      "Reyoflight"
+     ]
+    },
+    {
+     "start": 103,
+     "end": 104,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_34_kjv_64kb.mp3",
+     "seconds": 390,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 105,
+     "end": 105,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_35_kjv_64kb.mp3",
+     "seconds": 254,
+     "readers": [
+      "Jon Smith"
+     ]
+    },
+    {
+     "start": 106,
+     "end": 106,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_36_kjv_64kb.mp3",
+     "seconds": 387,
+     "readers": [
+      "Kenji Yamada"
+     ]
+    },
+    {
+     "start": 107,
+     "end": 108,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_37_kjv_64kb.mp3",
+     "seconds": 457,
+     "readers": [
+      "Kenji Yamada"
+     ]
+    },
+    {
+     "start": 109,
+     "end": 112,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_38_kjv_64kb.mp3",
+     "seconds": 464,
+     "readers": [
+      "Robert Hoffman"
+     ]
+    },
+    {
+     "start": 113,
+     "end": 117,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_39_kjv_64kb.mp3",
+     "seconds": 386,
+     "readers": [
+      "Robert Hoffman"
+     ]
+    },
+    {
+     "start": 118,
+     "end": 118,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_40_kjv_64kb.mp3",
+     "seconds": 292,
+     "readers": [
+      "Linda Ciano"
+     ]
+    },
+    {
+     "start": 119,
+     "end": 119,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_41_kjv_64kb.mp3",
+     "seconds": 1131,
+     "readers": [
+      "J. Lytle"
+     ]
+    },
+    {
+     "start": 120,
+     "end": 127,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_42_kjv_64kb.mp3",
+     "seconds": 380,
+     "readers": [
+      "Patrick Wells"
+     ]
+    },
+    {
+     "start": 128,
+     "end": 134,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_43_kjv_64kb.mp3",
+     "seconds": 357,
+     "readers": [
+      "Patrick Wells"
+     ]
+    },
+    {
+     "start": 135,
+     "end": 137,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_44_kjv_64kb.mp3",
+     "seconds": 366,
+     "readers": [
+      "Patrick Wells"
+     ]
+    },
+    {
+     "start": 138,
+     "end": 139,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_45_kjv_64kb.mp3",
+     "seconds": 300,
+     "readers": [
+      "Carol Box"
+     ]
+    },
+    {
+     "start": 140,
+     "end": 142,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_46_kjv_64kb.mp3",
+     "seconds": 267,
+     "readers": [
+      "David Lawrence"
+     ]
+    },
+    {
+     "start": 143,
+     "end": 144,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_47_kjv_64kb.mp3",
+     "seconds": 257,
+     "readers": [
+      "David Lawrence"
+     ]
+    },
+    {
+     "start": 145,
+     "end": 146,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_48_kjv_64kb.mp3",
+     "seconds": 335,
+     "readers": [
+      "Linda Ciano"
+     ]
+    },
+    {
+     "start": 147,
+     "end": 148,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_49_kjv_64kb.mp3",
+     "seconds": 350,
+     "readers": [
+      "Linda Ciano"
+     ]
+    },
+    {
+     "start": 149,
+     "end": 150,
+     "url": "https://archive.org/download/bible_kjv_19_psalms_1207_librivox/psalms_50_kjv_64kb.mp3",
+     "seconds": 132,
+     "readers": [
+      "David Lawrence"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Proverbs",
+   "chapters": 31,
+   "item": "https://archive.org/details/proverbs_kjv_mp_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_01_kjv_64kb.mp3",
+     "seconds": 278,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_02_kjv_64kb.mp3",
+     "seconds": 159,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_03_kjv_64kb.mp3",
+     "seconds": 260,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_04_kjv_64kb.mp3",
+     "seconds": 187,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_05_kjv_64kb.mp3",
+     "seconds": 171,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_06_kjv_64kb.mp3",
+     "seconds": 255,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_07_kjv_64kb.mp3",
+     "seconds": 184,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_08_kjv_64kb.mp3",
+     "seconds": 249,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_09_kjv_64kb.mp3",
+     "seconds": 133,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_10_kjv_64kb.mp3",
+     "seconds": 261,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_11_kjv_64kb.mp3",
+     "seconds": 253,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_12_kjv_64kb.mp3",
+     "seconds": 219,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_13_kjv_64kb.mp3",
+     "seconds": 215,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_14_kjv_64kb.mp3",
+     "seconds": 276,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_15_kjv_64kb.mp3",
+     "seconds": 249,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_16_kjv_64kb.mp3",
+     "seconds": 246,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_17_kjv_64kb.mp3",
+     "seconds": 214,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_18_kjv_64kb.mp3",
+     "seconds": 184,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_19_kjv_64kb.mp3",
+     "seconds": 244,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_20_kjv_64kb.mp3",
+     "seconds": 240,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_21_kjv_64kb.mp3",
+     "seconds": 243,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_22_kjv_64kb.mp3",
+     "seconds": 228,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_23_kjv_64kb.mp3",
+     "seconds": 252,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_24_kjv_64kb.mp3",
+     "seconds": 262,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 25,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_25_kjv_64kb.mp3",
+     "seconds": 236,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 26,
+     "end": 26,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_26_kjv_64kb.mp3",
+     "seconds": 225,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 27,
+     "end": 27,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_27_kjv_64kb.mp3",
+     "seconds": 229,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 28,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_28_kjv_64kb.mp3",
+     "seconds": 267,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 29,
+     "end": 29,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_29_kjv_64kb.mp3",
+     "seconds": 222,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 30,
+     "end": 30,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_30_kjv_64kb.mp3",
+     "seconds": 287,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 31,
+     "end": 31,
+     "url": "https://archive.org/download/proverbs_kjv_mp_librivox/proverbs_31_kjv_64kb.mp3",
+     "seconds": 233,
+     "readers": [
+      "Michael Packard"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Ecclesiastes",
+   "chapters": 12,
+   "item": "https://archive.org/details/ecclesiastes_kjv_1105_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/ecclesiastes_kjv_1105_librivox/ecclesiastes01_kjv_64kb.mp3",
+     "seconds": 660,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 6,
+     "url": "https://archive.org/download/ecclesiastes_kjv_1105_librivox/ecclesiastes02_kjv_64kb.mp3",
+     "seconds": 524,
+     "readers": [
+      "Brian Dole"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 9,
+     "url": "https://archive.org/download/ecclesiastes_kjv_1105_librivox/ecclesiastes03_kjv_64kb.mp3",
+     "seconds": 495,
+     "readers": [
+      "Beth Thomas (1974-2020)"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 12,
+     "url": "https://archive.org/download/ecclesiastes_kjv_1105_librivox/ecclesiastes04_kjv_64kb.mp3",
+     "seconds": 426,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Song of Solomon",
+   "chapters": 8,
+   "item": "https://archive.org/details/songofsolomon_kjv_1009_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/songofsolomon_kjv_1009_librivox/songofsolomon_1_kjv_64kb.mp3",
+     "seconds": 592,
+     "readers": [
+      "Ezwa",
+      "TriciaG",
+      "Algy Pug"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 8,
+     "url": "https://archive.org/download/songofsolomon_kjv_1009_librivox/songofsolomon_2_kjv_64kb.mp3",
+     "seconds": 581,
+     "readers": [
+      "Ezwa",
+      "TriciaG",
+      "Algy Pug"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Isaiah",
+   "chapters": 66,
+   "item": "https://archive.org/details/isaiah_kjv_1107_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_01_kjv_64kb.mp3",
+     "seconds": 832,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 6,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_02_kjv_64kb.mp3",
+     "seconds": 637,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 9,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_03_kjv_64kb.mp3",
+     "seconds": 948,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 12,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_04_kjv_64kb.mp3",
+     "seconds": 760,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 15,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_05_kjv_64kb.mp3",
+     "seconds": 641,
+     "readers": [
+      "Abigail Rasmussen"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 18,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_06_kjv_64kb.mp3",
+     "seconds": 576,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 21,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_07_kjv_64kb.mp3",
+     "seconds": 517,
+     "readers": [
+      "Abigail Rasmussen"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 24,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_08_kjv_64kb.mp3",
+     "seconds": 645,
+     "readers": [
+      "Abigail Rasmussen"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 27,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_09_kjv_64kb.mp3",
+     "seconds": 425,
+     "readers": [
+      "Beth Thomas (1974-2020)"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 30,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_10_kjv_64kb.mp3",
+     "seconds": 758,
+     "readers": [
+      "Beth Thomas (1974-2020)"
+     ]
+    },
+    {
+     "start": 31,
+     "end": 33,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_11_kjv_64kb.mp3",
+     "seconds": 478,
+     "readers": [
+      "Beth Thomas (1974-2020)"
+     ]
+    },
+    {
+     "start": 34,
+     "end": 36,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_12_kjv_64kb.mp3",
+     "seconds": 536,
+     "readers": [
+      "debolee"
+     ]
+    },
+    {
+     "start": 37,
+     "end": 39,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_13_kjv_64kb.mp3",
+     "seconds": 1032,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 40,
+     "end": 42,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_14_kjv_64kb.mp3",
+     "seconds": 1097,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 43,
+     "end": 45,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_15_kjv_64kb.mp3",
+     "seconds": 1200,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 46,
+     "end": 48,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_16_kjv_64kb.mp3",
+     "seconds": 552,
+     "readers": [
+      "debolee"
+     ]
+    },
+    {
+     "start": 49,
+     "end": 51,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_17_kjv_64kb.mp3",
+     "seconds": 989,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 52,
+     "end": 54,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_18_kjv_64kb.mp3",
+     "seconds": 524,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 55,
+     "end": 57,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_19_kjv_64kb.mp3",
+     "seconds": 695,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 58,
+     "end": 60,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_20_kjv_64kb.mp3",
+     "seconds": 788,
+     "readers": [
+      "Brian Dole"
+     ]
+    },
+    {
+     "start": 61,
+     "end": 63,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_21_kjv_64kb.mp3",
+     "seconds": 608,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 64,
+     "end": 66,
+     "url": "https://archive.org/download/isaiah_kjv_1107_librivox/isaiah_22_kjv_64kb.mp3",
+     "seconds": 867,
+     "readers": [
+      "Michael Packard"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Jeremiah",
+   "chapters": 52,
+   "item": "https://archive.org/details/jeremiah_kjv_1201_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_01_kjv_64kb.mp3",
+     "seconds": 1508,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 7,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_02_kjv_64kb.mp3",
+     "seconds": 1054,
+     "readers": [
+      "Nicole Lee"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 11,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_03_kjv_64kb.mp3",
+     "seconds": 1162,
+     "readers": [
+      "Nicole Lee"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 15,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_04_kjv_64kb.mp3",
+     "seconds": 1187,
+     "readers": [
+      "Nicole Lee"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 19,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_05_kjv_64kb.mp3",
+     "seconds": 1064,
+     "readers": [
+      "Abigail Rasmussen"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 23,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_06_kjv_64kb.mp3",
+     "seconds": 1263,
+     "readers": [
+      "mcgovern1934"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 27,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_07_kjv_64kb.mp3",
+     "seconds": 1236,
+     "readers": [
+      "Nicole Lee"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 30,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_08_kjv_64kb.mp3",
+     "seconds": 829,
+     "readers": [
+      "Abigail Rasmussen"
+     ]
+    },
+    {
+     "start": 31,
+     "end": 32,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_09_kjv_64kb.mp3",
+     "seconds": 989,
+     "readers": [
+      "Abigail Rasmussen"
+     ]
+    },
+    {
+     "start": 33,
+     "end": 35,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_10_kjv_64kb.mp3",
+     "seconds": 818,
+     "readers": [
+      "Jonathan Lange"
+     ]
+    },
+    {
+     "start": 36,
+     "end": 38,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_11_kjv_64kb.mp3",
+     "seconds": 973,
+     "readers": [
+      "Jonathan Lange"
+     ]
+    },
+    {
+     "start": 39,
+     "end": 42,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_12_kjv_64kb.mp3",
+     "seconds": 982,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 43,
+     "end": 45,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_13_kjv_64kb.mp3",
+     "seconds": 682,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 46,
+     "end": 48,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_14_kjv_64kb.mp3",
+     "seconds": 1001,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 49,
+     "end": 50,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_15_kjv_64kb.mp3",
+     "seconds": 1159,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 51,
+     "end": 52,
+     "url": "https://archive.org/download/jeremiah_kjv_1201_librivox/jeremiah_16_kjv_64kb.mp3",
+     "seconds": 1245,
+     "readers": [
+      "Michael Packard"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Lamentations",
+   "chapters": 5,
+   "item": "https://archive.org/details/bible_kjv_25_lamentations_mp_0909_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_kjv_25_lamentations_mp_0909_librivox/lamentations_1_kjv_64kb.mp3",
+     "seconds": 335,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_kjv_25_lamentations_mp_0909_librivox/lamentations_2_kjv_64kb.mp3",
+     "seconds": 291,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_kjv_25_lamentations_mp_0909_librivox/lamentations_3_kjv_64kb.mp3",
+     "seconds": 352,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_kjv_25_lamentations_mp_0909_librivox/lamentations_4_kjv_64kb.mp3",
+     "seconds": 247,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_kjv_25_lamentations_mp_0909_librivox/lamentations_5_kjv_64kb.mp3",
+     "seconds": 178,
+     "readers": [
+      "Mark Penfold"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Ezekiel",
+   "chapters": 48,
+   "item": "https://archive.org/details/ezekiel_kjv_jr_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_01_kjv_64kb.mp3",
+     "seconds": 729,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 8,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_02_kjv_64kb.mp3",
+     "seconds": 708,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 12,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_03_kjv_64kb.mp3",
+     "seconds": 725,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 16,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_04_kjv_64kb.mp3",
+     "seconds": 1032,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 20,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_05_kjv_64kb.mp3",
+     "seconds": 1051,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 24,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_06_kjv_64kb.mp3",
+     "seconds": 1131,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 28,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_07_kjv_64kb.mp3",
+     "seconds": 825,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 29,
+     "end": 32,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_08_kjv_64kb.mp3",
+     "seconds": 886,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 33,
+     "end": 36,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_09_kjv_64kb.mp3",
+     "seconds": 1025,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 37,
+     "end": 40,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_10_kjv_64kb.mp3",
+     "seconds": 1125,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 41,
+     "end": 44,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_11_kjv_64kb.mp3",
+     "seconds": 941,
+     "readers": [
+      "J L Raimundo"
+     ]
+    },
+    {
+     "start": 45,
+     "end": 48,
+     "url": "https://archive.org/download/ezekiel_kjv_jr_librivox/ezekiel_12_kjv_64kb.mp3",
+     "seconds": 1021,
+     "readers": [
+      "J L Raimundo"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Daniel",
+   "chapters": 12,
+   "item": "https://archive.org/details/daniel_kjv_1112_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/daniel_kjv_1112_librivox/daniel_1_kjv_64kb.mp3",
+     "seconds": 739,
+     "readers": [
+      "Patti Cunningham"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/daniel_kjv_1112_librivox/daniel_2_kjv_64kb.mp3",
+     "seconds": 953,
+     "readers": [
+      "Sharon V."
+     ]
+    },
+    {
+     "start": 5,
+     "end": 6,
+     "url": "https://archive.org/download/daniel_kjv_1112_librivox/daniel_3_kjv_64kb.mp3",
+     "seconds": 663,
+     "readers": [
+      "ThomasO"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/daniel_kjv_1112_librivox/daniel_4_kjv_64kb.mp3",
+     "seconds": 692,
+     "readers": [
+      "theunknownchristian"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 10,
+     "url": "https://archive.org/download/daniel_kjv_1112_librivox/daniel_5_kjv_64kb.mp3",
+     "seconds": 613,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 12,
+     "url": "https://archive.org/download/daniel_kjv_1112_librivox/daniel_6_kjv_64kb.mp3",
+     "seconds": 946,
+     "readers": [
+      "Sundiata"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Hosea",
+   "chapters": 14,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_01_kjv_64kb.mp3",
+     "seconds": 644,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 9,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_02_kjv_64kb.mp3",
+     "seconds": 727,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 14,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_03_kjv_64kb.mp3",
+     "seconds": 687,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Joel",
+   "chapters": 3,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_04_kjv_64kb.mp3",
+     "seconds": 781,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Amos",
+   "chapters": 9,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 5,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_05_kjv_64kb.mp3",
+     "seconds": 917,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 9,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_06_kjv_64kb.mp3",
+     "seconds": 688,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Obadiah",
+   "chapters": 1,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_07_kjv_64kb.mp3",
+     "seconds": 251,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Jonah",
+   "chapters": 4,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_08_kjv_64kb.mp3",
+     "seconds": 500,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Micah",
+   "chapters": 7,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_09_kjv_64kb.mp3",
+     "seconds": 646,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 7,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_10_kjv_64kb.mp3",
+     "seconds": 567,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Nahum",
+   "chapters": 3,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_11_kjv_64kb.mp3",
+     "seconds": 523,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Habakkuk",
+   "chapters": 3,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_12_kjv_64kb.mp3",
+     "seconds": 596,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Zephaniah",
+   "chapters": 3,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_13_kjv_64kb.mp3",
+     "seconds": 617,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Haggai",
+   "chapters": 2,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_14_kjv_64kb.mp3",
+     "seconds": 419,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Zechariah",
+   "chapters": 14,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 6,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_15_kjv_64kb.mp3",
+     "seconds": 881,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 10,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_16_kjv_64kb.mp3",
+     "seconds": 727,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 14,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_17_kjv_64kb.mp3",
+     "seconds": 734,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Malachi",
+   "chapters": 4,
+   "item": "https://archive.org/details/minor_prophets_tg_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/minor_prophets_tg_librivox/minorprophets_18_kjv_64kb.mp3",
+     "seconds": 682,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Matthew",
+   "chapters": 28,
+   "item": "https://archive.org/details/matthew_kjv_mp_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_01_kjv_64kb.mp3",
+     "seconds": 260,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_02_kjv_64kb.mp3",
+     "seconds": 257,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_03_kjv_64kb.mp3",
+     "seconds": 190,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_04_kjv_64kb.mp3",
+     "seconds": 255,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_05_kjv_64kb.mp3",
+     "seconds": 466,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_06_kjv_64kb.mp3",
+     "seconds": 365,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_07_kjv_64kb.mp3",
+     "seconds": 278,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_08_kjv_64kb.mp3",
+     "seconds": 374,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_09_kjv_64kb.mp3",
+     "seconds": 410,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_10_kjv_64kb.mp3",
+     "seconds": 448,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_11_kjv_64kb.mp3",
+     "seconds": 322,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_12_kjv_64kb.mp3",
+     "seconds": 533,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_13_kjv_64kb.mp3",
+     "seconds": 643,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_14_kjv_64kb.mp3",
+     "seconds": 350,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_15_kjv_64kb.mp3",
+     "seconds": 393,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_16_kjv_64kb.mp3",
+     "seconds": 337,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_17_kjv_64kb.mp3",
+     "seconds": 317,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_18_kjv_64kb.mp3",
+     "seconds": 398,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_19_kjv_64kb.mp3",
+     "seconds": 346,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_20_kjv_64kb.mp3",
+     "seconds": 362,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_21_kjv_64kb.mp3",
+     "seconds": 522,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_22_kjv_64kb.mp3",
+     "seconds": 387,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 23,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_23_kjv_64kb.mp3",
+     "seconds": 451,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 24,
+     "end": 24,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_24_kjv_64kb.mp3",
+     "seconds": 507,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 25,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_25_kjv_64kb.mp3",
+     "seconds": 480,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 26,
+     "end": 26,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_26_kjv_64kb.mp3",
+     "seconds": 780,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 27,
+     "end": 27,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_27_kjv_64kb.mp3",
+     "seconds": 652,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 28,
+     "end": 28,
+     "url": "https://archive.org/download/matthew_kjv_mp_librivox/matthew_28_kjv_64kb.mp3",
+     "seconds": 221,
+     "readers": [
+      "Michael Packard"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Mark",
+   "chapters": 16,
+   "item": "https://archive.org/details/mark_kjv_sw_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/mark_kjv_sw_librivox/gospelofmark_01_kjv_64kb.mp3",
+     "seconds": 837,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/mark_kjv_sw_librivox/gospelofmark_02_kjv_64kb.mp3",
+     "seconds": 789,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 6,
+     "url": "https://archive.org/download/mark_kjv_sw_librivox/gospelofmark_03_kjv_64kb.mp3",
+     "seconds": 1077,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/mark_kjv_sw_librivox/gospelofmark_04_kjv_64kb.mp3",
+     "seconds": 801,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 10,
+     "url": "https://archive.org/download/mark_kjv_sw_librivox/gospelofmark_05_kjv_64kb.mp3",
+     "seconds": 1178,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 12,
+     "url": "https://archive.org/download/mark_kjv_sw_librivox/gospelofmark_06_kjv_64kb.mp3",
+     "seconds": 931,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 14,
+     "url": "https://archive.org/download/mark_kjv_sw_librivox/gospelofmark_07_kjv_64kb.mp3",
+     "seconds": 1158,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 16,
+     "url": "https://archive.org/download/mark_kjv_sw_librivox/gospelofmark_08_kjv_64kb.mp3",
+     "seconds": 701,
+     "readers": [
+      "Sundiata"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Luke",
+   "chapters": 24,
+   "item": "https://archive.org/details/bible_kjv_nt_03_luke_0812_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_01-02_kjv_64kb.mp3",
+     "seconds": 1010,
+     "readers": [
+      "Susan Denney"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_03-04_kjv_64kb.mp3",
+     "seconds": 790,
+     "readers": [
+      "Susan Denney"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 6,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_05-06_kjv_64kb.mp3",
+     "seconds": 826,
+     "readers": [
+      "Susan Denney"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_07-08_kjv_64kb.mp3",
+     "seconds": 1002,
+     "readers": [
+      "Susan Denney"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 10,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_09-10_kjv_64kb.mp3",
+     "seconds": 948,
+     "readers": [
+      "Susan Denney"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 12,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_11-12_kjv_64kb.mp3",
+     "seconds": 1155,
+     "readers": [
+      "Fr. Richard Zeile of Detroit"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 14,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_13-14_kjv_64kb.mp3",
+     "seconds": 724,
+     "readers": [
+      "Fr. Richard Zeile of Detroit"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 16,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_15-16_kjv_64kb.mp3",
+     "seconds": 653,
+     "readers": [
+      "Fr. Richard Zeile of Detroit"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 18,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_17-18_kjv_64kb.mp3",
+     "seconds": 791,
+     "readers": [
+      "Fr. Richard Zeile of Detroit"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 20,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_19-20_kjv_64kb.mp3",
+     "seconds": 907,
+     "readers": [
+      "Fr. Richard Zeile of Detroit"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 22,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_21-22_kjv_64kb.mp3",
+     "seconds": 1022,
+     "readers": [
+      "Fr. Richard Zeile of Detroit"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 24,
+     "url": "https://archive.org/download/bible_kjv_nt_03_luke_0812_librivox/luke_23-24_kjv_64kb.mp3",
+     "seconds": 1065,
+     "readers": [
+      "Fr. Richard Zeile of Detroit"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "John",
+   "chapters": 21,
+   "item": "https://archive.org/details/biblent04_john_kjv_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/biblent04_john_kjv_librivox/gospeljohn_1_kjv_64kb.mp3",
+     "seconds": 1543,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 8,
+     "url": "https://archive.org/download/biblent04_john_kjv_librivox/gospeljohn_2_kjv_64kb.mp3",
+     "seconds": 2390,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 12,
+     "url": "https://archive.org/download/biblent04_john_kjv_librivox/gospeljohn_3_kjv_64kb.mp3",
+     "seconds": 1201,
+     "readers": [
+      "Beth Thomas (1974-2020)"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 17,
+     "url": "https://archive.org/download/biblent04_john_kjv_librivox/gospeljohn_4_kjv_64kb.mp3",
+     "seconds": 1163,
+     "readers": [
+      "GabrielleC"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 21,
+     "url": "https://archive.org/download/biblent04_john_kjv_librivox/gospeljohn_5_kjv_64kb.mp3",
+     "seconds": 1711,
+     "readers": [
+      "Sundiata"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Acts",
+   "chapters": 28,
+   "item": "https://archive.org/details/acts_kjv_v2_1401_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_01_kjv2_64kb.mp3",
+     "seconds": 666,
+     "readers": [
+      "Jason Justice"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_02_kjv2_64kb.mp3",
+     "seconds": 512,
+     "readers": [
+      "Jason Justice"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 6,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_03_kjv2_64kb.mp3",
+     "seconds": 481,
+     "readers": [
+      "Jason Justice"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_04_kjv2_64kb.mp3",
+     "seconds": 773,
+     "readers": [
+      "Jason Justice"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 10,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_05_kjv2_64kb.mp3",
+     "seconds": 777,
+     "readers": [
+      "Jason Justice"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 12,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_06_kjv2_64kb.mp3",
+     "seconds": 561,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 14,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_07_kjv2_64kb.mp3",
+     "seconds": 766,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 16,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_08_kjv2_64kb.mp3",
+     "seconds": 747,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 18,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_09_kjv2_64kb.mp3",
+     "seconds": 648,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 20,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_10_kjv2_64kb.mp3",
+     "seconds": 784,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 22,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_11_kjv2_64kb.mp3",
+     "seconds": 725,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 23,
+     "end": 24,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_12_kjv2_64kb.mp3",
+     "seconds": 623,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 25,
+     "end": 26,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_13_kjv2_64kb.mp3",
+     "seconds": 593,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 27,
+     "end": 28,
+     "url": "https://archive.org/download/acts_kjv_v2_1401_librivox/acts_14_kjv2_64kb.mp3",
+     "seconds": 733,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Romans",
+   "chapters": 16,
+   "item": "https://archive.org/details/romans_kjv_1408_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_01_kjv_64kb.mp3",
+     "seconds": 292,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_02_kjv_64kb.mp3",
+     "seconds": 263,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_03_kjv_64kb.mp3",
+     "seconds": 255,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_04_kjv_64kb.mp3",
+     "seconds": 245,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_05_kjv_64kb.mp3",
+     "seconds": 227,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_06_kjv_64kb.mp3",
+     "seconds": 211,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_07_kjv_64kb.mp3",
+     "seconds": 240,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_08_kjv_64kb.mp3",
+     "seconds": 359,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_09_kjv_64kb.mp3",
+     "seconds": 307,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_10_kjv_64kb.mp3",
+     "seconds": 202,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_11_kjv_64kb.mp3",
+     "seconds": 365,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_12_kjv_64kb.mp3",
+     "seconds": 189,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_13_kjv_64kb.mp3",
+     "seconds": 187,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_14_kjv_64kb.mp3",
+     "seconds": 253,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_15_kjv_64kb.mp3",
+     "seconds": 349,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/romans_kjv_1408_librivox/romans_16_kjv_64kb.mp3",
+     "seconds": 261,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "1 Corinthians",
+   "chapters": 16,
+   "item": "https://archive.org/details/1corinthians_kjv_1103_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/1corinthians_kjv_1103_librivox/1corinthians_1_kjv_64kb.mp3",
+     "seconds": 549,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/1corinthians_kjv_1103_librivox/1corinthians_2_kjv_64kb.mp3",
+     "seconds": 534,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 6,
+     "url": "https://archive.org/download/1corinthians_kjv_1103_librivox/1corinthians_3_kjv_64kb.mp3",
+     "seconds": 334,
+     "readers": [
+      "David Lawrence"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/1corinthians_kjv_1103_librivox/1corinthians_4_kjv_64kb.mp3",
+     "seconds": 679,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 10,
+     "url": "https://archive.org/download/1corinthians_kjv_1103_librivox/1corinthians_5_kjv_64kb.mp3",
+     "seconds": 681,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 12,
+     "url": "https://archive.org/download/1corinthians_kjv_1103_librivox/1corinthians_6_kjv_64kb.mp3",
+     "seconds": 542,
+     "readers": [
+      "Rick Tabisz"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 14,
+     "url": "https://archive.org/download/1corinthians_kjv_1103_librivox/1corinthians_7_kjv_64kb.mp3",
+     "seconds": 476,
+     "readers": [
+      "TriciaG"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 16,
+     "url": "https://archive.org/download/1corinthians_kjv_1103_librivox/1corinthians_8_kjv_64kb.mp3",
+     "seconds": 640,
+     "readers": [
+      "TriciaG"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "2 Corinthians",
+   "chapters": 13,
+   "item": "https://archive.org/details/2corinthians_kjv_1105_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 2,
+     "url": "https://archive.org/download/2corinthians_kjv_1105_librivox/2corinthians_1_kjv_64kb.mp3",
+     "seconds": 546,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 4,
+     "url": "https://archive.org/download/2corinthians_kjv_1105_librivox/2corinthians_2_kjv_64kb.mp3",
+     "seconds": 429,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 6,
+     "url": "https://archive.org/download/2corinthians_kjv_1105_librivox/2corinthians_3_kjv_64kb.mp3",
+     "seconds": 503,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 8,
+     "url": "https://archive.org/download/2corinthians_kjv_1105_librivox/2corinthians_4_kjv_64kb.mp3",
+     "seconds": 556,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 10,
+     "url": "https://archive.org/download/2corinthians_kjv_1105_librivox/2corinthians_5_kjv_64kb.mp3",
+     "seconds": 461,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/2corinthians_kjv_1105_librivox/2corinthians_6_kjv_64kb.mp3",
+     "seconds": 407,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 13,
+     "url": "https://archive.org/download/2corinthians_kjv_1105_librivox/2corinthians_7_kjv_64kb.mp3",
+     "seconds": 487,
+     "readers": [
+      "Sundiata"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Galatians",
+   "chapters": 6,
+   "item": "https://archive.org/details/galatians_kjv_1412_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/galatians_kjv_1412_librivox/galatians_1_kjv_64kb.mp3",
+     "seconds": 215,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/galatians_kjv_1412_librivox/galatians_2_kjv_64kb.mp3",
+     "seconds": 254,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/galatians_kjv_1412_librivox/galatians_3_kjv_64kb.mp3",
+     "seconds": 291,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/galatians_kjv_1412_librivox/galatians_4_kjv_64kb.mp3",
+     "seconds": 279,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/galatians_kjv_1412_librivox/galatians_5_kjv_64kb.mp3",
+     "seconds": 208,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/galatians_kjv_1412_librivox/galatians_6_kjv_64kb.mp3",
+     "seconds": 157,
+     "readers": [
+      "Kimberly Krause"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Ephesians",
+   "chapters": 6,
+   "item": "https://archive.org/details/bible_4epistles_kjv_1104_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/bible_4epistles_kjv_1104_librivox/4epistles_3_kjv_64kb.mp3",
+     "seconds": 702,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 6,
+     "url": "https://archive.org/download/bible_4epistles_kjv_1104_librivox/4epistles_4_kjv_64kb.mp3",
+     "seconds": 776,
+     "readers": [
+      "Michael Packard"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Philippians",
+   "chapters": 4,
+   "item": "https://archive.org/details/philippians_kjv_vm_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/philippians_kjv_vm_librivox/philippians_1_kjv_64kb.mp3",
+     "seconds": 218,
+     "readers": [
+      "Victoria Martin"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/philippians_kjv_vm_librivox/philippians_2_kjv_64kb.mp3",
+     "seconds": 228,
+     "readers": [
+      "Victoria Martin"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/philippians_kjv_vm_librivox/philippians_3_kjv_64kb.mp3",
+     "seconds": 196,
+     "readers": [
+      "Victoria Martin"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/philippians_kjv_vm_librivox/philippians_4_kjv_64kb.mp3",
+     "seconds": 220,
+     "readers": [
+      "Victoria Martin"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Colossians",
+   "chapters": 4,
+   "item": "https://archive.org/details/bible_4epistles_kjv_1104_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/bible_4epistles_kjv_1104_librivox/4epistles_6_kjv_64kb.mp3",
+     "seconds": 1026,
+     "readers": [
+      "Michael Packard"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "1 Thessalonians",
+   "chapters": 5,
+   "item": "https://archive.org/details/bible_1thessalonians_kjv_1010_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 5,
+     "url": "https://archive.org/download/bible_1thessalonians_kjv_1010_librivox/1_thessalonians_01_kjv_64kb.mp3",
+     "seconds": 726,
+     "readers": [
+      "David Lawrence"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "2 Thessalonians",
+   "chapters": 3,
+   "item": "https://archive.org/details/bible_2thessalonians_kjv_1011_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/bible_2thessalonians_kjv_1011_librivox/2_thessalonians_kjv_64kb.mp3",
+     "seconds": 405,
+     "readers": [
+      "David Lawrence"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "1 Timothy",
+   "chapters": 6,
+   "item": "https://archive.org/details/bible_1timothy_kjv_1007_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/bible_1timothy_kjv_1007_librivox/1_timothy_01_kjv_64kb.mp3",
+     "seconds": 438,
+     "readers": [
+      "David Lawrence"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 6,
+     "url": "https://archive.org/download/bible_1timothy_kjv_1007_librivox/1_timothy_02_kjv_64kb.mp3",
+     "seconds": 547,
+     "readers": [
+      "David Lawrence"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "2 Timothy",
+   "chapters": 4,
+   "item": "https://archive.org/details/bible_2timothy_kjv_1009_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 4,
+     "url": "https://archive.org/download/bible_2timothy_kjv_1009_librivox/2_timothy_01_kjv_64kb.mp3",
+     "seconds": 700,
+     "readers": [
+      "David Lawrence"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Titus",
+   "chapters": 3,
+   "item": "https://archive.org/details/bible_titus_kjv_1007_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/bible_titus_kjv_1007_librivox/titus_01_kjv_64kb.mp3",
+     "seconds": 403,
+     "readers": [
+      "David Lawrence"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Philemon",
+   "chapters": 1,
+   "item": "https://archive.org/details/bible_philemon_kjv_1007_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_philemon_kjv_1007_librivox/philemon_01_kjv_64kb.mp3",
+     "seconds": 205,
+     "readers": [
+      "David Lawrence"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Hebrews",
+   "chapters": 13,
+   "item": "https://archive.org/details/hebrews_kjv_1111_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/hebrews_kjv_1111_librivox/hebrews_1_kjv_64kb.mp3",
+     "seconds": 445,
+     "readers": [
+      "Patti Cunningham"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 6,
+     "url": "https://archive.org/download/hebrews_kjv_1111_librivox/hebrews_2_kjv_64kb.mp3",
+     "seconds": 497,
+     "readers": [
+      "J. McKnight"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 9,
+     "url": "https://archive.org/download/hebrews_kjv_1111_librivox/hebrews_3_kjv_64kb.mp3",
+     "seconds": 834,
+     "readers": [
+      "Sundiata"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 11,
+     "url": "https://archive.org/download/hebrews_kjv_1111_librivox/hebrews_4_kjv_64kb.mp3",
+     "seconds": 815,
+     "readers": [
+      "Michael Packard"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 13,
+     "url": "https://archive.org/download/hebrews_kjv_1111_librivox/hebrews_5_kjv_64kb.mp3",
+     "seconds": 474,
+     "readers": [
+      "Snapdragon"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "James",
+   "chapters": 5,
+   "item": "https://archive.org/details/james_kjv",
+   "segments": [
+    {
+     "start": 1,
+     "end": 5,
+     "url": "https://archive.org/download/james_kjv/james_01_kjv_64kb.mp3",
+     "seconds": 980,
+     "readers": [
+      "Susan Denney"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "1 Peter",
+   "chapters": 5,
+   "item": "https://archive.org/details/epistlesofpeter_kjv_1109_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 5,
+     "url": "https://archive.org/download/epistlesofpeter_kjv_1109_librivox/epistlesofpeter_1_kjv_64kb.mp3",
+     "seconds": 1357,
+     "readers": [
+      "Sundiata"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "2 Peter",
+   "chapters": 3,
+   "item": "https://archive.org/details/epistlesofpeter_kjv_1109_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 3,
+     "url": "https://archive.org/download/epistlesofpeter_kjv_1109_librivox/epistlesofpeter_2_kjv_64kb.mp3",
+     "seconds": 595,
+     "readers": [
+      "Michelle Remington"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "1 John",
+   "chapters": 5,
+   "item": "https://archive.org/details/bible_epistlesjohn_rt_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_epistlesjohn_rt_librivox/epistlesofjohn_1_kjv_64kb.mp3",
+     "seconds": 109,
+     "readers": [
+      "Rick Tabisz"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/bible_epistlesjohn_rt_librivox/epistlesofjohn_2_kjv_64kb.mp3",
+     "seconds": 292,
+     "readers": [
+      "Rick Tabisz"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/bible_epistlesjohn_rt_librivox/epistlesofjohn_3_kjv_64kb.mp3",
+     "seconds": 232,
+     "readers": [
+      "Rick Tabisz"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/bible_epistlesjohn_rt_librivox/epistlesofjohn_4_kjv_64kb.mp3",
+     "seconds": 205,
+     "readers": [
+      "Rick Tabisz"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/bible_epistlesjohn_rt_librivox/epistlesofjohn_5_kjv_64kb.mp3",
+     "seconds": 226,
+     "readers": [
+      "Rick Tabisz"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "2 John",
+   "chapters": 1,
+   "item": "https://archive.org/details/bible_epistlesjohn_rt_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_epistlesjohn_rt_librivox/epistlesofjohn_6_kjv_64kb.mp3",
+     "seconds": 147,
+     "readers": [
+      "Rick Tabisz"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "3 John",
+   "chapters": 1,
+   "item": "https://archive.org/details/bible_epistlesjohn_rt_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/bible_epistlesjohn_rt_librivox/epistlesofjohn_7_kjv_64kb.mp3",
+     "seconds": 151,
+     "readers": [
+      "Rick Tabisz"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Jude",
+   "chapters": 1,
+   "item": "https://archive.org/details/jude_kjv",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/jude_kjv/jude_01_kjv_64kb.mp3",
+     "seconds": 323,
+     "readers": [
+      "Susan Denney"
+     ]
+    }
+   ]
+  },
+  {
+   "book": "Revelation",
+   "chapters": 22,
+   "item": "https://archive.org/details/revelation_mp_librivox",
+   "segments": [
+    {
+     "start": 1,
+     "end": 1,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_01_kjv_64kb.mp3",
+     "seconds": 285,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 2,
+     "end": 2,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_02_kjv_64kb.mp3",
+     "seconds": 364,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 3,
+     "end": 3,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_03_kjv_64kb.mp3",
+     "seconds": 296,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 4,
+     "end": 4,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_04_kjv_64kb.mp3",
+     "seconds": 156,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 5,
+     "end": 5,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_05_kjv_64kb.mp3",
+     "seconds": 185,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 6,
+     "end": 6,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_06_kjv_64kb.mp3",
+     "seconds": 210,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 7,
+     "end": 7,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_07_kjv_64kb.mp3",
+     "seconds": 212,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 8,
+     "end": 8,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_08_kjv_64kb.mp3",
+     "seconds": 165,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 9,
+     "end": 9,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_09_kjv_64kb.mp3",
+     "seconds": 227,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 10,
+     "end": 10,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_10_kjv_64kb.mp3",
+     "seconds": 147,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 11,
+     "end": 11,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_11_kjv_64kb.mp3",
+     "seconds": 226,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 12,
+     "end": 12,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_12_kjv_64kb.mp3",
+     "seconds": 187,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 13,
+     "end": 13,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_13_kjv_64kb.mp3",
+     "seconds": 208,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 14,
+     "end": 14,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_14_kjv_64kb.mp3",
+     "seconds": 250,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 15,
+     "end": 15,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_15_kjv_64kb.mp3",
+     "seconds": 116,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 16,
+     "end": 16,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_16_kjv_64kb.mp3",
+     "seconds": 232,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 17,
+     "end": 17,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_17_kjv_64kb.mp3",
+     "seconds": 213,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 18,
+     "end": 18,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_18_kjv_64kb.mp3",
+     "seconds": 308,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 19,
+     "end": 19,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_19_kjv_64kb.mp3",
+     "seconds": 266,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 20,
+     "end": 20,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_20_kjv_64kb.mp3",
+     "seconds": 186,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 21,
+     "end": 21,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_21_kjv_64kb.mp3",
+     "seconds": 340,
+     "readers": [
+      "Mark Penfold"
+     ]
+    },
+    {
+     "start": 22,
+     "end": 22,
+     "url": "https://archive.org/download/revelation_mp_librivox/revelation_22_kjv_64kb.mp3",
+     "seconds": 296,
+     "readers": [
+      "Mark Penfold"
+     ]
+    }
+   ]
+  }
+ ]
+}

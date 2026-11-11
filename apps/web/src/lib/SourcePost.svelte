@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import PostActions from '#lib/PostActions.svelte';
+  import AudioAttachment from '#lib/AudioAttachment.svelte';
   import VideoLoopToggle from '#lib/VideoLoopToggle.svelte';
   import XAuthorFollowButton from '#lib/XAuthorFollowButton.svelte';
   import { youtubeEmbedUrl } from '#lib/youtube-source.mjs';
@@ -44,9 +45,11 @@
     ? [['Score', source.source_likes, '▲'], ['Comments', source.source_replies, '💬']]
     : [['Likes', source.source_likes, '♥'], ['Reposts', source.source_reposts, '↻'], ['Replies', source.source_replies, '💬'], ['Views', source.source_views, '◉']])
     .filter(([, value]) => value != null);
-  $: providerLabel = source.provider === 'x' ? 'X' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? 'Generated runner' : 'Wikimedia Commons';
+  $: providerLabel = source.provider === 'x' ? 'X' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? 'Generated runner' : source.provider === 'rss' ? 'the original feed' : 'Wikimedia Commons';
   $: generationConfig = source.generation_config && typeof source.generation_config === 'object' ? source.generation_config : null;
-  $: mediaCount = source.media?.length ?? 0;
+  $: visualMedia = (source.media ?? []).filter(item => typeof item === 'string' || item?.kind !== 'audio');
+  $: hasAudioMedia = (source.media ?? []).some(item => item && typeof item === 'object' && item.kind === 'audio');
+  $: mediaCount = visualMedia.length;
   $: if (activeMedia >= mediaCount) activeMedia = Math.max(0, mediaCount - 1);
   function moveMedia(delta) {
     if (mediaCount < 2) return;
@@ -98,8 +101,8 @@
       </span>
     {:else}<span class="source-avatar source-avatar-fallback" aria-hidden="true">{(source.profile_display_name || source.source_author || '?').slice(0, 1).toUpperCase()}</span>
     {/if}
-    <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}<span class="source-handle">{source.source_author}</span>{#if displayDate}<time datetime={source.published_at || undefined} title={source.published_at ? new Date(source.published_at).toLocaleString() : undefined}>{source.provider === 'x' ? `· ${displayDate}` : displayDate}</time>{/if}</div>
-    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a>{#if source.provider === 'x'}<XAuthorFollowButton handle={source.source_author} />{/if}</div></div>
+    <div class="source-identity"><strong>{source.profile_display_name || source.source_author}</strong>{#if source.profile_verified}<span class="verified" aria-label="Verified">✓</span>{/if}{#if source.source_author !== source.profile_display_name}<span class="source-handle">{source.source_author}</span>{/if}{#if displayDate}<time datetime={source.published_at || undefined} title={source.published_at ? new Date(source.published_at).toLocaleString() : undefined}>{source.provider === 'x' ? `· ${displayDate}` : displayDate}</time>{/if}</div>
+    <div class="source-right"><span class="provider-badge">{source.provider === 'x' ? '𝕏' : source.provider === 'reddit' ? 'Reddit' : source.provider === 'youtube' ? 'YouTube' : source.provider === 'runner' ? (generationConfig?.provider === 'draw_things' ? 'Draw Things' : 'Generated') : source.provider === 'rss' ? (hasAudioMedia ? 'Audio' : 'Feed') : 'Commons'}</span><a class="source-link" href={source.source_url} target="_blank" rel="noopener noreferrer" aria-label={`View original on ${providerLabel}`}>↗</a>{#if source.provider === 'x'}<XAuthorFollowButton handle={source.source_author} />{/if}</div></div>
   {#if source.provider === 'x'}
     {#each parsed.threadContexts as context}
       <blockquote class="thread-context"><strong>{context.author} · earlier in this thread</strong><p>{context.text}</p></blockquote>
@@ -120,13 +123,16 @@
       <iframe src={youtubeEmbedUrl(source.source_url)} title={source.title || 'YouTube video'} loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
     </div>
   {/if}
-  {#if source.media?.length}
-    <div class:carousel-shell={source.media.length > 1} class="media-shell">
-      {#if source.media.length > 1}<button class="carousel-button previous" type="button" aria-label="Previous media" onclick={() => moveMedia(-1)}>‹</button>{/if}
-      <div class="source-images count-{source.media.length > 4 ? 'many' : source.media.length} {source.media.length > 1 ? 'carousel-images' : ''}">
-      {#each source.media as item, index}
+  {#if hasAudioMedia}
+    <AudioAttachment post={post ?? { title: source.title || source.source_author, source }} />
+  {/if}
+  {#if visualMedia.length}
+    <div class:carousel-shell={visualMedia.length > 1} class="media-shell">
+      {#if visualMedia.length > 1}<button class="carousel-button previous" type="button" aria-label="Previous media" onclick={() => moveMedia(-1)}>‹</button>{/if}
+      <div class="source-images count-{visualMedia.length > 4 ? 'many' : visualMedia.length} {visualMedia.length > 1 ? 'carousel-images' : ''}">
+      {#each visualMedia as item, index}
         {@const media = attachment(item)}
-        <figure class:carousel-slide={source.media.length > 1} class:inactive={source.media.length > 1 && index !== activeMedia}>
+        <figure class:carousel-slide={visualMedia.length > 1} class:inactive={visualMedia.length > 1 && index !== activeMedia}>
           {#if failed[media.src]}<p>This browser could not load the {media.kind === 'video' ? 'video' : 'image'}. <a href={source.source_url} target="_blank" rel="noopener noreferrer">View original post</a></p>
           {:else if media.kind === 'video'}
             <!-- Source videos have no caption tracks available. -->
@@ -138,9 +144,9 @@
         </figure>
       {/each}
       </div>
-      {#if source.media.length > 1}<button class="carousel-button next" type="button" aria-label="Next media" onclick={() => moveMedia(1)}>›</button>{/if}
+      {#if visualMedia.length > 1}<button class="carousel-button next" type="button" aria-label="Next media" onclick={() => moveMedia(1)}>›</button>{/if}
     </div>
-    {#if source.media.length > 1}<div class="carousel-status" aria-live="polite"><span>Photo {activeMedia + 1} of {source.media.length}</span><div class="carousel-dots" aria-label="Choose media">{#each source.media as _, index}<button class:active={index === activeMedia} type="button" aria-label={`Show media ${index + 1}`} aria-current={index === activeMedia ? 'true' : undefined} onclick={() => activeMedia = index}></button>{/each}</div></div>{/if}
+    {#if visualMedia.length > 1}<div class="carousel-status" aria-live="polite"><span>Photo {activeMedia + 1} of {visualMedia.length}</span><div class="carousel-dots" aria-label="Choose media">{#each visualMedia as _, index}<button class:active={index === activeMedia} type="button" aria-label={`Show media ${index + 1}`} aria-current={index === activeMedia ? 'true' : undefined} onclick={() => activeMedia = index}></button>{/each}</div></div>{/if}
   {/if}
   {#if post}<PostActions {post} />{/if}
   {#if source.provider === 'reddit' && source.source_comments?.length}
