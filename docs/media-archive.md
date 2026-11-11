@@ -22,6 +22,17 @@ private storage, and Swartzit's feeds keep linking to the original publishers.
   look-alike channel cannot slip in. `_archive/manifest.jsonl` collects every
   record.
 
+## Posting to Swartzit
+
+With a `publish` block in the config, every saved item is also posted to a
+Swartzit community through the admin import API, dated by its original publish
+date (`backdate`), so a backfill fills in history instead of flooding the top
+of the timeline. YouTube items become embeds of the original video; podcast
+episodes become audio posts that stream from the publisher. Only items the
+archiver verified against the official channel are posted. Failed posts are
+retried. The scheduler account's `SCHEDULER_HANDLE` and `SCHEDULER_PASSWORD` go
+in the `env_file` (mode 0600).
+
 ## How it runs
 
 Downloads and conversions happen in a local staging folder

@@ -104,3 +104,25 @@ test('episodes that share one web link are identified by their audio instead', (
   const urls = items.map(item => sermonRecord({ name: 'Ligonier', community: 'deeper_dives' }, item).source_url);
   assert.deepEqual(urls, ['https://cdn.example.org/wsc74.mp3', 'https://cdn.example.org/wsc73.mp3', 'https://example.org/other']);
 });
+
+test('YouTube channel feeds become embed-only posts from the official channel only', async () => {
+  const { parseYouTubeFeed, youtubeRecord } = await import('./bible-feed.mjs');
+  const xml = `<feed><yt:channelId>UCfaIu2jO-fppCQV_lchCRIQ</yt:channelId><title>Charlie Kirk</title>
+    <entry><yt:videoId>9qeNEn5taPk</yt:videoId><yt:channelId>UCfaIu2jO-fppCQV_lchCRIQ</yt:channelId><title>ASU Prof. &amp; the &quot;Too Christian&quot; lawsuit</title><published>2026-10-30T18:00:00+00:00</published><media:group><media:description>Full segment.</media:description></media:group></entry>
+    <entry><yt:videoId>bad</yt:videoId><title>Broken</title></entry>
+    <entry><yt:videoId>AAAAAAAAAAA</yt:videoId><yt:channelId>UCjm6QoMT52SRPXRbdHhzHaw</yt:channelId><title>Impostor upload</title></entry>
+  </feed>`;
+  const parsed = parseYouTubeFeed(xml);
+  assert.equal(parsed.channel_id, 'UCfaIu2jO-fppCQV_lchCRIQ');
+  assert.equal(parsed.entries.length, 2);
+  const feed = { name: 'Charlie Kirk', channel_id: 'UCfaIu2jO-fppCQV_lchCRIQ', community: 'charlie_kirk' };
+  const records = parsed.entries.map(entry => youtubeRecord(feed, entry, new Date('2026-11-11T00:00:00Z'))).filter(Boolean);
+  assert.equal(records.length, 1, 'the impostor channel is rejected');
+  assert.deepEqual(
+    { provider: records[0].provider, url: records[0].source_url, title: records[0].title, media: records[0].media, community: records[0].community },
+    { provider: 'youtube', url: 'https://www.youtube.com/watch?v=9qeNEn5taPk', title: 'ASU Prof. & the "Too Christian" lawsuit', media: [], community: 'charlie_kirk' }
+  );
+  const filtered = youtubeRecord({ ...feed, title_match: 'charlie|kirk' }, parsed.entries[0]);
+  assert.equal(filtered, null, 'title filters apply');
+});
+
