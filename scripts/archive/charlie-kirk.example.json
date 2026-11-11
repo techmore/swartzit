@@ -1,0 +1,58 @@
+{
+  "name": "Charlie Kirk Archive",
+  "root": "~/NAS/Charlie Kirk Archive",
+  "yt_dlp": "~/.local/bin/yt-dlp",
+  "sources": [
+    {
+      "id": "ck-videos",
+      "name": "Charlie Kirk (YouTube) - videos",
+      "kind": "youtube",
+      "url": "https://www.youtube.com/@RealCharlieKirk/videos",
+      "channel_id": "UCfaIu2jO-fppCQV_lchCRIQ",
+      "folder": "YouTube - Charlie Kirk/Videos"
+    },
+    {
+      "id": "ck-streams",
+      "name": "Charlie Kirk (YouTube) - livestreams",
+      "kind": "youtube",
+      "url": "https://www.youtube.com/@RealCharlieKirk/streams",
+      "channel_id": "UCfaIu2jO-fppCQV_lchCRIQ",
+      "folder": "YouTube - Charlie Kirk/Livestreams"
+    },
+    {
+      "id": "ck-shorts",
+      "name": "Charlie Kirk (YouTube) - shorts",
+      "kind": "youtube",
+      "url": "https://www.youtube.com/@RealCharlieKirk/shorts",
+      "channel_id": "UCfaIu2jO-fppCQV_lchCRIQ",
+      "folder": "YouTube - Charlie Kirk/Shorts"
+    },
+    {
+      "id": "ck-show",
+      "name": "The Charlie Kirk Show (podcast)",
+      "kind": "podcast",
+      "url": "https://www.omnycontent.com/d/playlist/5e27a451-e6e6-4c51-aa03-a7370003783c/c865b590-c84f-4f7e-a43e-ac64014b61d9/8978e846-cacd-4d65-b085-ac64014cd49f/podcast.rss",
+      "folder": "Podcast - The Charlie Kirk Show"
+    },
+    {
+      "id": "tpusa-charlie",
+      "name": "Turning Point USA (YouTube) - Charlie Kirk videos",
+      "kind": "youtube",
+      "url": "https://www.youtube.com/@turningpointusa/videos",
+      "channel_id": "UCVrK_pMRp_q8IelpfUCTGLQ",
+      "title_match": "(?i)charlie|kirk",
+      "folder": "YouTube - Turning Point USA (Charlie Kirk)"
+    }
+  ],
+  "video": {
+    "max_height": 2160,
+    "convert": true,
+    "captions": true,
+    "av1": { "preset": 8, "crf": 33, "threads": 6, "keep_if_ratio_below": 0.8 }
+  },
+  "pace": {
+    "between_items_seconds": [20, 60],
+    "rediscover_hours": 6,
+    "rate_limit_backoff_minutes": 45
+  }
+}

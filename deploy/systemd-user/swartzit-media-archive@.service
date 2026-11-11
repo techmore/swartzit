@@ -1,0 +1,19 @@
+# User service (run with linger enabled) that keeps an offline archive in sync.
+#   cp deploy/systemd-user/swartzit-media-archive@.service ~/.config/systemd/user/
+#   systemctl --user enable --now swartzit-media-archive@charlie-kirk
+# Reads ~/.config/swartzit-archive/<instance>.json. Progress: STATUS.txt in the archive folder.
+[Unit]
+Description=Swartzit media archive (%i)
+After=network-online.target remote-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/swartzit-archive/media_archive.py --config %h/.config/swartzit-archive/%i.json
+Restart=on-failure
+RestartSec=5min
+Nice=15
+IOSchedulingClass=idle
+CPUWeight=20
+
+[Install]
+WantedBy=default.target
