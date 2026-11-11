@@ -60,7 +60,10 @@ The player stays at the bottom of the screen while you move around the site,
 advances through the queue, supports 0.75–2× speed, ±15/30-second skips, and
 lock-screen / headphone controls. Sermons and lectures longer than ten minutes
 resume where you stopped (stored in that browser only). Any post with audio
-shows a listen card with **Play** and **Add to queue**.
+shows a listen card with **Play** and **Add to queue**. On a phone the player
+sits above the tab bar and can be shrunk to a single row (the chevron) so it
+covers less of the page while you read along; the page keeps enough room at the
+bottom that the last verses and the next-chapter buttons are never hidden.
 
 ### Sources
 

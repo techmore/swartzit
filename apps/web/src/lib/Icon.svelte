@@ -55,6 +55,18 @@
     <path d="M8 5.5v13l11-6.5Z" />
   {:else if name === 'pause'}
     <path d="M8 5v14M16 5v14" />
+  {:else if name === 'pause-solid'}
+    <rect x="6.5" y="5" width="4" height="14" rx="1" fill="currentColor" /><rect x="13.5" y="5" width="4" height="14" rx="1" fill="currentColor" />
+  {:else if name === 'skip-back'}
+    <path d="M18.5 6v12L9 12Z" fill="currentColor" /><path d="M6 5.5v13" />
+  {:else if name === 'skip-forward'}
+    <path d="M5.5 6v12L15 12Z" fill="currentColor" /><path d="M18 5.5v13" />
+  {:else if name === 'list'}
+    <path d="M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01" />
+  {:else if name === 'chevron-up'}
+    <path d="m6 15 6-6 6 6" />
+  {:else if name === 'arrow-right'}
+    <path d="M5 12h14m-6-6 6 6-6 6" />
   {:else if name === 'chevron-down'}
     <path d="m6 9 6 6 6-6" />
   {:else if name === 'arrow-left'}
