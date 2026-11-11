@@ -18,8 +18,12 @@
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort,hide_r:'false'}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
   function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
-  $: activeCommunities = data.communities.filter(community => community.post_count > 0 || community.slug === data.community).sort((a, b) => b.post_count - a.post_count || a.slug.localeCompare(b.slug));
-  $: quietCommunities = data.communities.filter(community => community.post_count === 0 && community.slug !== data.community);
+  // In Biblical mode the rail lists only the Bible communities (plus the one being viewed); "Everything" shows the rest.
+  $: bibleRail = data.bible?.enabled && data.scope !== 'all' ? data.bible.communities ?? [] : null;
+  $: railSource = bibleRail ? data.communities.filter(community => bibleRail.includes(community.slug) || community.slug === data.community) : data.communities;
+  $: activeCommunities = railSource.filter(community => bibleRail || community.post_count > 0 || community.slug === data.community).sort((a, b) => bibleRail ? rank(a) - rank(b) : b.post_count - a.post_count || a.slug.localeCompare(b.slug));
+  $: quietCommunities = bibleRail ? [] : railSource.filter(community => community.post_count === 0 && community.slug !== data.community);
+  function rank(community) { const index = bibleRail.indexOf(community.slug); return index < 0 ? bibleRail.length : index; }
   let token = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedPage = data.page, feedLoading = false, feedError = '';
   let feedKey = '', activeFeedKey = '', feedRequestController, followingInitialKey = '', initialPosts = data.posts;
@@ -141,6 +145,7 @@
           {#each quietCommunities as community}<a class="rail-link" class:selected={data.community === community.slug} aria-current={data.community === community.slug ? 'page' : undefined} href={communityHref(community.slug)}><span>c/{community.slug}</span></a>{/each}
         </details>
       {/if}
+      {#if bibleRail}<a class="rail-link rail-more" href={everythingHref()}><span>Everything else →</span></a>{/if}
     </aside>
 
     <section class="feed">
@@ -247,6 +252,7 @@
   .rail-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); color: var(--muted); font-size: .9rem; font-weight: 500; }
   .rail-link small { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--text-light); }
   .rail-link:hover { background: var(--hover); color: var(--heading); }
+  .rail-more { margin-top: 6px; border-top: 1px solid var(--border); border-radius: 0; padding-top: 12px; font-size: .82rem; }
   .rail-link.selected { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
   .quiet { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
   .quiet > summary { cursor: pointer; padding: 8px 10px; color: var(--text-light); font-size: .78rem; font-weight: 600; }
