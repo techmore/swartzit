@@ -17,6 +17,8 @@
   function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (['following', 'buddies'].includes(targetFeed) && ['following', 'buddies'].includes(data.feed) && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; params.set('hide_r', String(data.hideR)); if (!data.hideX) params.set('show_x', 'true'); return params; }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort,hide_r:'false'}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
+  const MEDIA_TABS = [['', 'All posts'], ['video', 'Videos'], ['audio', 'Audio']];
+  function mediaHref(media) { const params = new URLSearchParams({feed:'timeline',sort:data.sort,community:data.community}); if (media) params.set('media', media); if (data.q) params.set('q',data.q); if (data.scope === 'all') params.set('scope','all'); return '/?' + applyContentFilters(params, 'timeline'); }
   function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
   // In Biblical mode the rail lists only the Bible communities (plus the one being viewed); "Everything" shows the rest.
   $: bibleRail = data.bible?.enabled && data.scope !== 'all' ? data.bible.communities ?? [] : null;
@@ -27,7 +29,7 @@
   let token = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedPage = data.page, feedLoading = false, feedError = '';
   let feedKey = '', activeFeedKey = '', feedRequestController, followingInitialKey = '', initialPosts = data.posts;
-  $: feedKey = JSON.stringify([data.feed, data.community, data.q, data.sort, data.hideR, data.hideX, data.ratings, data.page, data.scope]);
+  $: feedKey = JSON.stringify([data.feed, data.community, data.q, data.sort, data.hideR, data.hideX, data.ratings, data.page, data.scope, data.media]);
   $: if (feedKey !== activeFeedKey) {
     activeFeedKey = feedKey;
     feedRequestController?.abort();
@@ -80,6 +82,7 @@
     const params = new URLSearchParams({sort:data.sort,page:String(page)});
     if (data.q) params.set('q',data.q);
     if (data.community) params.set('community',data.community);
+    if (data.media) params.set('media',data.media);
     if (data.scope === 'bible' && data.feed === 'timeline') params.set('scope', 'bible');
     if (data.ratings) params.set('ratings', data.ratings);
     else {
@@ -158,6 +161,7 @@
       </nav>
         <form class="controls" method="GET" action="/">
           {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
+          {#if data.media}<input type="hidden" name="media" value={data.media} />{/if}
           <input type="hidden" name="feed" value={data.feed} />
           {#if data.scope === 'all'}<input type="hidden" name="scope" value="all" />{/if}
           {#if data.q}<input type="hidden" name="q" value={data.q} />{/if}
@@ -191,6 +195,14 @@
             <a class:active={slug ? data.community === slug : data.scope === 'bible'} aria-current={(slug ? data.community === slug : data.scope === 'bible') ? 'page' : undefined} href={bibleTabHref(slug)}>{label}</a>
           {/each}
           <a class="everything" class:active={data.scope === 'all'} href={everythingHref()}>Everything</a>
+        </nav>
+      {/if}
+
+      {#if data.community && data.feed === 'timeline'}
+        <nav class="media-tabs" aria-label="Show">
+          {#each MEDIA_TABS as [media, label]}
+            <a class:active={(data.media ?? '') === media} aria-current={(data.media ?? '') === media ? 'page' : undefined} href={mediaHref(media)}>{label}</a>
+          {/each}
         </nav>
       {/if}
 
@@ -268,6 +280,10 @@
   .feed-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); }
   .feed-tabs a { padding: 6px 14px; border-radius: 999px; font-size: .85rem; font-weight: 600; color: var(--muted); }
   .feed-tabs a:hover { color: var(--heading); }
+  .media-tabs { display: flex; gap: 6px; margin: 10px 0 4px; }
+  .media-tabs a { padding: 7px 16px; min-height: 36px; display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--border); font-size: .88rem; font-weight: 600; color: var(--muted); background: var(--surface); }
+  .media-tabs a:hover { color: var(--heading); }
+  .media-tabs a.active { background: var(--heading); border-color: var(--heading); color: var(--surface); }
   .feed-tabs a.active { background: var(--surface); color: var(--heading); box-shadow: var(--shadow-sm); }
   .chip-row { display: none; }
 

@@ -6,6 +6,9 @@ export async function load({ fetch, url, parent }) {
   const params = new URLSearchParams();
   if (url.searchParams.get('community')) params.set('community', url.searchParams.get('community'));
   if (url.searchParams.get('q')) params.set('q', url.searchParams.get('q'));
+  // A community's Videos / Audio tabs.
+  const media = url.searchParams.get('community') && ['video', 'audio'].includes(url.searchParams.get('media')) ? url.searchParams.get('media') : '';
+  if (media) params.set('media', media);
   const requestedFeed = url.searchParams.get('feed');
   const hideR = !(['true', '1'].includes(url.searchParams.get('show_r')) || ['false', '0'].includes(url.searchParams.get('hide_r')));
   // X-rated content is opt-in for the default feed. Keep accepting the old
@@ -51,5 +54,5 @@ export async function load({ fetch, url, parent }) {
     const today = readingFor(new Date());
     reading = { summary: today.summary, tracks: today.tracks };
   }
-  return { bible: bible ?? { enabled: false, communities: [] }, scope: bibleScope ? 'bible' : bible?.enabled && url.searchParams.get('scope') === 'all' ? 'all' : '', reading, posts: result.posts, hasMore: result.has_more, communities: await communitiesResponse.json(), sort: params.get('sort'), q: params.get('q') ?? '', community: params.get('community') ?? '', page: Number(params.get('page') ?? 1), feed: feedMode, hideR: useRatings ? false : hideR, hideX: useRatings ? false : hideX, matureOnly: useRatings, ratings: useRatings ? ratings : null };
+  return { bible: bible ?? { enabled: false, communities: [] }, scope: bibleScope ? 'bible' : bible?.enabled && url.searchParams.get('scope') === 'all' ? 'all' : '', reading, posts: result.posts, hasMore: result.has_more, communities: await communitiesResponse.json(), sort: params.get('sort'), q: params.get('q') ?? '', community: params.get('community') ?? '', media, page: Number(params.get('page') ?? 1), feed: feedMode, hideR: useRatings ? false : hideR, hideX: useRatings ? false : hideX, matureOnly: useRatings, ratings: useRatings ? ratings : null };
 }

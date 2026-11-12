@@ -26,10 +26,10 @@ test('the rated feed selects exactly R, X, or both ratings', () => {
 });
 
 test('the shared feed cache keys on the exact rating selection', () => {
-  assert.match(server, /"posts:\{}:\{}:\{}:\{}:\{}:\{}:\{}"/);
+  assert.match(server, /"posts:\{}:\{}:\{}:\{}:\{}:\{}:\{}:\{}"/);
   assert.match(server, /hide_x,\s*mature_only,\s*ratings\.unwrap_or\("all"\),\s*if bible_scope/);
   // App clients get their own cache entries, so web and app feeds never mix.
-  assert.match(server, /if bible_scope \{ "bible" \} else \{ "all" \},\s*if app \{ "app" \} else \{ "web" \}/);
+  assert.match(server, /if bible_scope \{ "bible" \} else \{ "all" \},\s*if app \{ "app" \} else \{ "web" \},\s*media_filter\.unwrap_or\("any"\)/);
 });
 
 test('rated content remains opt-in and exact selection is visible in the UI', () => {
