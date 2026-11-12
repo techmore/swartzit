@@ -60,6 +60,11 @@ class RateLimited(Exception):
     """YouTube asked us to slow down; back off before trying again."""
 
 
+class OffSubject(Exception):
+    """The item is not the archive's subject (for example, another host on
+    the subject's channel after the subject's death)."""
+
+
 # --------------------------------------------------------------------- helpers
 
 def now() -> str:
@@ -78,6 +83,10 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: f.read(1 << 20), b''):
             h.update(block)
     return h.hexdigest()
+
+
+def glob_escape(text: str) -> str:
+    return re.sub(r'([\[\]*?])', r'[\1]', text)
 
 
 def human(n: float) -> str:
@@ -99,6 +108,33 @@ def duration(path: Path) -> float:
         return float(probe(path)['format'].get('duration') or 0)
     except Exception:
         return 0.0
+
+
+class Subject:
+    """Who the archive is about. Everything published up to `until` is kept.
+    After it, only titles that clearly present the subject (an archived
+    speech, a debate compilation) are kept, and titles about others or about
+    the subject's death are not. Without a `subject` block, everything is kept."""
+
+    def __init__(self, config: dict | None):
+        config = config or {}
+        self.name = config.get('name', '')
+        self.until = config.get('until')
+        self.include = re.compile(config['after_title_match']) if config.get('after_title_match') else None
+        self.exclude = re.compile(config['after_title_exclude']) if config.get('after_title_exclude') else None
+
+    def keeps(self, title: str, published: str | None) -> bool | None:
+        """True or False, or None while the publish date is unknown."""
+        if not self.until:
+            return True
+        if not published:
+            return None
+        if published <= self.until:
+            return True
+        title = title or ''
+        if self.exclude and self.exclude.search(title):
+            return False
+        return bool(self.include and self.include.search(title))
 
 
 # ----------------------------------------------------------------------- state
@@ -203,6 +239,16 @@ class Publisher:
             raise RuntimeError(f'import failed ({status}): {data}')
         return str((data or {}).get('post_id') or (data or {}).get('id') or '')
 
+    def remove(self, post_id: str, note: str):
+        """Take a post back down (it stays in Swartzit's audit history)."""
+        self._prepare()
+        status, data = self._call('POST', f'/api/admin/posts/{int(post_id)}/remove', {'note': note[:1000]})
+        if status == 401:
+            self._login()
+            status, data = self._call('POST', f'/api/admin/posts/{int(post_id)}/remove', {'note': note[:1000]})
+        if status not in (200, 404):
+            raise RuntimeError(f'remove failed ({status}): {data}')
+
     def _common(self, record: dict, published: str | None) -> dict:
         when = f'{published}T12:00:00Z' if published and re.match(r'^\d{4}-\d{2}-\d{2}$', published) else None
         return {'community': self.community, 'published_at': when, 'observed_at': now(), 'backdate': True,
@@ -252,6 +298,7 @@ class Archive:
         self.sources = {s['id']: s for s in config['sources']}
         self._ydl_module = None
         self.publisher = Publisher(config['publish'], self.log) if config.get('publish') else None
+        self.subject = Subject(config.get('subject'))
 
     # -- logging and status
     def log(self, message: str):
@@ -266,7 +313,8 @@ class Archive:
         for source, status, count, size in rows:
             entry = by.setdefault(source, {'pending': 0, 'done': 0, 'failed': 0, 'skipped': 0, 'bytes': 0})
             entry[status] = count
-            entry['bytes'] += size
+            if status == 'done':
+                entry['bytes'] += size
         total_done = sum(v['done'] for v in by.values())
         total_all = sum(v['done'] + v['pending'] + v['failed'] for v in by.values())
         total_bytes = sum(v['bytes'] for v in by.values())
@@ -290,7 +338,8 @@ class Archive:
         for source_id, source in self.sources.items():
             v = by.get(source_id, {'pending': 0, 'done': 0, 'failed': 0, 'skipped': 0, 'bytes': 0})
             lines.append(f"  {source.get('name', source_id)}: {v['done']} saved, {v['pending']} to go"
-                         f"{', ' + str(v['failed']) + ' failed' if v['failed'] else ''} - {human(v['bytes'])}"
+                         f"{', ' + str(v['failed']) + ' failed' if v['failed'] else ''}"
+                         f"{', ' + str(v['skipped']) + ' set aside' if v['skipped'] else ''} - {human(v['bytes'])}"
                          f"  [{source.get('folder', '')}]")
         lines += ['', 'Recently saved:']
         for when, source, title, size, codec, height, converted in recent:
@@ -419,6 +468,9 @@ class Archive:
         if source is None:
             self.finish(source_id, item, status='skipped', error='source removed from config')
             return
+        if self.subject.keeps(title, published) is False:
+            self.finish(source_id, item, status='skipped', error=f'not {self.subject.name or "the subject"}')
+            return 'skipped'
         self.current = f"{source.get('name', source_id)}: {title}"
         self.write_status()
         self.finish(source_id, item, attempts=attempts + 1)
@@ -430,6 +482,10 @@ class Archive:
             self.finish(source_id, item, status='done', error=None, **result)
             self.log(f"saved {title} -> {result['path']} ({human(result['bytes'])})")
             self.post(source_id, item, getattr(self, 'last_record', None))
+        except OffSubject as reason:
+            self.finish(source_id, item, status='skipped', error=str(reason)[:500])
+            self.log(f'set aside {title}: {reason}')
+            return 'skipped'
         except RateLimited:
             self.finish(source_id, item, status='pending', attempts=attempts)
             raise
@@ -491,10 +547,19 @@ class Archive:
                 'postprocessors': [{'key': 'FFmpegMetadata', 'add_metadata': True}],
             }
             with yt_dlp.YoutubeDL(opts) as ydl:
-                info = self._guard(lambda: ydl.extract_info(url, download=True))
-            expected = source.get('channel_id')
-            if expected and info.get('channel_id') != expected:
-                raise RuntimeError(f"video is from channel {info.get('channel_id')}, not {expected}")
+                # Look before downloading: the channel and the subject rule
+                # are checked on the metadata alone.
+                info = self._guard(lambda: ydl.extract_info(url, download=False))
+                expected = source.get('channel_id')
+                if expected and info.get('channel_id') != expected:
+                    raise RuntimeError(f"video is from channel {info.get('channel_id')}, not {expected}")
+                date = info.get('upload_date') or ''
+                day = f'{date[:4]}-{date[4:6]}-{date[6:]}' if len(date) == 8 else None
+                if day:
+                    self.db.execute('UPDATE items SET published=? WHERE source=? AND item=?', (day, source['id'], item))
+                if self.subject.keeps(info.get('title') or '', day) is False:
+                    raise OffSubject(f'not {self.subject.name or "the subject"} ({day})')
+                info = self._guard(lambda: ydl.process_ie_result(info, download=True))
             media = next((p for p in work.iterdir() if p.name.startswith('media.') and p.suffix in ('.mkv', '.mp4', '.webm')), None)
             if media is None:
                 raise RuntimeError('download produced no media file')
@@ -635,6 +700,48 @@ class Archive:
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
+    # -- applying the subject rule to what is already saved
+    def apply_subject(self, dry_run: bool) -> dict:
+        """Set aside saved items the subject rule no longer keeps: their files
+        move to a `_Set aside` folder (nothing is deleted), their Swartzit
+        posts are taken down, and pending items with known dates are skipped."""
+        name = self.subject.name or 'the subject'
+        aside_root = self.root / f'_Set aside (not {safe_name(name)})'
+        counts = {'set_aside': 0, 'posts_removed': 0, 'skipped_pending': 0, 'bytes': 0}
+        rows = self.db.execute(
+            "SELECT source, item, title, published, path, bytes FROM items WHERE status IN ('done','pending','failed')").fetchall()
+        for source_id, item, title, published, path, size in rows:
+            if self.subject.keeps(title, published) is not False:
+                continue
+            if not path:
+                counts['skipped_pending'] += 1
+                if not dry_run:
+                    self.finish(source_id, item, status='skipped', error=f'not {name}')
+                continue
+            counts['set_aside'] += 1
+            counts['bytes'] += size or 0
+            if dry_run:
+                print(f'would set aside: {published} {title}')
+                continue
+            media = self.root / path
+            target_dir = aside_root / Path(path).parent
+            target_dir.mkdir(parents=True, exist_ok=True)
+            stem = media.stem
+            for sibling in list(media.parent.glob(glob_escape(stem) + '.*')):
+                shutil.move(str(sibling), target_dir / sibling.name)
+            posted = self.db.execute('SELECT post_id FROM posted WHERE source=? AND item=?', (source_id, item)).fetchone()
+            if posted and posted[0] and self.publisher:
+                self.publisher.remove(posted[0], f'Not {name}')
+                counts['posts_removed'] += 1
+            self.db.execute('DELETE FROM posted WHERE source=? AND item=?', (source_id, item))
+            self.finish(source_id, item, status='skipped', error=f'not {name}; set aside',
+                        path=str((target_dir / media.name).relative_to(self.root)))
+            self.log(f'set aside {title}')
+        self.db.commit()
+        if not dry_run:
+            self.write_status()
+        return counts
+
     # -- main loop
     def run(self, once: bool):
         pace = self.config.get('pace', {})
@@ -660,7 +767,10 @@ class Archive:
                             return
                         time.sleep(1)
                     continue
-                self.process(row)
+                if self.process(row) == 'skipped':
+                    # Nothing was downloaded; a short pause is polite enough.
+                    time.sleep(random.uniform(2, 5))
+                    continue
                 self.catch_up()
                 self.write_status()
                 if once and self.db.execute("SELECT COUNT(*) FROM items WHERE status='pending'").fetchone()[0] == 0:
@@ -685,6 +795,9 @@ def main():
     parser.add_argument('--once', action='store_true', help='one pass through pending items, then exit')
     parser.add_argument('--discover', action='store_true', help='only refresh the item lists')
     parser.add_argument('--status', action='store_true', help='print STATUS.txt')
+    parser.add_argument('--apply-subject', action='store_true',
+                        help='set aside saved items the subject rule does not keep, and take down their posts')
+    parser.add_argument('--dry-run', action='store_true', help='with --apply-subject: only list what would change')
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
     archive = Archive(config)
@@ -697,6 +810,9 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         sys.exit('Another archive run is already in progress.')
+    if args.apply_subject:
+        print(json.dumps(archive.apply_subject(args.dry_run)))
+        return
     if args.discover:
         archive.discover()
         archive.write_status()

@@ -3203,6 +3203,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             post_method(admin::revoke),
         )
         .route("/api/admin/content", get(admin::content))
+        .route(
+            "/api/admin/posts/{id}/remove",
+            post_method(admin::remove_post),
+        )
         .route("/api/admin/comments", get(admin::comments))
         .route("/api/admin/reports", get(admin::reports))
         .route(

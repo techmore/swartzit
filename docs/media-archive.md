@@ -22,6 +22,30 @@ private storage, and Swartzit's feeds keep linking to the original publishers.
   look-alike channel cannot slip in. `_archive/manifest.jsonl` collects every
   record.
 
+## Only the subject
+
+A channel can keep publishing after the person it is named for has died,
+with other hosts, tributes and news. The optional `subject` block keeps the
+archive about the person:
+
+- Everything published on or before `until` is kept.
+- After it, an item is kept only when its title matches `after_title_match`
+  (an archived speech, a debate compilation, "From the Archive") and does not
+  match `after_title_exclude` (tributes, memorials, other hosts, coverage of
+  the death).
+- YouTube items are checked on their metadata before anything is downloaded.
+
+To apply a changed rule to what is already saved:
+
+```sh
+python3 media_archive.py --config charlie-kirk.json --apply-subject --dry-run   # list only
+python3 media_archive.py --config charlie-kirk.json --apply-subject
+```
+
+Items the rule no longer keeps move to `_Set aside (not <name>)/` in the
+archive (nothing is deleted) and their Swartzit posts are taken down through
+`POST /api/admin/posts/{id}/remove`. STATUS.txt counts them as "set aside".
+
 ## Posting to Swartzit
 
 With a `publish` block in the config, every saved item is also posted to a
