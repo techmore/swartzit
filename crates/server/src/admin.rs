@@ -377,6 +377,49 @@ pub async fn moderation_history(
     ))
 }
 
+#[derive(Deserialize)]
+pub struct RemovePost {
+    note: Option<String>,
+}
+
+/// Take down a published post: it leaves every feed and its page returns
+/// 404. The row, comments and votes are kept so the decision can be audited.
+pub async fn remove_post(
+    State(db): State<SqlitePool>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(input): Json<RemovePost>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let note = input.note.unwrap_or_default().trim().to_owned();
+    if note.len() > 1000 {
+        return Err(ApiError::Invalid("Note is too long"));
+    }
+    let updated = sqlx::query(
+        "UPDATE posts
+         SET moderation_status = 'rejected', moderation_reviewed_by = ?2,
+             moderation_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1",
+    )
+    .bind(id)
+    .bind(actor)
+    .execute(&db)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(ApiError::Missing);
+    }
+    operations::clear_public_cache();
+    log_event(
+        &db,
+        "info",
+        "admin.post_removed",
+        serde_json::json!({"actor_id": actor, "post_id": id, "note": note}),
+    )
+    .await;
+    Ok(Json(serde_json::json!({"post_id": id, "removed": true})))
+}
+
 pub async fn decide_moderation(
     State(db): State<SqlitePool>,
     headers: HeaderMap,
@@ -4139,6 +4182,73 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(remaining, 4);
+    }
+
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn admins_can_remove_a_published_post(db: SqlitePool) {
+        let admin: i64 = sqlx::query_scalar(
+            "INSERT INTO authors(handle, is_admin) VALUES ('elder', 1) RETURNING id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO sessions(token_hash, author_id, expires_at) VALUES (?1, ?2, '2999-01-01T00:00:00Z')")
+            .bind(sha2::Sha256::digest("a".repeat(64).as_bytes()).to_vec())
+            .bind(admin)
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO communities(slug,name) VALUES ('talks','Talks')")
+            .execute(&db)
+            .await
+            .unwrap();
+        let post: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) SELECT id, ?1, 'not him', 'approved' FROM communities WHERE slug='talks' RETURNING id")
+            .bind(admin)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            format!("Bearer {}", "a".repeat(64)).parse().unwrap(),
+        );
+        let _ = remove_post(
+            State(db.clone()),
+            headers.clone(),
+            Path(post),
+            Json(RemovePost {
+                note: Some("not the subject".into()),
+            }),
+        )
+        .await
+        .unwrap();
+        let status: String =
+            sqlx::query_scalar("SELECT moderation_status FROM posts WHERE id = ?1")
+                .bind(post)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(status, "rejected");
+        assert!(matches!(
+            remove_post(
+                State(db.clone()),
+                headers,
+                Path(post + 100),
+                Json(RemovePost { note: None })
+            )
+            .await,
+            Err(ApiError::Missing)
+        ));
+        assert!(
+            remove_post(
+                State(db),
+                HeaderMap::new(),
+                Path(post),
+                Json(RemovePost { note: None })
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[test]

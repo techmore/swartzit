@@ -2,6 +2,12 @@
   "name": "Charlie Kirk Archive",
   "root": "~/NAS/Charlie Kirk Archive",
   "yt_dlp": "~/.local/bin/yt-dlp",
+  "subject": {
+    "name": "Charlie Kirk",
+    "until": "2025-09-10",
+    "after_title_match": "(?i)(from the archives?|in his own words|flashback|rewind|throwback|\\bcharlie kirk['’]?s? (most|best|greatest|final|last|top|advice|speech|debate|q&a|remarks|message|address|full|iconic|epic|famous|legendary|savage|powerful|viral|take on|guide)|\\bcharlie['’]s (\\d{4}\\b|final|last|best|most|greatest|message|warning|vision|biblical|case|interview|remarks|address|testimony|call)|\\bcharlie['’]s ([\\w-]+ ){0,3}(speech|speeches|q&a|debates?|interview|sermon|address|lecture)\\b|clips of charlie|charlie and erika|charlie after the \\d{4}|\\bcharlie kirk (debates?|shuts|breaks|answers|confronts|hits|shreds|on|at|in|vs\\.?|versus|destroys|explains|responds|takes|schools|sets|talks|asks|reacts|dismantles|challenges|calls|exposes|reveals|tells|speaks|delivers|gives|stuns|silences|handles|owns|crushes|obliterates|addresses|defends|argues|makes|says|was asked|asked|lectures|preaches|teaches|warns|corrects|faces|meets|unloads|has|pushes|shocks|shares|isn['’]t|is not|leaves|wins|discusses|breaks down)\\b|^charlie kirk:|\\b\\d+-year-old charlie kirk|(\\||\\sl)\\s*charlie kirk\\b|\\bcharlie kirk ([\\w‑-]+ ){0,2}(debate|speech|q&a) compilation|(debates?|agree|conversation|argue)s? with charlie kirk|\\bcharlie (at|on|in|vs\\.?|answers|debates|speaks|explains|discusses)\\b)",
+    "after_title_exclude": "(?i)^(?!.*(in his own words|charlie and erika)).*(tribute|honou?r|memorial|megastream|vigil|funeral|reflects|remember|without charlie|after charlie|since charlie|erika kirk|tyler robinson|assassin|murder|shooting|shooter|killer|killing|killed|hearing|candace|in memory|legacy|anniversary|one year|1 year|hate charlie|mock|grave|death|martyr|ask us anything|\\bama\\b|mission|request|corn maze|forever|revival|birthday|smear|conspira)"
+  },
   "sources": [
     {
       "id": "ck-videos",
