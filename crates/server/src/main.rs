@@ -193,6 +193,9 @@ struct FeedQuery {
     /// `app` for native app clients: only app-visible communities and only
     /// general-rated posts, whatever else the request asks for.
     client: Option<String>,
+    /// `video` or `audio`: only posts that play video (including YouTube
+    /// embeds) or audio, for a community's Videos and Audio tabs.
+    media: Option<String>,
 }
 /// Which kind of client is asking. Native apps (`app`) receive a narrower,
 /// administrator-chosen slice of the instance; see `communities.app_visible`.
@@ -2741,6 +2744,11 @@ async fn posts(
         Some("bible") => true,
         Some(_) => return Err(ApiError::Invalid("Feed scope must be all or bible")),
     };
+    let media_filter = match query.media.as_deref() {
+        None | Some("") | Some("all") => None,
+        Some(kind @ ("video" | "audio")) => Some(kind),
+        Some(_) => return Err(ApiError::Invalid("Media must be video or audio")),
+    };
     let bible_slugs = serde_json::json!(
         admin::BIBLE_COMMUNITIES
             .iter()
@@ -2749,14 +2757,14 @@ async fn posts(
     )
     .to_string();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (NOT ?8 OR c.slug IN (SELECT value FROM json_each(?9))) AND (NOT ?10 OR c.app_visible = 1) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (NOT ?8 OR c.slug IN (SELECT value FROM json_each(?9))) AND (NOT ?10 OR c.app_visible = 1) AND (?11 IS NULL OR EXISTS (SELECT 1 FROM external_posts e WHERE e.post_id = p.id AND ((?11 = 'video' AND e.provider = 'youtube') OR EXISTS (SELECT 1 FROM json_each(e.media) m WHERE m.type = 'object' AND json_extract(m.value, '$.kind') = ?11)))) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
         FEED_PAGE_SIZE + 1
     );
     // The cache is shared by every reader, so the key includes the exact rated
     // selection as well as the mixed-feed exclusions.
     let cache_key = if offset == 0 && q.is_empty() && query.community.is_none() {
         Some(format!(
-            "posts:{}:{}:{}:{}:{}:{}:{}",
+            "posts:{}:{}:{}:{}:{}:{}:{}:{}",
             query.sort.as_deref().unwrap_or("newest"),
             hide_r,
             hide_x,
@@ -2764,6 +2772,7 @@ async fn posts(
             ratings.unwrap_or("all"),
             if bible_scope { "bible" } else { "all" },
             if app { "app" } else { "web" },
+            media_filter.unwrap_or("any"),
         ))
     } else {
         None
@@ -2789,6 +2798,7 @@ async fn posts(
             .bind(bible_scope)
             .bind(&bible_slugs)
             .bind(app)
+            .bind(media_filter)
             .fetch_all(&db),
     )
     .await?;
@@ -3691,6 +3701,89 @@ mod tests {
                 .into_response()
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn media_tabs_filter_a_community_to_videos_or_audio(db: SqlitePool) {
+        let author: i64 =
+            sqlx::query_scalar("INSERT INTO authors(handle) VALUES ('alice') RETURNING id")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        sqlx::query("INSERT INTO communities(slug,name) VALUES ('speeches','Speeches')")
+            .execute(&db)
+            .await
+            .unwrap();
+        for (title, provider, media) in [
+            ("a speech", Some("youtube"), "[]"),
+            (
+                "a clip",
+                Some("x"),
+                r#"[{"kind":"video","src":"https://video.twimg.com/a.mp4"}]"#,
+            ),
+            (
+                "an episode",
+                Some("rss"),
+                r#"[{"kind":"audio","src":"https://cdn.example.org/a.mp3"}]"#,
+            ),
+            ("a photo", Some("x"), r#"["https://pbs.twimg.com/a.jpg"]"#),
+            ("a note", None, "[]"),
+        ] {
+            let id: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) SELECT id, ?1, ?2, 'approved' FROM communities WHERE slug = 'speeches' RETURNING id")
+                .bind(author)
+                .bind(title)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+            if let Some(provider) = provider {
+                sqlx::query("INSERT INTO external_posts(post_id,provider,source_url,source_author,observed_at,media) VALUES (?1,?2,'https://example.org/' || ?1,'someone','2026-01-01T00:00:00Z',?3)")
+                    .bind(id)
+                    .bind(provider)
+                    .bind(media)
+                    .execute(&db)
+                    .await
+                    .unwrap();
+            }
+        }
+        let feed = |media: Option<&str>| {
+            let db = db.clone();
+            let media = media.map(str::to_owned);
+            async move {
+                let Json(value) = posts(
+                    State(db),
+                    HeaderMap::new(),
+                    Query(FeedQuery {
+                        community: Some("speeches".into()),
+                        media,
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .unwrap();
+                let mut titles: Vec<String> = value["posts"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|p| p["title"].as_str().unwrap().to_owned())
+                    .collect();
+                titles.sort();
+                titles
+            }
+        };
+        assert_eq!(feed(Some("video")).await, ["a clip", "a speech"]);
+        assert_eq!(feed(Some("audio")).await, ["an episode"]);
+        assert_eq!(feed(None).await.len(), 5);
+        assert!(
+            posts(
+                State(db.clone()),
+                HeaderMap::new(),
+                Query(FeedQuery {
+                    media: Some("gif".into()),
+                    ..Default::default()
+                })
+            )
+            .await
+            .is_err()
         );
     }
     #[sqlx::test(migrations = "./sqlite-migrations")]
