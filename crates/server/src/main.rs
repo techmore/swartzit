@@ -77,6 +77,8 @@ struct Community {
     post_count: i64,
     /// Whether native app clients (the iPhone app) receive this community.
     app_visible: bool,
+    /// Whether Bible mode shows this community.
+    bible_visible: bool,
 }
 #[derive(Serialize, FromRow)]
 struct Post {
@@ -2145,7 +2147,7 @@ async fn create_community(
             "Community name or description is outside the allowed length",
         ));
     }
-    let community = sqlx::query_as::<_, Community>("INSERT INTO communities (slug, name, description) VALUES (?1, ?2, ?3) RETURNING slug, name, description, 0 AS post_count, app_visible").bind(&slug).bind(name).bind(description).fetch_optional(&db).await.map_err(|e| if matches!(e, sqlx::Error::Database(ref db) if db.is_unique_violation()) { ApiError::Invalid("That community slug is already in use") } else { ApiError::Database(e) })?;
+    let community = sqlx::query_as::<_, Community>("INSERT INTO communities (slug, name, description) VALUES (?1, ?2, ?3) RETURNING slug, name, description, 0 AS post_count, app_visible, bible_visible").bind(&slug).bind(name).bind(description).fetch_optional(&db).await.map_err(|e| if matches!(e, sqlx::Error::Database(ref db) if db.is_unique_violation()) { ApiError::Invalid("That community slug is already in use") } else { ApiError::Database(e) })?;
     operations::clear_public_cache();
     Ok((
         StatusCode::CREATED,
@@ -2632,7 +2634,7 @@ async fn communities(
     }
     let rows: Vec<Community> = operations::timed_query(
         "communities.list",
-        sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count, c.app_visible FROM communities c ORDER BY c.name").fetch_all(&db),
+        sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count, c.app_visible, c.bible_visible FROM communities c ORDER BY c.name").fetch_all(&db),
     )
     .await?;
     if let Ok(value) = serde_json::to_value(&rows) {
@@ -2644,7 +2646,7 @@ async fn community(
     State(db): State<SqlitePool>,
     Path(slug): Path<String>,
 ) -> Result<Json<Community>, ApiError> {
-    Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count, c.app_visible FROM communities c WHERE c.slug = ?1").bind(slug).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
+    Ok(Json(sqlx::query_as("SELECT c.slug, c.name, c.description, (SELECT count(*) FROM posts p WHERE p.community_id = c.id AND p.moderation_status = 'approved') AS post_count, c.app_visible, c.bible_visible FROM communities c WHERE c.slug = ?1").bind(slug).fetch_optional(&db).await?.ok_or(ApiError::Missing)?))
 }
 /// Stamp the viewer's own vote onto a post payload.
 ///
@@ -2741,15 +2743,8 @@ async fn posts(
         Some("bible") => true,
         Some(_) => return Err(ApiError::Invalid("Feed scope must be all or bible")),
     };
-    let bible_slugs = serde_json::json!(
-        admin::BIBLE_COMMUNITIES
-            .iter()
-            .map(|(slug, _, _)| *slug)
-            .collect::<Vec<_>>()
-    )
-    .to_string();
     let sql = format!(
-        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (NOT ?8 OR c.slug IN (SELECT value FROM json_each(?9))) AND (NOT ?10 OR c.app_visible = 1) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
+        "{POST_SELECT} WHERE p.moderation_status = 'approved' AND (?1 IS NULL OR c.slug = ?1) AND (NOT ?8 OR c.bible_visible = 1) AND (NOT ?9 OR c.app_visible = 1) AND (CASE WHEN ?2 = '' THEN 1 WHEN substr(?2,1,1)='!' THEN p.id NOT IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH substr(?2,2)) ELSE p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?2) END) AND (NOT ?4 OR p.content_rating <> 'r') AND (NOT ?5 OR p.content_rating <> 'x') AND (NOT ?6 OR p.content_rating IN ('r', 'x')) AND (?7 IS NULL OR (?7 = 'r' AND p.content_rating = 'r') OR (?7 = 'x' AND p.content_rating = 'x') OR (?7 = 'rx' AND p.content_rating IN ('r', 'x'))) ORDER BY {order}, p.id DESC LIMIT {} OFFSET ?3",
         FEED_PAGE_SIZE + 1
     );
     // The cache is shared by every reader, so the key includes the exact rated
@@ -2787,7 +2782,6 @@ async fn posts(
             .bind(mature_only)
             .bind(ratings)
             .bind(bible_scope)
-            .bind(&bible_slugs)
             .bind(app)
             .fetch_all(&db),
     )
@@ -3198,6 +3192,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/admin/communities/{slug}/app",
             post_method(admin::set_community_app_visibility),
+        )
+        .route(
+            "/api/admin/communities/{slug}/bible",
+            post_method(admin::set_community_bible_visibility),
         )
         .route(
             "/api/admin/rating-reviews",
@@ -3692,6 +3690,56 @@ mod tests {
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
+    }
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn bible_scope_shows_only_communities_ticked_for_bible_mode(db: SqlitePool) {
+        let author: i64 =
+            sqlx::query_scalar("INSERT INTO authors(handle) VALUES ('alice') RETURNING id")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        for (slug, bible) in [("scripture", 1), ("teacher", 0), ("glam", 0)] {
+            sqlx::query("INSERT INTO communities(slug,name,bible_visible) VALUES (?1,?1,?2)")
+                .bind(slug)
+                .bind(bible)
+                .execute(&db)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO posts(community_id,author_id,title,moderation_status) SELECT id, ?2, 'lesson ' || ?1, 'approved' FROM communities WHERE slug = ?1")
+                .bind(slug)
+                .bind(author)
+                .execute(&db)
+                .await
+                .unwrap();
+        }
+        // A search keeps the shared feed cache out of the way.
+        let bible_feed = || async {
+            let Json(value) = posts(
+                State(db.clone()),
+                HeaderMap::new(),
+                Query(FeedQuery {
+                    scope: Some("bible".into()),
+                    q: Some("lesson".into()),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .unwrap();
+            let mut titles: Vec<String> = value["posts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["title"].as_str().unwrap().to_owned())
+                .collect();
+            titles.sort();
+            titles
+        };
+        assert_eq!(bible_feed().await, ["lesson scripture"]);
+        sqlx::query("UPDATE communities SET bible_visible = 1 WHERE slug = 'teacher'")
+            .execute(&db)
+            .await
+            .unwrap();
+        assert_eq!(bible_feed().await, ["lesson scripture", "lesson teacher"]);
     }
     #[sqlx::test(migrations = "./sqlite-migrations")]
     async fn app_clients_receive_only_app_visible_general_posts(db: SqlitePool) {

@@ -13,7 +13,7 @@ Add `client=app` to these requests:
 | --- | --- |
 | `GET /api/posts` | Only communities marked **Show in apps**, only general-rated posts. Asking for `ratings` or `mature_only` is rejected (400). `scope=bible`, `community`, `q`, `sort`, and `page` work as usual. |
 | `GET /api/posts/{id}` | 404 unless the post is general-rated and in an app-visible community. |
-| `GET /api/communities` | Only app-visible communities (each row has `app_visible`). |
+| `GET /api/communities` | Only app-visible communities (each row has `app_visible` and `bible_visible`). |
 
 Administrators choose the communities in **Admin → iPhone app** (or
 `POST /api/admin/communities/{slug}/app` with `{"visible": true}`). The four

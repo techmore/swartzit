@@ -1,5 +1,5 @@
 <script>
-  import AppCommunities from '#lib/AppCommunities.svelte';
+  import CommunityVisibility from '#lib/CommunityVisibility.svelte';
   import { onMount, tick } from 'svelte';
   import { replaceState } from '$app/navigation';
   import ImportPanel from '#lib/ImportPanel.svelte';
@@ -598,9 +598,10 @@
               <label><input type="radio" name="bible-default" checked={settings?.modules?.bible?.default_bible === false} onchange={() => setBibleDefault(false)} /> Standard mode</label>
             </fieldset>
           {/if}
-          <p class="muted">Each visitor picks Standard or Bible with the switch in the header, and their browser remembers it. Bible mode uses a Reformed / Presbyterian presentation, adds the Bible reader and listening player, and focuses the timeline on c/scripture, c/daily_reading, c/sermons, and c/deeper_dives (created on first enable). Turning it off returns everyone to Standard and keeps those communities and posts. Fill the feed with <code>node scripts/bible-feed.mjs</code>; see <code>docs/biblical-mode.md</code>.</p>
+          <p class="muted">Each visitor picks Standard or Bible with the switch in the header, and their browser remembers it. Bible mode uses a Reformed / Presbyterian presentation, adds the Bible reader and listening player, and focuses the timeline on c/scripture, c/daily_reading, c/sermons, and c/deeper_dives (created on first enable) plus any community you tick under Bible mode below. Turning it off returns everyone to Standard and keeps those communities and posts. Fill the feed with <code>node scripts/bible-feed.mjs</code>; see <code>docs/biblical-mode.md</code>.</p>
         </section>
-        <AppCommunities {busy} />
+        {#if settings?.modules?.bible?.enabled}<CommunityVisibility {busy} kind="bible" />{/if}
+        <CommunityVisibility {busy} kind="app" />
         <section class="panel">
           <h3>Publication moderation</h3>
           <p><label><input type="checkbox" checked={settings?.modules?.moderation?.enabled !== false} onchange={(event) => toggleModeration(event.currentTarget.checked)} disabled={busy} /> Hold new posts and comments for review</label></p>

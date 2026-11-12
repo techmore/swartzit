@@ -646,9 +646,10 @@ pub async fn settings(
     })))
 }
 
-/// Communities that hold Biblical-mode content. They are created when the
-/// module is first enabled and are left in place when it is disabled, so
-/// turning the mode off never deletes posts or discussion.
+/// Communities that hold Biblical-mode content. They are created (and ticked
+/// for Bible mode) when the module is enabled, and are left in place when it
+/// is disabled, so turning the mode off never deletes posts or discussion.
+/// Administrators can tick further communities for Bible mode.
 pub(crate) const BIBLE_COMMUNITIES: [(&str, &str, &str); 4] = [
     (
         "scripture",
@@ -696,8 +697,8 @@ async fn set_bible_module(db: &SqlitePool, actor: i64, enabled: bool) -> Result<
     if enabled {
         for (slug, name, description) in BIBLE_COMMUNITIES {
             sqlx::query(
-                "INSERT INTO communities(slug, name, description, app_visible) VALUES (?1, ?2, ?3, 1)
-                 ON CONFLICT (slug) DO NOTHING",
+                "INSERT INTO communities(slug, name, description, app_visible, bible_visible) VALUES (?1, ?2, ?3, 1, 1)
+                 ON CONFLICT (slug) DO UPDATE SET bible_visible = 1",
             )
             .bind(slug)
             .bind(name)
@@ -754,6 +755,37 @@ pub async fn set_community_app_visibility(
     ))
 }
 
+/// Choose whether Bible mode shows a community, alongside the four Bible
+/// communities. Standard mode always shows every community.
+pub async fn set_community_bible_visibility(
+    State(db): State<SqlitePool>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+    Json(input): Json<CommunityAppVisibility>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let updated = sqlx::query("UPDATE communities SET bible_visible = ?1 WHERE slug = ?2")
+        .bind(input.visible)
+        .bind(&slug)
+        .execute(&db)
+        .await?
+        .rows_affected();
+    if updated == 0 {
+        return Err(ApiError::Missing);
+    }
+    operations::clear_public_cache();
+    log_event(
+        &db,
+        "info",
+        "admin.community_bible_visibility",
+        serde_json::json!({"actor_id": actor, "community": slug, "visible": input.visible}),
+    )
+    .await;
+    Ok(Json(
+        serde_json::json!({"community": slug, "bible_visible": input.visible}),
+    ))
+}
+
 /// Whether visitors who have not picked a mode start in Bible mode. Each
 /// visitor can switch for themselves. A missing row means yes, so instances
 /// that enabled the mode before it became per-visitor keep their behaviour.
@@ -802,8 +834,16 @@ pub async fn bible_config(
     } else {
         "standard"
     };
-    let communities: Vec<&str> = if enabled {
-        BIBLE_COMMUNITIES.iter().map(|(slug, _, _)| *slug).collect()
+    // The four Bible communities lead, in their usual order; any others an
+    // administrator added follow by name.
+    let communities: Vec<String> = if enabled {
+        sqlx::query_scalar(
+            "SELECT slug FROM communities WHERE bible_visible = 1
+             ORDER BY CASE slug WHEN 'scripture' THEN 0 WHEN 'daily_reading' THEN 1
+                 WHEN 'sermons' THEN 2 WHEN 'deeper_dives' THEN 3 ELSE 4 END, name",
+        )
+        .fetch_all(&db)
+        .await?
     } else {
         Vec::new()
     };
@@ -4128,6 +4168,27 @@ mod tests {
         let Json(config) = bible_config(State(db.clone())).await.unwrap();
         assert_eq!(config["default_mode"], "standard");
         set_bible_default(&db, admin, true).await.unwrap();
+
+        // Other communities can join Bible mode; they follow the Bible four.
+        sqlx::query(
+            "INSERT INTO communities(slug,name,bible_visible) VALUES ('a_teacher','A Teacher',1)",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE communities SET bible_visible = 0 WHERE slug = 'daily_reading'")
+            .execute(&db)
+            .await
+            .unwrap();
+        let Json(config) = bible_config(State(db.clone())).await.unwrap();
+        assert_eq!(
+            config["communities"],
+            serde_json::json!(["scripture", "sermons", "deeper_dives", "a_teacher"])
+        );
+        // Re-enabling the module ticks the Bible four again.
+        set_bible_module(&db, admin, true).await.unwrap();
+        let Json(config) = bible_config(State(db.clone())).await.unwrap();
+        assert_eq!(config["communities"][1], "daily_reading");
 
         // Disabling hides the mode but keeps communities and their posts.
         set_bible_module(&db, admin, false).await.unwrap();

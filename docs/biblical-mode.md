@@ -35,8 +35,11 @@ For a visitor in Bible mode, within about 15 seconds of an admin change every pa
   | `c/sermons` | Preaching from Reformed and Presbyterian pulpits |
   | `c/deeper_dives` | Teaching, lectures, and the Westminster Shorter Catechism |
 
-  Readers can pick **Everything** to see the rest of the instance. Picking a
-  community works as before.
+  Administrators can add other communities to Bible mode (a sermon series, a
+  teacher's archive) under **Admin → Bible mode**, or with
+  `POST /api/admin/communities/{slug}/bible` and `{"visible": true}`. They
+  appear after the four above. Readers can pick **Everything** to see the rest
+  of the instance. Picking a community works as before.
 
 Switching to Standard restores the normal presentation and timeline. The four
 communities and their posts stay either way.
