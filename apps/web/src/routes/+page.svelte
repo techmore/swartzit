@@ -8,18 +8,28 @@
   import MediaDock from '#lib/MediaDock.svelte';
   import PostCard from '#lib/PostCard.svelte';
   import { loginHref } from '#lib/auth-session.mjs';
+  import { playTracks } from '#lib/audio-queue.mjs';
+  const BIBLE_TABS = [['', 'All'], ['scripture', 'Scripture'], ['daily_reading', 'Daily Reading'], ['sermons', 'Sermons'], ['deeper_dives', 'Deeper Dives']];
+  function bibleTabHref(slug) { const params = new URLSearchParams({feed:'timeline',sort:data.sort}); if (slug) params.set('community', slug); return '/?' + applyContentFilters(params, 'timeline'); }
+  function everythingHref() { const params = new URLSearchParams({feed:'timeline',sort:data.sort,scope:'all'}); return '/?' + applyContentFilters(params, 'timeline'); }
   let mounted = false, welcomeDismissed = false;
   let railFilter = '';
   function applyContentFilters(params, targetFeed = data.feed) { if (targetFeed === 'rated') { params.set('ratings', data.ratings || 'rx'); return params; } if (['following', 'buddies'].includes(targetFeed) && ['following', 'buddies'].includes(data.feed) && data.ratings) { params.set('ratings', data.ratings); return params; } if (data.feed === 'rated' || data.ratings) return params; params.set('hide_r', String(data.hideR)); if (!data.hideX) params.set('show_x', 'true'); return params; }
   function feedHref(feed, includeFilters = true) { const params = new URLSearchParams({feed,sort:data.sort}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); return '/' + (includeFilters ? '?' + applyContentFilters(params, feed) : '?' + params); }
   function clearRHref() { const params = new URLSearchParams({feed:data.feed,sort:data.sort,hide_r:'false'}); if (data.community) params.set('community',data.community); if (data.q) params.set('q',data.q); if (!data.hideX) params.set('show_x', 'true'); return '/?' + params; }
+  const MEDIA_TABS = [['', 'All posts'], ['video', 'Videos'], ['audio', 'Audio']];
+  function mediaHref(media) { const params = new URLSearchParams({feed:'timeline',sort:data.sort,community:data.community}); if (media) params.set('media', media); if (data.q) params.set('q',data.q); if (data.scope === 'all') params.set('scope','all'); return '/?' + applyContentFilters(params, 'timeline'); }
   function communityHref(slug = '') { const params = new URLSearchParams({feed:data.feed,sort:data.sort}); if (slug) params.set('community', slug); if (data.q) params.set('q',data.q); return '/?' + applyContentFilters(params); }
-  $: activeCommunities = data.communities.filter(community => community.post_count > 0 || community.slug === data.community).sort((a, b) => b.post_count - a.post_count || a.slug.localeCompare(b.slug));
-  $: quietCommunities = data.communities.filter(community => community.post_count === 0 && community.slug !== data.community);
+  // In Biblical mode the rail lists only the Bible communities (plus the one being viewed); "Everything" shows the rest.
+  $: bibleRail = data.bible?.enabled && data.scope !== 'all' ? data.bible.communities ?? [] : null;
+  $: railSource = bibleRail ? data.communities.filter(community => bibleRail.includes(community.slug) || community.slug === data.community) : data.communities;
+  $: activeCommunities = railSource.filter(community => bibleRail || community.post_count > 0 || community.slug === data.community).sort((a, b) => bibleRail ? rank(a) - rank(b) : b.post_count - a.post_count || a.slug.localeCompare(b.slug));
+  $: quietCommunities = bibleRail ? [] : railSource.filter(community => community.post_count === 0 && community.slug !== data.community);
+  function rank(community) { const index = bibleRail.indexOf(community.slug); return index < 0 ? bibleRail.length : index; }
   let token = '';
   let feedPosts = data.posts, feedHasMore = data.hasMore, feedPage = data.page, feedLoading = false, feedError = '';
   let feedKey = '', activeFeedKey = '', feedRequestController, followingInitialKey = '', initialPosts = data.posts;
-  $: feedKey = JSON.stringify([data.feed, data.community, data.q, data.sort, data.hideR, data.hideX, data.ratings, data.page]);
+  $: feedKey = JSON.stringify([data.feed, data.community, data.q, data.sort, data.hideR, data.hideX, data.ratings, data.page, data.scope, data.media]);
   $: if (feedKey !== activeFeedKey) {
     activeFeedKey = feedKey;
     feedRequestController?.abort();
@@ -72,6 +82,8 @@
     const params = new URLSearchParams({sort:data.sort,page:String(page)});
     if (data.q) params.set('q',data.q);
     if (data.community) params.set('community',data.community);
+    if (data.media) params.set('media',data.media);
+    if (data.scope === 'bible' && data.feed === 'timeline') params.set('scope', 'bible');
     if (data.ratings) params.set('ratings', data.ratings);
     else {
       params.set('hide_r', String(data.hideR));
@@ -121,12 +133,12 @@
     return {destroy: () => observer.disconnect()};
   }
 </script>
-<svelte:head><title>{data.community ? `c/${data.community} · Swartzit` : data.q ? `“${data.q}” · Swartzit` : 'Swartzit — the commons'}</title></svelte:head>
+<svelte:head><title>{data.community ? `c/${data.community} · Swartzit` : data.q ? `“${data.q}” · Swartzit` : data.bible?.enabled ? 'Swartzit — Scripture, sermons and study' : 'Swartzit — the commons'}</title></svelte:head>
 <main id="main-content" class="home">
   <div class="layout">
     <aside class="rail" aria-label="Communities">
       <div class="rail-head"><h2>Communities</h2><a href="/communities" aria-label="Browse all communities" title="Browse all communities"><Icon name="grid" size={17} /></a></div>
-      <a class="rail-link" class:selected={!data.community} aria-current={!data.community ? 'page' : undefined} href={communityHref()}><span>All discussions</span></a>
+      <a class="rail-link" class:selected={!data.community} aria-current={!data.community ? 'page' : undefined} href={communityHref()}><span>{data.scope === 'bible' ? 'Scripture & study' : 'All discussions'}</span></a>
       {#each activeCommunities as community}
         <a class="rail-link" class:selected={data.community === community.slug} aria-current={data.community === community.slug ? 'page' : undefined} href={communityHref(community.slug)}><span>c/{community.slug}</span><small>{community.post_count}</small></a>
       {/each}
@@ -136,6 +148,7 @@
           {#each quietCommunities as community}<a class="rail-link" class:selected={data.community === community.slug} aria-current={data.community === community.slug ? 'page' : undefined} href={communityHref(community.slug)}><span>c/{community.slug}</span></a>{/each}
         </details>
       {/if}
+      {#if bibleRail}<a class="rail-link rail-more" href={everythingHref()}><span>Everything else →</span></a>{/if}
     </aside>
 
     <section class="feed">
@@ -148,7 +161,9 @@
       </nav>
         <form class="controls" method="GET" action="/">
           {#if data.community}<input type="hidden" name="community" value={data.community} />{/if}
+          {#if data.media}<input type="hidden" name="media" value={data.media} />{/if}
           <input type="hidden" name="feed" value={data.feed} />
+          {#if data.scope === 'all'}<input type="hidden" name="scope" value="all" />{/if}
           {#if data.q}<input type="hidden" name="q" value={data.q} />{/if}
           {#if data.ratings}
             <label class="ctl"><span>Show</span><select name="ratings" aria-label="Choose ratings to show" value={data.ratings} onchange={submitForm}><option value="rx">R and X</option><option value="r">R only</option><option value="x">X only</option></select></label>
@@ -168,16 +183,45 @@
         </form>
       </div>
 
-      <div class="chip-row" aria-label="Communities">
+      <div class="chip-row" class:bible-hidden={data.bible?.enabled && data.feed === 'timeline' && !data.q} aria-label="Communities">
         <a class="chip" class:active={!data.community} href={communityHref()}>All</a>
         {#each activeCommunities.slice(0, 14) as community}<a class="chip" class:active={data.community === community.slug} href={communityHref(community.slug)}>c/{community.slug}</a>{/each}
         <a class="chip" href="/communities">More →</a>
       </div>
 
+      {#if data.bible?.enabled && data.feed === 'timeline' && !data.q}
+        <nav class="bible-tabs" aria-label="Biblical content">
+          {#each BIBLE_TABS as [slug, label]}
+            <a class:active={slug ? data.community === slug : data.scope === 'bible'} aria-current={(slug ? data.community === slug : data.scope === 'bible') ? 'page' : undefined} href={bibleTabHref(slug)}>{label}</a>
+          {/each}
+          <a class="everything" class:active={data.scope === 'all'} href={everythingHref()}>Everything</a>
+        </nav>
+      {/if}
+
+      {#if data.community && data.feed === 'timeline'}
+        <nav class="media-tabs" aria-label="Show">
+          {#each MEDIA_TABS as [media, label]}
+            <a class:active={(data.media ?? '') === media} aria-current={(data.media ?? '') === media ? 'page' : undefined} href={mediaHref(media)}>{label}</a>
+          {/each}
+        </nav>
+      {/if}
+
       {#if showWelcome}
         <section class="welcome" aria-label="About Swartzit">
-          <p><strong>Read freely.</strong> Participate under a pseudonym. Take your community with you.</p>
-          <div class="welcome-actions"><a class="btn btn-sm" href="/signup">Join</a><a class="about-link" href="/about">About</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
+          {#if data.bible?.enabled}
+            <p><strong>Scripture, sermons and study.</strong> Read and listen freely, no account needed.</p>
+            <div class="welcome-actions"><a class="btn btn-sm" href="/bible">Open the Bible</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
+          {:else}
+            <p><strong>Read freely.</strong> Participate under a pseudonym. Take your community with you.</p>
+            <div class="welcome-actions"><a class="btn btn-sm" href="/signup">Join</a><a class="about-link" href="/about">About</a><button type="button" class="icon-btn dismiss" aria-label="Dismiss" title="Dismiss" onclick={dismissWelcome}><Icon name="x" size={16} /></button></div>
+          {/if}
+        </section>
+      {/if}
+
+      {#if data.bible?.enabled && data.feed === 'timeline' && !data.q && data.reading && !data.community && data.page === 1}
+        <section class="reading-strip" aria-label="Today’s reading">
+          <div><small>Today’s reading</small><a href="/bible">{data.reading.summary}</a></div>
+          {#if data.reading.tracks.length}<button type="button" class="btn-sm" onclick={() => playTracks(data.reading.tracks, 0)}><Icon name="play" size={14} filled /> Listen</button>{/if}
         </section>
       {/if}
 
@@ -226,6 +270,7 @@
   .rail-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); color: var(--muted); font-size: .9rem; font-weight: 500; }
   .rail-link small { font-size: .72rem; font-variant-numeric: tabular-nums; color: var(--text-light); }
   .rail-link:hover { background: var(--hover); color: var(--heading); }
+  .rail-more { margin-top: 6px; border-top: 1px solid var(--border); border-radius: 0; padding-top: 12px; font-size: .82rem; }
   .rail-link.selected { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
   .quiet { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
   .quiet > summary { cursor: pointer; padding: 8px 10px; color: var(--text-light); font-size: .78rem; font-weight: 600; }
@@ -235,9 +280,23 @@
   .feed-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); }
   .feed-tabs a { padding: 6px 14px; border-radius: 999px; font-size: .85rem; font-weight: 600; color: var(--muted); }
   .feed-tabs a:hover { color: var(--heading); }
+  .media-tabs { display: flex; gap: 6px; margin: 10px 0 4px; }
+  .media-tabs a { padding: 7px 16px; min-height: 36px; display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--border); font-size: .88rem; font-weight: 600; color: var(--muted); background: var(--surface); }
+  .media-tabs a:hover { color: var(--heading); }
+  .media-tabs a.active { background: var(--heading); border-color: var(--heading); color: var(--surface); }
   .feed-tabs a.active { background: var(--surface); color: var(--heading); box-shadow: var(--shadow-sm); }
   .chip-row { display: none; }
 
+  .bible-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .bible-tabs a { padding: 6px 12px; border-radius: 999px; color: var(--muted); font: 600 .9rem/1.2 var(--font-serif); }
+  .bible-tabs a:hover { color: var(--heading); background: var(--hover); }
+  .bible-tabs a.active { color: var(--accent-fg); background: var(--accent); }
+  .bible-tabs .everything { margin-left: auto; font: 600 .78rem/1.6 var(--font-sans); }
+  .reading-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gilt, var(--border)) 40%, var(--border)); border-radius: var(--radius); background: var(--surface); }
+  .reading-strip small { display: block; color: var(--gilt-text, var(--muted)); font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .reading-strip a { font: 600 1rem/1.35 var(--font-serif); color: var(--heading); }
+  .reading-strip a:hover { color: var(--accent); }
+  .reading-strip button { display: inline-flex; align-items: center; gap: 6px; flex: none; border-radius: 999px; }
   .welcome { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px 12px 10px 16px; border-radius: var(--radius); background: var(--wash); border: 1px solid var(--border); }
   .welcome { flex-wrap: nowrap; }
   .welcome p { flex: 1; min-width: 0; margin: 0; font-size: .85rem; color: var(--heading); }
@@ -271,16 +330,35 @@
   .pagination p { margin: 0; color: var(--muted); font-size: .85rem; }
   .sentinel { width: 100%; height: 1px; pointer-events: none; }
 
+  @media (pointer: coarse) {
+    .welcome .dismiss { width: 44px; min-height: 44px; margin-right: -8px; }
+    .about-link { display: inline-flex; align-items: center; min-height: 44px; }
+    /* Tabs keep their compact look; the tap area grows to 44px. */
+    .feed-tabs a, .bible-tabs a { position: relative; }
+    .feed-tabs a::after, .bible-tabs a::after { content: ""; position: absolute; inset: -6px 0; }
+    .ctl select, .ctl-button { min-height: 44px; }
+    .ctl select { padding-left: 12px; }
+    .ctl-button { padding: 0 14px; }
+    .rail-link { min-height: 44px; }
+    .back-all, .clear-search { min-height: 44px; }
+  }
   @media (max-width: 960px) {
     .layout { display: block; }
     .rail { display: none; }
     .chip-row { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 14px; padding-bottom: 4px; scrollbar-width: none; }
     .chip-row::-webkit-scrollbar { display: none; }
+    .chip-row.bible-hidden { display: none; }
     .chip { flex: none; }
   }
   @media (max-width: 700px) {
     .home { padding: 12px 0 120px; }
-    .feed-bar, .chip-row, .welcome, .feed-head, .state { margin-left: 12px; margin-right: 12px; }
+    .feed-bar, .chip-row, .welcome, .feed-head, .state, .bible-tabs, .reading-strip { margin-left: 12px; margin-right: 12px; }
+    /* One swipeable row. The fading right edge shows there is more to scroll to. */
+    .bible-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: 0; padding-right: 28px; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
+    .bible-tabs::-webkit-scrollbar { display: none; }
+    .bible-tabs a { flex: none; }
+    .bible-tabs .everything { margin-left: 4px; }
+    .chip-row { margin-right: 0; padding-right: 28px; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
     .feed-tabs { width: 100%; }
     .feed-tabs a { flex: 1; text-align: center; padding: 7px 4px; }
     .controls { width: 100%; justify-content: space-between; }

@@ -1,9 +1,14 @@
 import { error } from '@sveltejs/kit';
-export async function load({ fetch, url }) {
+import { readingFor } from '#lib/bible/reading.mjs';
+export async function load({ fetch, url, parent }) {
   const api = '';
+  const { bible } = typeof parent === 'function' ? await parent() : {};
   const params = new URLSearchParams();
   if (url.searchParams.get('community')) params.set('community', url.searchParams.get('community'));
   if (url.searchParams.get('q')) params.set('q', url.searchParams.get('q'));
+  // A community's Videos / Audio tabs.
+  const media = url.searchParams.get('community') && ['video', 'audio'].includes(url.searchParams.get('media')) ? url.searchParams.get('media') : '';
+  if (media) params.set('media', media);
   const requestedFeed = url.searchParams.get('feed');
   const hideR = !(['true', '1'].includes(url.searchParams.get('show_r')) || ['false', '0'].includes(url.searchParams.get('hide_r')));
   // X-rated content is opt-in for the default feed. Keep accepting the old
@@ -34,11 +39,20 @@ export async function load({ fetch, url }) {
   const requestedSort = url.searchParams.get('sort');
   params.set('sort', requestedSort === 'recommended' ? 'newest' : (requestedSort ?? 'newest'));
   if (url.searchParams.has('page')) params.set('page',url.searchParams.get('page'));
+  // Biblical mode keeps the public timeline to Scripture, sermons and study
+  // unless the reader asks for everything or picks a community.
+  const bibleScope = Boolean(bible?.enabled) && feedMode === 'timeline' && !params.get('community') && url.searchParams.get('scope') !== 'all';
+  if (bibleScope) params.set('scope', 'bible');
   let [postsResponse, communitiesResponse] = await Promise.all([
     feedMode === 'buddies' ? Promise.resolve(null) : fetch(`${api}/api/posts?${params}`),
     fetch(`${api}/api/communities`)
   ]);
   if ((postsResponse && !postsResponse.ok) || !communitiesResponse.ok) error(503, 'Discussions are temporarily unavailable. Please try again.');
   const result = postsResponse ? await postsResponse.json() : { posts: [], has_more: false };
-  return { posts: result.posts, hasMore: result.has_more, communities: await communitiesResponse.json(), sort: params.get('sort'), q: params.get('q') ?? '', community: params.get('community') ?? '', page: Number(params.get('page') ?? 1), feed: feedMode, hideR: useRatings ? false : hideR, hideX: useRatings ? false : hideX, matureOnly: useRatings, ratings: useRatings ? ratings : null };
+  let reading = null;
+  if (bible?.enabled) {
+    const today = readingFor(new Date());
+    reading = { summary: today.summary, tracks: today.tracks };
+  }
+  return { bible: bible ?? { enabled: false, communities: [] }, scope: bibleScope ? 'bible' : bible?.enabled && url.searchParams.get('scope') === 'all' ? 'all' : '', reading, posts: result.posts, hasMore: result.has_more, communities: await communitiesResponse.json(), sort: params.get('sort'), q: params.get('q') ?? '', community: params.get('community') ?? '', media, page: Number(params.get('page') ?? 1), feed: feedMode, hideR: useRatings ? false : hideR, hideX: useRatings ? false : hideX, matureOnly: useRatings, ratings: useRatings ? ratings : null };
 }

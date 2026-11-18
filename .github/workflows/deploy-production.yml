@@ -42,7 +42,9 @@ jobs:
   deploy:
     # Keep the workflow present and reviewable before the deploy is enabled.
     # Set the repository variable to true to opt the live host in.
-    if: ${{ vars.SWARTZIT_DEPLOY_ENABLED == 'true' }}
+    # The second clause keeps fork code off the self-hosted production runner
+    # if a pull_request trigger is ever added here (this repo is public).
+    if: ${{ vars.SWARTZIT_DEPLOY_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     # This host is not reachable from a GitHub-hosted runner: the public address
     # is CGNAT and only 80/443 are forwarded, so an SSH-based deploy from GitHub
     # can never connect. The runner therefore lives on the host itself and the

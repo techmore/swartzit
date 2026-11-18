@@ -21,4 +21,5 @@
   .pill { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .8rem; font-weight: 600; white-space: nowrap; }
   .pill:hover { background: var(--hover); color: var(--heading); }
   @media (max-width: 460px) { .word { display: none; } .pill { padding: 0 12px; } }
+  @media (pointer: coarse) { .pill { min-height: 42px; min-width: 44px; justify-content: center; position: relative; } .pill::after { content: ""; position: absolute; inset: -2px 0; } .post-actions { gap: 8px; } }
 </style>

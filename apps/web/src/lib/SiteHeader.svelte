@@ -6,6 +6,7 @@
   import Brand from '#lib/Brand.svelte';
   import ThemeToggle from '#lib/ThemeToggle.svelte';
   import AutoplayToggle from '#lib/AutoplayToggle.svelte';
+  import ModeSwitch from '#lib/ModeSwitch.svelte';
   import { currentUser, loadCurrentUser } from '#lib/session-store.js';
   import { loginHref } from '#lib/auth-session.mjs';
 
@@ -14,12 +15,14 @@
   const query = $derived(page.url.searchParams.get('q') ?? '');
   const signInHref = $derived(loginHref(path + page.url.search));
   const isHome = $derived(path === '/' && !page.url.searchParams.get('feed'));
+  const bibleOn = $derived(page.data?.bible?.enabled === true);
 
   let avatarUrl = $state('');
   let menuOpen = $state(false);
   let searchOpen = $state(false);
   let searchInput = $state();
   let menuRoot = $state();
+  let menuButton = $state();
 
   $effect(() => { avatarUrl = user?.avatar_url ?? ''; });
 
@@ -27,7 +30,12 @@
     loadCurrentUser();
     const onProfile = event => { avatarUrl = event.detail?.avatar_url ?? ''; };
     const onPointer = event => { if (menuOpen && menuRoot && !menuRoot.contains(event.target)) menuOpen = false; };
-    const onKey = event => { if (event.key === 'Escape') { menuOpen = false; searchOpen = false; } };
+    const onKey = event => {
+      if (event.key !== 'Escape') return;
+      // Hand focus back to the button that opened the menu.
+      if (menuOpen) menuButton?.focus();
+      menuOpen = false; searchOpen = false;
+    };
     window.addEventListener('swartzit:profile-updated', onProfile);
     document.addEventListener('pointerdown', onPointer);
     document.addEventListener('keydown', onKey);
@@ -54,6 +62,7 @@
 
     <nav class="primary" aria-label="Primary">
       <a href="/" class:active={isHome} aria-current={isHome ? 'page' : undefined}>Timeline</a>
+      {#if page.data?.bible?.enabled}<a href="/bible" class:active={path.startsWith('/bible')} aria-current={path.startsWith('/bible') ? 'page' : undefined}>Bible</a>{/if}
       <a href="/communities" class:active={path.startsWith('/communities')} aria-current={path.startsWith('/communities') ? 'page' : undefined}>Communities</a>
       {#if user}<a href="/bookmarks" class:active={path.startsWith('/bookmarks')} aria-current={path.startsWith('/bookmarks') ? 'page' : undefined}>Bookmarks</a>{/if}
     </nav>
@@ -65,7 +74,8 @@
 
     <div class="actions">
       <button type="button" class="icon-btn mobile-only" aria-label={searchOpen ? 'Close search' : 'Search discussions'} aria-expanded={searchOpen} onclick={toggleSearch}><Icon name={searchOpen ? 'x' : 'search'} size={20} /></button>
-      <ThemeToggle />
+      <span class="mode-desktop"><ModeSwitch /></span>
+      <span class="theme-header"><ThemeToggle /></span>
       {#if user}
         <button type="button" class="btn new-post" onclick={() => compose('post')}><Icon name="plus" size={18} /><span>New post</span></button>
       {:else}
@@ -74,13 +84,21 @@
       {/if}
 
       <div class="menu" bind:this={menuRoot}>
-        <button type="button" class="account" class:has-avatar={Boolean(user)} aria-label={user ? `Account menu for u/${user.handle}` : 'Menu'} aria-haspopup="menu" aria-expanded={menuOpen} onclick={() => menuOpen = !menuOpen}>
+        <button type="button" bind:this={menuButton} class="account" class:has-avatar={Boolean(user)} aria-label={user ? `Account menu for u/${user.handle}` : 'Menu'} aria-haspopup="menu" aria-expanded={menuOpen} onclick={() => menuOpen = !menuOpen}>
           {#if user && avatarUrl}<img src={avatarUrl} alt="" />
           {:else if user}<span class="initial">{user.handle.slice(0, 1).toUpperCase()}</span>
           {:else}<Icon name="menu" size={20} />{/if}
         </button>
         {#if menuOpen}
           <div class="menu-panel" role="menu">
+            <!-- The primary nav is hidden below 900px and the bottom bar only exists below 700px,
+                 so the menu carries whatever the current width leaves unreachable. -->
+            <div class="menu-nav" class:bible={bibleOn}>
+              <a class="menu-item nav-home" role="menuitem" href="/" aria-current={isHome ? 'page' : undefined}><Icon name="home" size={18} />Timeline</a>
+              {#if bibleOn}<a class="menu-item nav-bible" role="menuitem" href="/bible" aria-current={path.startsWith('/bible') ? 'page' : undefined}><Icon name="book" size={18} />Bible</a>{/if}
+              <a class="menu-item nav-communities" role="menuitem" href="/communities" aria-current={path.startsWith('/communities') ? 'page' : undefined}><Icon name="grid" size={18} />Communities</a>
+              <hr class="menu-divider" />
+            </div>
             {#if user}
               <a class="menu-item who" role="menuitem" href={'/u/' + encodeURIComponent(user.handle)}><Icon name="user" size={18} /><span><strong>u/{user.handle}</strong><small>View profile</small></span></a>
               <a class="menu-item" role="menuitem" href="/bookmarks"><Icon name="bookmark" size={18} />Bookmarks</a>
@@ -95,9 +113,13 @@
               <a class="menu-item" role="menuitem" href="/history"><Icon name="clock" size={18} />Reading history</a>
             {/if}
             <hr class="menu-divider" />
+            <ModeSwitch variant="row" />
+            <span class="theme-menu"><ThemeToggle variant="row" /></span>
             <AutoplayToggle />
             <a class="menu-item" role="menuitem" href="/api/export" download="swartzit-export.json"><Icon name="download" size={18} />Export public data</a>
             <a class="menu-item" role="menuitem" href="/about"><Icon name="info" size={18} />About Swartzit</a>
+            <a class="menu-item" role="menuitem" href="/privacy"><Icon name="info" size={18} />Privacy</a>
+            <a class="menu-item" role="menuitem" href="/terms"><Icon name="info" size={18} />Terms of use</a>
             <a class="menu-item" role="menuitem" href="https://github.com/techmore/swartzit" target="_blank" rel="noopener noreferrer"><Icon name="external" size={18} />Source on GitHub</a>
             <hr class="menu-divider" />
             {#if user}
@@ -140,12 +162,20 @@
   .account:hover:not(:disabled) { filter: none; background: var(--hover); }
   .account img { width: 100%; height: 100%; object-fit: cover; }
   .initial { width: 38px; height: 38px; display: grid; place-items: center; background: var(--accent); color: var(--accent-fg); font-weight: 700; font-size: .9rem; }
-  .menu-panel { min-width: 250px; }
+  /* Never taller than the space between the header and the bottom bar. */
+  .menu-panel { min-width: 264px; max-height: calc(100dvh - var(--header-h) - 24px); overflow-y: auto; overscroll-behavior: contain; }
+  .menu-panel :global(a[aria-current='page']) { color: var(--accent); font-weight: 650; }
+  .menu-nav, .theme-menu { display: none; }
+  .theme-header { display: contents; }
   .who span { display: grid; line-height: 1.25; }
   .who small { font-size: .75rem; }
   .mobile-only, .mobile-search { display: none; }
 
+  .mode-desktop { display: contents; }
+  @media (pointer: coarse) { .account, .initial { width: 44px; min-height: 44px; height: 44px; } }
   @media (max-width: 900px) {
+    .mode-desktop { display: none; }
+    .menu-nav { display: block; }
     .primary { display: none; }
     .desktop-search { display: none; }
     .mobile-only { display: inline-flex; }
@@ -157,6 +187,13 @@
     .mobile-search button { flex: none; }
   }
   @media (max-width: 700px) {
+    /* Phones: the bottom bar already has Home plus Bible or Communities, and
+       the theme switch moves into the menu to give the header room. */
+    .menu-nav .nav-home, .menu-nav.bible .nav-bible, .menu-nav:not(.bible) .nav-communities { display: none; }
+    .menu-nav:not(.bible) { display: none; }
+    .theme-header { display: none; }
+    .theme-menu { display: contents; }
+    .menu-panel { max-height: calc(100dvh - var(--header-h) - 92px - env(safe-area-inset-bottom)); }
     .bar { padding: 0 12px; gap: 8px; }
     .new-post { display: none; }
     .signin { display: none; }

@@ -37,5 +37,6 @@
   .share-control input { min-width: 240px; max-width: 100%; }
   .compact .share-button { min-height: 30px; padding: 0 10px; border-color: transparent; background: transparent; font-size: .8rem; }
   .compact .share-button:hover:not(:disabled) { background: var(--hover); }
+  @media (pointer: coarse) { .share-button { min-height: 42px; min-width: 44px; } .compact .share-button { min-height: 44px; } }
   @media (max-width: 460px) { .share-button:not(.copied) .share-label { display: none; } .share-button { padding: 0 12px; } .compact .share-label { display: inline !important; } }
 </style>

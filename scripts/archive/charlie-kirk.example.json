@@ -1,0 +1,89 @@
+{
+  "name": "Charlie Kirk Archive",
+  "root": "~/NAS/Charlie Kirk Archive",
+  "yt_dlp": "~/.local/bin/yt-dlp",
+  "subject": {
+    "name": "Charlie Kirk",
+    "until": "2025-09-10",
+    "after_title_match": "(?i)(from the archives?|in his own words|flashback|rewind|throwback|\\bcharlie kirk['’]?s? (most|best|greatest|final|last|top|advice|speech|debate|q&a|remarks|message|address|full|iconic|epic|famous|legendary|savage|powerful|viral|take on|guide)|\\bcharlie['’]s (\\d{4}\\b|final|last|best|most|greatest|message|warning|vision|biblical|case|interview|remarks|address|testimony|call)|\\bcharlie['’]s ([\\w-]+ ){0,3}(speech|speeches|q&a|debates?|interview|sermon|address|lecture)\\b|clips of charlie|charlie and erika|charlie after the \\d{4}|\\bcharlie kirk (debates?|shuts|breaks|answers|confronts|hits|shreds|on|at|in|vs\\.?|versus|destroys|explains|responds|takes|schools|sets|talks|asks|reacts|dismantles|challenges|calls|exposes|reveals|tells|speaks|delivers|gives|stuns|silences|handles|owns|crushes|obliterates|addresses|defends|argues|makes|says|was asked|asked|lectures|preaches|teaches|warns|corrects|faces|meets|unloads|has|pushes|shocks|shares|isn['’]t|is not|leaves|wins|discusses|breaks down)\\b|^charlie kirk:|\\b\\d+-year-old charlie kirk|(\\||\\sl)\\s*charlie kirk\\b|\\bcharlie kirk ([\\w‑-]+ ){0,2}(debate|speech|q&a) compilation|(debates?|agree|conversation|argue)s? with charlie kirk|\\bcharlie (at|on|in|vs\\.?|answers|debates|speaks|explains|discusses)\\b)",
+    "after_title_exclude": "(?i)^(?!.*(in his own words|charlie and erika)).*(tribute|honou?r|memorial|megastream|vigil|funeral|reflects|remember|without charlie|after charlie|since charlie|erika kirk|tyler robinson|assassin|murder|shooting|shooter|killer|killing|killed|hearing|candace|in memory|legacy|anniversary|one year|1 year|hate charlie|mock|grave|death|martyr|ask us anything|\\bama\\b|mission|request|corn maze|forever|revival|birthday|smear|conspira)"
+  },
+  "sources": [
+    {
+      "id": "ck-videos",
+      "name": "Charlie Kirk (YouTube) - videos",
+      "kind": "youtube",
+      "url": "https://www.youtube.com/@RealCharlieKirk/videos",
+      "channel_id": "UCfaIu2jO-fppCQV_lchCRIQ",
+      "folder": "YouTube - Charlie Kirk/Videos"
+    },
+    {
+      "id": "ck-streams",
+      "name": "Charlie Kirk (YouTube) - livestreams",
+      "kind": "youtube",
+      "url": "https://www.youtube.com/@RealCharlieKirk/streams",
+      "channel_id": "UCfaIu2jO-fppCQV_lchCRIQ",
+      "folder": "YouTube - Charlie Kirk/Livestreams"
+    },
+    {
+      "id": "ck-shorts",
+      "name": "Charlie Kirk (YouTube) - shorts",
+      "kind": "youtube",
+      "url": "https://www.youtube.com/@RealCharlieKirk/shorts",
+      "channel_id": "UCfaIu2jO-fppCQV_lchCRIQ",
+      "folder": "YouTube - Charlie Kirk/Shorts"
+    },
+    {
+      "id": "ck-show",
+      "name": "The Charlie Kirk Show (podcast)",
+      "kind": "podcast",
+      "url": "https://www.omnycontent.com/d/playlist/5e27a451-e6e6-4c51-aa03-a7370003783c/c865b590-c84f-4f7e-a43e-ac64014b61d9/8978e846-cacd-4d65-b085-ac64014cd49f/podcast.rss",
+      "folder": "Podcast - The Charlie Kirk Show",
+      "feed_name": "The Charlie Kirk Show"
+    },
+    {
+      "id": "tpusa-charlie",
+      "name": "Turning Point USA (YouTube) - Charlie Kirk videos",
+      "kind": "youtube",
+      "url": "https://www.youtube.com/@turningpointusa/videos",
+      "channel_id": "UCVrK_pMRp_q8IelpfUCTGLQ",
+      "title_match": "(?i)charlie|kirk",
+      "folder": "YouTube - Turning Point USA (Charlie Kirk)"
+    }
+  ],
+  "video": {
+    "max_height": 2160,
+    "convert": true,
+    "captions": true,
+    "av1": {
+      "preset": 8,
+      "crf": 33,
+      "threads": 6,
+      "keep_if_ratio_below": 0.8
+    }
+  },
+  "pace": {
+    "between_items_seconds": [
+      20,
+      60
+    ],
+    "rediscover_hours": 6,
+    "rate_limit_backoff_minutes": 45
+  },
+  "publish": {
+    "origin": "https://swartzit.example.org",
+    "env_file": "~/.config/swartzit-archive/swartzit.env",
+    "community": "charlie_kirk",
+    "community_info": {
+      "name": "Charlie Kirk",
+      "description": "Charlie Kirk (1993–2025) in his own words: speeches, campus debates, interviews and The Charlie Kirk Show, from his official channels only."
+    },
+    "sources": [
+      "ck-videos",
+      "ck-streams",
+      "ck-shorts",
+      "ck-show",
+      "tpusa-charlie"
+    ]
+  }
+}

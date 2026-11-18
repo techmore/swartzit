@@ -5,6 +5,8 @@
   import SiteHeader from '#lib/SiteHeader.svelte';
   import MobileNav from '#lib/MobileNav.svelte';
   import PostComposer from '#lib/PostComposer.svelte';
+  import AudioPlayer from '#lib/AudioPlayer.svelte';
+  import NavProgress from '#lib/NavProgress.svelte';
   import { afterNavigate } from '$app/navigation';
 afterNavigate(({ to }) => {
   if (to && !to.url.pathname.startsWith('/admin')) {
@@ -25,8 +27,10 @@ function skipToContent(event) {
 </script>
 <svelte:head><script src="/project-analytics.js" defer></script></svelte:head>
 <a class="skip-link" href="#main-content" onclick={skipToContent}>Skip to content</a>
+<NavProgress />
 <AdSenseLoader clientId={data.adsenseClientId} />
 <SiteHeader />
 <slot />
 <PostComposer />
 <MobileNav />
+<AudioPlayer />

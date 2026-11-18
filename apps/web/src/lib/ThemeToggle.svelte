@@ -8,10 +8,15 @@
   function apply(value) {
     dark = value;
     document.documentElement.dataset.theme = value ? 'dark' : 'light';
+    // Tint the phone's status bar and browser chrome to match the page.
+    const page = getComputedStyle(document.documentElement).getPropertyValue('--page').trim();
+    if (page) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', page);
   }
   function toggle() {
     apply(!dark);
     try { localStorage.setItem(key, dark ? 'dark' : 'light'); } catch { /* Still works for this page when storage is unavailable. */ }
+    // The header button and the menu row are separate instances.
+    window.dispatchEvent(new CustomEvent('swartzit-theme-change', { detail: { dark } }));
   }
   onMount(() => {
     const sync = () => {
@@ -20,14 +25,16 @@
       apply(stored === 'dark');
     };
     const storage = event => { if (event.key === key || event.key === null) sync(); };
+    const change = event => { dark = event.detail?.dark === true; };
     sync();
     window.addEventListener('storage', storage);
-    return () => { window.removeEventListener('storage', storage); };
+    window.addEventListener('swartzit-theme-change', change);
+    return () => { window.removeEventListener('storage', storage); window.removeEventListener('swartzit-theme-change', change); };
   });
   $: label = dark ? 'Switch to light mode' : 'Switch to dark mode';
 </script>
 {#if variant === 'row'}
-  <button type="button" class="menu-item" aria-pressed={dark} on:click={toggle}><Icon name={dark ? 'sun' : 'moon'} size={18} />{dark ? 'Light mode' : 'Dark mode'}</button>
+  <button type="button" class="menu-item" role="menuitemcheckbox" aria-checked={dark} on:click={toggle}><Icon name={dark ? 'sun' : 'moon'} size={18} />{dark ? 'Light mode' : 'Dark mode'}</button>
 {:else}
   <button type="button" class="icon-btn" aria-label={label} title={label} aria-pressed={dark} on:click={toggle}><Icon name={dark ? 'sun' : 'moon'} size={19} /></button>
 {/if}

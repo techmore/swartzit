@@ -43,6 +43,9 @@ pub(crate) fn validate_media(media: &Media, provider: &str) -> Result<(), ApiErr
         } => (kind.as_str(), src, poster.as_ref(), alt.as_ref()),
     };
     let u = https(src)?;
+    if provider == "rss" && kind == "audio" {
+        return validate_rss_audio(&u, poster, alt);
+    }
     let valid = matches!(
         (provider, kind, u.host_str()),
         ("x", "image", Some("pbs.twimg.com"))
@@ -66,6 +69,36 @@ pub(crate) fn validate_media(media: &Media, provider: &str) -> Result<(), ApiErr
                     && matches!(poster_host, "i.redd.it" | "preview.redd.it")));
         if !valid_poster {
             return Err(ApiError::Invalid("Invalid video poster"));
+        }
+    }
+    Ok(())
+}
+
+const AUDIO_EXTENSIONS: [&str; 8] = [
+    ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wav", ".flac",
+];
+const IMAGE_EXTENSIONS: [&str; 5] = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+
+fn path_has_extension(url: &Url, extensions: &[&str]) -> bool {
+    let path = url.path().to_ascii_lowercase();
+    extensions.iter().any(|extension| path.ends_with(extension))
+}
+
+/// Podcast and sermon enclosures are hosted on many CDNs, so RSS audio is
+/// accepted from any HTTPS host as long as the URL names an audio file. The
+/// browser streams it directly; Swartzit never downloads or rehosts it.
+fn validate_rss_audio(
+    url: &Url,
+    poster: Option<&String>,
+    alt: Option<&String>,
+) -> Result<(), ApiError> {
+    if !path_has_extension(url, &AUDIO_EXTENSIONS) || alt.is_some_and(|s| s.len() > 1000) {
+        return Err(ApiError::Invalid("Invalid source audio"));
+    }
+    if let Some(poster) = poster {
+        let poster_url = https(poster)?;
+        if !path_has_extension(&poster_url, &IMAGE_EXTENSIONS) {
+            return Err(ApiError::Invalid("Invalid audio artwork"));
         }
     }
     Ok(())
@@ -180,6 +213,11 @@ pub struct Import {
     pub content_rating: Option<String>,
     pub published_at: Option<DateTime<Utc>>,
     pub observed_at: DateTime<Utc>,
+    /// Date a new post by its original `published_at` instead of the import
+    /// time, so archive backfills take their place in history rather than
+    /// filling the top of the timeline. Ignored for future dates.
+    #[serde(default)]
+    pub backdate: bool,
     pub source_views: Option<i64>,
     pub source_likes: Option<i64>,
     pub source_reposts: Option<i64>,
@@ -438,9 +476,13 @@ pub async fn ingest(
     let id = if let Some(id) = existing {
         id
     } else {
+        let created_at = input
+            .published_at
+            .filter(|published| input.backdate && *published <= Utc::now())
+            .map(|published| published.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
         sqlx::query_scalar(
-            "INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status)
-             VALUES(?1,?2,?3,?4,?5,?6,?7) RETURNING id",
+            "INSERT INTO posts(community_id,author_id,title,body,content_rating,content_rating_source,moderation_status,created_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,COALESCE(?8,strftime('%Y-%m-%dT%H:%M:%fZ','now'))) RETURNING id",
         )
         .bind(community)
         .bind(actor)
@@ -449,6 +491,7 @@ pub async fn ingest(
         .bind(&content_rating_value)
         .bind(content_rating_source)
         .bind(publication_status)
+        .bind(created_at)
         .fetch_one(&mut *tx)
         .await?
     };
@@ -725,6 +768,56 @@ pub fn order(sort: Option<&str>) -> Result<&'static str, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn audio(src: &str, poster: Option<&str>) -> Media {
+        Media::Attachment {
+            kind: "audio".to_owned(),
+            src: src.to_owned(),
+            poster: poster.map(str::to_owned),
+            alt: Some("Titus 1".to_owned()),
+        }
+    }
+
+    #[test]
+    fn rss_audio_accepts_https_audio_files_only() {
+        for ok in [
+            "https://archive.org/download/titus_kjv/titus_01.mp3",
+            "https://traffic.libsyn.com/church/sermon.MP3?dest-id=1",
+            "https://cdn.example.org/lectures/week-1.m4a",
+        ] {
+            assert!(validate_media(&audio(ok, None), "rss").is_ok(), "{ok}");
+        }
+        for bad in [
+            "http://archive.org/download/titus_kjv/titus_01.mp3",
+            "https://archive.org/download/titus_kjv/titus_01.html",
+            "https://example.org:8443/sermon.mp3",
+            "https://user:pass@example.org/sermon.mp3",
+        ] {
+            assert!(validate_media(&audio(bad, None), "rss").is_err(), "{bad}");
+        }
+        assert!(
+            validate_media(
+                &audio(
+                    "https://cdn.example.org/a.mp3",
+                    Some("https://cdn.example.org/art.jpg")
+                ),
+                "rss"
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_media(
+                &audio(
+                    "https://cdn.example.org/a.mp3",
+                    Some("https://cdn.example.org/art.svg")
+                ),
+                "rss"
+            )
+            .is_err()
+        );
+        // Audio stays limited to RSS sources; X and Reddit keep their host allowlists.
+        assert!(validate_media(&audio("https://cdn.example.org/a.mp3", None), "x").is_err());
+    }
     #[tokio::test]
     async fn refreshes_preserve_stricter_and_moderator_ratings() {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -863,5 +956,77 @@ mod tests {
         value["community"] = serde_json::json!("  ");
         let blank: Import = serde_json::from_value(value).unwrap();
         assert_eq!(normalize_community_slug(&blank.community), "general");
+    }
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn backdated_imports_take_their_original_date(db: SqlitePool) {
+        let admin: i64 = sqlx::query_scalar(
+            "INSERT INTO authors(handle,is_admin) VALUES ('archivist',1) RETURNING id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        let token = "e".repeat(64);
+        sqlx::query("INSERT INTO sessions(token_hash,author_id,expires_at) VALUES (?1,?2,strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 hour'))")
+            .bind(Sha256::digest(token.as_bytes()).to_vec())
+            .bind(admin)
+            .execute(&db)
+            .await
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        let import = |id: &str, published: &str, backdate: bool| -> Import {
+            serde_json::from_value(serde_json::json!({
+                "community": "general", "provider": "youtube",
+                "source_url": format!("https://www.youtube.com/watch?v={id}"),
+                "source_author": "Official channel", "title": format!("Video {id}"), "body": "",
+                "published_at": published, "observed_at": "2026-11-11T00:00:00Z",
+                "backdate": backdate
+            }))
+            .unwrap()
+        };
+        let created_at = |id: &'static str| {
+            let db = db.clone();
+            async move {
+                sqlx::query_scalar::<_, String>("SELECT p.created_at FROM posts p JOIN external_posts e ON e.post_id=p.id WHERE e.source_url = ?1")
+                    .bind(format!("https://www.youtube.com/watch?v={id}"))
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+            }
+        };
+        let _ = ingest(
+            State(db.clone()),
+            headers.clone(),
+            Json(import("AAAAAAAAAAA", "2019-06-01T12:00:00Z", true)),
+        )
+        .await
+        .unwrap();
+        let _ = ingest(
+            State(db.clone()),
+            headers.clone(),
+            Json(import("BBBBBBBBBBB", "2019-06-01T12:00:00Z", false)),
+        )
+        .await
+        .unwrap();
+        let _ = ingest(
+            State(db.clone()),
+            headers.clone(),
+            Json(import("CCCCCCCCCCC", "2999-01-01T00:00:00Z", true)),
+        )
+        .await
+        .unwrap();
+        assert!(
+            created_at("AAAAAAAAAAA")
+                .await
+                .starts_with("2019-06-01T12:00:00")
+        );
+        assert!(
+            !created_at("BBBBBBBBBBB").await.starts_with("2019"),
+            "without backdate the import time is used"
+        );
+        assert!(
+            !created_at("CCCCCCCCCCC").await.starts_with("2999"),
+            "future dates are ignored"
+        );
     }
 }

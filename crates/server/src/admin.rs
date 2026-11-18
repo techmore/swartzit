@@ -377,6 +377,49 @@ pub async fn moderation_history(
     ))
 }
 
+#[derive(Deserialize)]
+pub struct RemovePost {
+    note: Option<String>,
+}
+
+/// Take down a published post: it leaves every feed and its page returns
+/// 404. The row, comments and votes are kept so the decision can be audited.
+pub async fn remove_post(
+    State(db): State<SqlitePool>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(input): Json<RemovePost>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let note = input.note.unwrap_or_default().trim().to_owned();
+    if note.len() > 1000 {
+        return Err(ApiError::Invalid("Note is too long"));
+    }
+    let updated = sqlx::query(
+        "UPDATE posts
+         SET moderation_status = 'rejected', moderation_reviewed_by = ?2,
+             moderation_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1",
+    )
+    .bind(id)
+    .bind(actor)
+    .execute(&db)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(ApiError::Missing);
+    }
+    operations::clear_public_cache();
+    log_event(
+        &db,
+        "info",
+        "admin.post_removed",
+        serde_json::json!({"actor_id": actor, "post_id": id, "note": note}),
+    )
+    .await;
+    Ok(Json(serde_json::json!({"post_id": id, "removed": true})))
+}
+
 pub async fn decide_moderation(
     State(db): State<SqlitePool>,
     headers: HeaderMap,
@@ -565,6 +608,8 @@ pub struct UpdateSettings {
     orchard_enabled: Option<bool>,
     content_runners_enabled: Option<bool>,
     moderation_enabled: Option<bool>,
+    bible_enabled: Option<bool>,
+    bible_default: Option<bool>,
     adsense_enabled: Option<bool>,
     adsense_publisher_id: Option<String>,
     media_primary: Option<String>,
@@ -602,6 +647,8 @@ pub async fn settings(
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let bible_enabled = bible_module_enabled(&db).await?;
+    let bible_default = bible_default_mode(&db).await?;
     let adsense_enabled: bool =
         sqlx::query_scalar("SELECT enabled FROM instance_modules WHERE module_key = 'adsense'")
             .fetch_optional(&db)
@@ -626,6 +673,10 @@ pub async fn settings(
             "moderation": {
                 "enabled": moderation_enabled
             },
+            "bible": {
+                "enabled": bible_enabled,
+                "default_bible": bible_default
+            },
             "adsense": {
                 "enabled": adsense_enabled
             }
@@ -635,6 +686,174 @@ pub async fn settings(
             "publisher_id": adsense_publisher_id
         },
         "media": media
+    })))
+}
+
+/// Communities that hold Biblical-mode content. They are created when the
+/// module is first enabled and are left in place when it is disabled, so
+/// turning the mode off never deletes posts or discussion.
+pub(crate) const BIBLE_COMMUNITIES: [(&str, &str, &str); 4] = [
+    (
+        "scripture",
+        "Scripture",
+        "Chapters of the Bible to read and hear, one post at a time.",
+    ),
+    (
+        "daily_reading",
+        "Daily Reading",
+        "A daily portion through the whole Bible: Old Testament, Psalms, and New Testament.",
+    ),
+    (
+        "sermons",
+        "Sermons",
+        "Preaching from Reformed and Presbyterian pulpits.",
+    ),
+    (
+        "deeper_dives",
+        "Deeper Dives",
+        "Teaching, lectures, catechism, and confession for further study.",
+    ),
+];
+
+/// Biblical mode is opt-in: a missing row means disabled.
+pub(crate) async fn bible_module_enabled(db: &SqlitePool) -> Result<bool, ApiError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT enabled FROM instance_modules WHERE module_key = 'bible'",
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false))
+}
+
+async fn set_bible_module(db: &SqlitePool, actor: i64, enabled: bool) -> Result<(), ApiError> {
+    let mut tx = db.begin().await?;
+    sqlx::query(
+        "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
+         VALUES ('bible', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+         ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+    )
+    .bind(enabled)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    if enabled {
+        for (slug, name, description) in BIBLE_COMMUNITIES {
+            sqlx::query(
+                "INSERT INTO communities(slug, name, description, app_visible) VALUES (?1, ?2, ?3, 1)
+                 ON CONFLICT (slug) DO NOTHING",
+            )
+            .bind(slug)
+            .bind(name)
+            .bind(description)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    tx.commit().await?;
+    log_event(
+        db,
+        "info",
+        "admin.module_toggled",
+        serde_json::json!({"actor_id": actor, "module": "bible", "enabled": enabled}),
+    )
+    .await;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct CommunityAppVisibility {
+    visible: bool,
+}
+
+/// Choose whether native app clients (the iPhone app) receive a community.
+/// Apps only ever receive general-rated posts from the communities chosen
+/// here, so an instance can carry content that app stores do not allow.
+pub async fn set_community_app_visibility(
+    State(db): State<SqlitePool>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+    Json(input): Json<CommunityAppVisibility>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let actor = require_admin(&headers, &db).await?;
+    let updated = sqlx::query("UPDATE communities SET app_visible = ?1 WHERE slug = ?2")
+        .bind(input.visible)
+        .bind(&slug)
+        .execute(&db)
+        .await?
+        .rows_affected();
+    if updated == 0 {
+        return Err(ApiError::Missing);
+    }
+    operations::clear_public_cache();
+    log_event(
+        &db,
+        "info",
+        "admin.community_app_visibility",
+        serde_json::json!({"actor_id": actor, "community": slug, "visible": input.visible}),
+    )
+    .await;
+    Ok(Json(
+        serde_json::json!({"community": slug, "app_visible": input.visible}),
+    ))
+}
+
+/// Whether visitors who have not picked a mode start in Bible mode. Each
+/// visitor can switch for themselves. A missing row means yes, so instances
+/// that enabled the mode before it became per-visitor keep their behaviour.
+pub(crate) async fn bible_default_mode(db: &SqlitePool) -> Result<bool, ApiError> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT enabled FROM instance_modules WHERE module_key = 'bible_default'",
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(true))
+}
+
+async fn set_bible_default(
+    db: &SqlitePool,
+    actor: i64,
+    start_in_bible: bool,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        "INSERT INTO instance_modules(module_key, enabled, updated_by, updated_at)
+         VALUES ('bible_default', ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+         ON CONFLICT (module_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_by=EXCLUDED.updated_by, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+    )
+    .bind(start_in_bible)
+    .bind(actor)
+    .execute(db)
+    .await?;
+    log_event(
+        db,
+        "info",
+        "admin.module_toggled",
+        serde_json::json!({"actor_id": actor, "module": "bible_default", "enabled": start_in_bible}),
+    )
+    .await;
+    Ok(())
+}
+
+/// Public, unauthenticated: whether Bible mode is available on this instance,
+/// which mode new visitors start in, and the communities it focuses on. Each
+/// visitor's own choice is kept by the web client.
+pub async fn bible_config(
+    State(db): State<SqlitePool>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let enabled = bible_module_enabled(&db).await?;
+    let default_mode = if enabled && bible_default_mode(&db).await? {
+        "bible"
+    } else {
+        "standard"
+    };
+    let communities: Vec<&str> = if enabled {
+        BIBLE_COMMUNITIES.iter().map(|(slug, _, _)| *slug).collect()
+    } else {
+        Vec::new()
+    };
+    Ok(Json(serde_json::json!({
+        "enabled": enabled,
+        "default_mode": default_mode,
+        "communities": communities
     })))
 }
 
@@ -747,6 +966,8 @@ pub async fn update_settings(
     if input.orchard_enabled.is_none()
         && input.content_runners_enabled.is_none()
         && input.moderation_enabled.is_none()
+        && input.bible_enabled.is_none()
+        && input.bible_default.is_none()
         && input.adsense_enabled.is_none()
         && input.adsense_publisher_id.is_none()
         && input.media_primary.is_none()
@@ -808,6 +1029,12 @@ pub async fn update_settings(
             serde_json::json!({"actor_id": actor, "module": "moderation", "enabled": enabled}),
         )
         .await;
+    }
+    if let Some(enabled) = input.bible_enabled {
+        set_bible_module(&db, actor, enabled).await?;
+    }
+    if let Some(start_in_bible) = input.bible_default {
+        set_bible_default(&db, actor, start_in_bible).await?;
     }
     if let Some(publisher_id) = normalized_adsense_publisher_id.as_ref() {
         sqlx::query(
@@ -981,6 +1208,8 @@ pub async fn update_settings(
     let orchard_enabled = instance_module_enabled(&db, "orchard").await?;
     let content_runners_enabled = instance_module_enabled(&db, "content_runners").await?;
     let moderation_enabled = instance_module_enabled(&db, "moderation").await?;
+    let bible_enabled = bible_module_enabled(&db).await?;
+    let bible_default = bible_default_mode(&db).await?;
     let media = media_store::settings_view(&db)
         .await
         .map_err(ApiError::Storage)?;
@@ -994,6 +1223,10 @@ pub async fn update_settings(
             },
             "moderation": {
                 "enabled": moderation_enabled
+            },
+            "bible": {
+                "enabled": bible_enabled,
+                "default_bible": bible_default
             }
         },
         "media": media
@@ -3891,6 +4124,132 @@ pub async fn publish_content_runner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn bible_mode_is_opt_in_and_seeds_its_communities(db: SqlitePool) {
+        let admin: i64 = sqlx::query_scalar(
+            "INSERT INTO authors(handle, is_admin) VALUES ('elder', 1) RETURNING id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert!(!bible_module_enabled(&db).await.unwrap());
+        let Json(config) = bible_config(State(db.clone())).await.unwrap();
+        assert_eq!(config["enabled"], false);
+        assert_eq!(config["communities"], serde_json::json!([]));
+        assert_eq!(config["default_mode"], "standard");
+
+        // A pre-existing community keeps its name; enabling twice is harmless.
+        sqlx::query("INSERT INTO communities(slug,name) VALUES ('sermons','Our Sermons')")
+            .execute(&db)
+            .await
+            .unwrap();
+        set_bible_module(&db, admin, true).await.unwrap();
+        set_bible_module(&db, admin, true).await.unwrap();
+        assert!(bible_module_enabled(&db).await.unwrap());
+        let slugs: Vec<String> = sqlx::query_scalar(
+            "SELECT slug FROM communities WHERE slug IN ('scripture','daily_reading','sermons','deeper_dives') ORDER BY slug",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(
+            slugs,
+            ["daily_reading", "deeper_dives", "scripture", "sermons"]
+        );
+        let kept: String = sqlx::query_scalar("SELECT name FROM communities WHERE slug='sermons'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(kept, "Our Sermons");
+        let Json(config) = bible_config(State(db.clone())).await.unwrap();
+        assert_eq!(config["enabled"], true);
+        assert_eq!(config["communities"][0], "scripture");
+        // New visitors start in Bible mode until the admin says otherwise.
+        assert_eq!(config["default_mode"], "bible");
+        set_bible_default(&db, admin, false).await.unwrap();
+        let Json(config) = bible_config(State(db.clone())).await.unwrap();
+        assert_eq!(config["default_mode"], "standard");
+        set_bible_default(&db, admin, true).await.unwrap();
+
+        // Disabling hides the mode but keeps communities and their posts.
+        set_bible_module(&db, admin, false).await.unwrap();
+        assert!(!bible_module_enabled(&db).await.unwrap());
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM communities WHERE slug IN ('scripture','daily_reading','sermons','deeper_dives')",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(remaining, 4);
+    }
+
+    #[sqlx::test(migrations = "./sqlite-migrations")]
+    async fn admins_can_remove_a_published_post(db: SqlitePool) {
+        let admin: i64 = sqlx::query_scalar(
+            "INSERT INTO authors(handle, is_admin) VALUES ('elder', 1) RETURNING id",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO sessions(token_hash, author_id, expires_at) VALUES (?1, ?2, '2999-01-01T00:00:00Z')")
+            .bind(sha2::Sha256::digest("a".repeat(64).as_bytes()).to_vec())
+            .bind(admin)
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO communities(slug,name) VALUES ('talks','Talks')")
+            .execute(&db)
+            .await
+            .unwrap();
+        let post: i64 = sqlx::query_scalar("INSERT INTO posts(community_id,author_id,title,moderation_status) SELECT id, ?1, 'not him', 'approved' FROM communities WHERE slug='talks' RETURNING id")
+            .bind(admin)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            format!("Bearer {}", "a".repeat(64)).parse().unwrap(),
+        );
+        let _ = remove_post(
+            State(db.clone()),
+            headers.clone(),
+            Path(post),
+            Json(RemovePost {
+                note: Some("not the subject".into()),
+            }),
+        )
+        .await
+        .unwrap();
+        let status: String =
+            sqlx::query_scalar("SELECT moderation_status FROM posts WHERE id = ?1")
+                .bind(post)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(status, "rejected");
+        assert!(matches!(
+            remove_post(
+                State(db.clone()),
+                headers,
+                Path(post + 100),
+                Json(RemovePost { note: None })
+            )
+            .await,
+            Err(ApiError::Missing)
+        ));
+        assert!(
+            remove_post(
+                State(db),
+                HeaderMap::new(),
+                Path(post),
+                Json(RemovePost { note: None })
+            )
+            .await
+            .is_err()
+        );
+    }
 
     #[test]
     fn runner_policy_bounds_are_enforced() {
