@@ -16,6 +16,10 @@ WEB_HOST=${WEB_HOST:-${SWARTZIT_WEB_HOST:-127.0.0.1}}
 WIREGUARD_INTERFACE=${WIREGUARD_INTERFACE:-}
 CADDY_UPSTREAM=${CADDY_UPSTREAM:-$WEB_HOST:4173}
 SWARTZIT_AUTO_UPDATE=${SWARTZIT_AUTO_UPDATE:-0}
+if [[ "$SWARTZIT_AUTO_UPDATE" == 1 ]]; then
+  [[ "${SWARTZIT_RELEASE_TAG:-}" =~ ^v[0-9][A-Za-z0-9._-]*$ ]] || { echo 'SWARTZIT_AUTO_UPDATE=1 requires an approved SWARTZIT_RELEASE_TAG.' >&2; exit 1; }
+  [[ ! -e /etc/swartzit/upgrade.env ]] || { echo 'Existing /etc/swartzit/upgrade.env must be configured manually; refusing to overwrite it.' >&2; exit 1; }
+fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -109,15 +113,13 @@ $CADDY_DOMAIN {
 EOF
   systemctl enable --now caddy
 fi
-systemctl enable --now swartzit swartzit-web swartzit-worker.timer swartzit-upgrade-check.timer
 if [[ "$SWARTZIT_AUTO_UPDATE" == 1 ]]; then
-  cat > /etc/swartzit/update.env <<EOF
-SWARTZIT_UPDATE_REF=${SWARTZIT_UPDATE_REF:-main}
-SWARTZIT_UPDATE_PUBLIC_URL=${SWARTZIT_UPDATE_PUBLIC_URL:-$ORIGIN}
-SWARTZIT_UPDATE_ERROR_URL=${SWARTZIT_UPDATE_ERROR_URL:-}
+  cat > /etc/swartzit/upgrade.env <<EOF
+SWARTZIT_RELEASE_TAG=$SWARTZIT_RELEASE_TAG
+SWARTZIT_AUTO_UPDATE=true
 EOF
-  chmod 600 /etc/swartzit/update.env
-  systemctl enable --now swartzit-update.timer
-  echo "Enabled swartzit-update.timer; configure /etc/swartzit/update.env before production use."
+  chmod 600 /etc/swartzit/upgrade.env
+  echo "Enabled pinned release checks through swartzit-upgrade-check.timer."
 fi
+systemctl enable --now swartzit swartzit-web swartzit-worker.timer swartzit-upgrade-check.timer
 echo "Swartzit installed. Check: systemctl status swartzit swartzit-web swartzit-worker.timer"

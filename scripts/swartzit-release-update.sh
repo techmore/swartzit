@@ -57,7 +57,7 @@ if name not in sizes:
 print(f'Found {name} ({sizes[name]} bytes)')
 PY
   done
-  echo 'Dry run passed: release assets are present and downloadable.'
+  echo 'Dry run passed: release metadata lists the required assets; downloads and checksums were not verified.'
   exit 0
 fi
 [[ "$(id -u)" -eq 0 ]] || { echo 'Run this updater as root: sudo bash scripts/swartzit-release-update.sh --tag ... --yes' >&2; exit 1; }
@@ -137,7 +137,21 @@ PY
 verify_release_checksums() {
   local sums="$WORK/SHA256SUMS"
   [[ -s "$sums" ]] || { echo 'Release is missing SHA256SUMS.' >&2; exit 1; }
-  # The workflow signs the raw asset names; verify before renaming anything.
+  # Require an unambiguous entry for every asset we will install. sha256sum
+  # alone succeeds for a valid manifest that omits one of those assets.
+  python3 - "$sums" <<'PY_CHECKSUMS'
+import re, sys
+required = {'swartzit-server-linux-amd64', 'swartzit-web-linux-amd64.tar.gz', 'VERSION'}
+seen = set()
+for line in open(sys.argv[1], encoding='utf-8'):
+    match = re.fullmatch(r'([0-9a-fA-F]{64}) [ *]([^\n\r]+)\n?', line)
+    if not match or match.group(2) not in required or match.group(2) in seen:
+        raise SystemExit('Invalid, unexpected, or duplicate release checksum entry.')
+    seen.add(match.group(2))
+if seen != required:
+    raise SystemExit('Release checksum manifest does not cover every required asset.')
+PY_CHECKSUMS
+  # Verify before renaming anything.
   (cd "$WORK" && sha256sum -c SHA256SUMS)
 }
 # Only tracked modifications block an update. The deployment directory also
@@ -225,7 +239,7 @@ printf '%s\n' "$PREVIOUS_COMMIT" > "$BACKUP_TAG/previous-commit"
 printf '%s\n' "$PREVIOUS_VERSION" > "$BACKUP_TAG/previous-version"
 SERVICES=(swartzit swartzit-web)
 WORKER_TIMER_WAS_ACTIVE=0
-if systemctl is-enabled --quiet swartzit-worker.timer 2>/dev/null || systemctl is-active --quiet swartzit-worker.timer 2>/dev/null; then
+if systemctl is-active --quiet swartzit-worker.timer 2>/dev/null; then
   WORKER_TIMER_WAS_ACTIVE=1
 fi
 resume_services() {
